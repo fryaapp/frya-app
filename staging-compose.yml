@@ -47,7 +47,10 @@ services:
     container_name: frya-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: frya`r`n      POSTGRES_PASSWORD: 1i6gHuDLcPQUZQlxSpaWsO0/4r6x/MW`r`n      POSTGRES_DB: frya`r`n    volumes:
+      POSTGRES_USER: frya
+      POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD}
+      POSTGRES_DB: frya
+    volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d
     networks:
@@ -107,14 +110,19 @@ services:
     environment:
       PAPERLESS_DBHOST: postgres
       PAPERLESS_DBNAME: paperless
-      PAPERLESS_DBUSER: frya`r`n      PAPERLESS_DBPASS: 1i6gHuDLcPQUZQlxSpaWsO0/4r6x/MW`r`n      PAPERLESS_REDIS: redis://redis:6379
+      PAPERLESS_DBUSER: frya
+      PAPERLESS_DBPASS: ${STAGING_POSTGRES_PASSWORD}
+      PAPERLESS_REDIS: redis://redis:6379
       PAPERLESS_TIKA_ENABLED: 1
       PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
       PAPERLESS_TIKA_ENDPOINT: http://tika:9998
       PAPERLESS_OCR_LANGUAGE: deu+eng
       PAPERLESS_TIME_ZONE: Europe/Berlin
-      PAPERLESS_SECRET_KEY: ADa6Y6y5C9ypePUQeTAAKuwGGQkebewEIijxZhehIWw=`r`n      PAPERLESS_URL: https://paperless.staging.myfrya.de
-      PAPERLESS_ADMIN_USER: admin`r`n      PAPERLESS_ADMIN_PASSWORD: KhyLc/s4y+8WpS5Z49vCy5BQq4ktteh`r`n      PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
+      PAPERLESS_SECRET_KEY: ${STAGING_PAPERLESS_SECRET_KEY}
+      PAPERLESS_URL: https://paperless.staging.myfrya.de
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: ${STAGING_PAPERLESS_ADMIN_PASSWORD}
+      PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
       PAPERLESS_CONSUMER_ENABLE_BARCODES: "true"
       PAPERLESS_CONSUMER_BARCODE_SCANNER: ZXINGCPP
     volumes:
@@ -149,8 +157,12 @@ services:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_DATABASE: akaunting
-      DB_USERNAME: frya`r`n      DB_PASSWORD: 1i6gHuDLcPQUZQlxSpaWsO0/4r6x/MW`r`n      DB_PREFIX: akai_
-      ADMIN_EMAIL: admin@myfrya.de`r`n      ADMIN_PASSWORD: KhyLc/s4y+8WpS5Z49vCy5BQq4ktteh`r`n      APP_URL: https://akaunting.staging.myfrya.de
+      DB_USERNAME: frya
+      DB_PASSWORD: ${STAGING_POSTGRES_PASSWORD}
+      DB_PREFIX: akai_
+      ADMIN_EMAIL: admin@myfrya.de
+      ADMIN_PASSWORD: ${STAGING_AKAUNTING_ADMIN_PASSWORD}
+      APP_URL: https://akaunting.staging.myfrya.de
     volumes:
       - akaunting_data:/var/www/html/storage
     networks:
@@ -167,9 +179,11 @@ services:
     container_name: frya-mariadb
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: 7INE75Y2RfrXMqj5iBs8Epqsv8XHfOEN`r`n      MYSQL_DATABASE: akaunting
+      MYSQL_ROOT_PASSWORD: ${STAGING_MARIADB_ROOT_PASSWORD}
+      MYSQL_DATABASE: akaunting
       MYSQL_USER: akaunting
-      MYSQL_PASSWORD: /2tE1SdQXLxdw3OtjXl5d4hW60oqFQaw`r`n    volumes:
+      MYSQL_PASSWORD: ${STAGING_MARIADB_PASSWORD}
+    volumes:
       - mariadb_data:/var/lib/mysql
     networks:
       - frya-internal
@@ -193,11 +207,16 @@ services:
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_DATABASE: n8n
-      DB_POSTGRESDB_USER: frya`r`n      DB_POSTGRESDB_PASSWORD: 1i6gHuDLcPQUZQlxSpaWsO0/4r6x/MW`r`n      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: admin`r`n      N8N_BASIC_AUTH_PASSWORD: IYIY0v+GRoqcmPt+5uTM2XlaOG/mJXgJ`r`n      N8N_HOST: n8n.staging.myfrya.de
+      DB_POSTGRESDB_USER: frya
+      DB_POSTGRESDB_PASSWORD: ${STAGING_POSTGRES_PASSWORD}
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: ${STAGING_N8N_AUTH_PASSWORD}
+      N8N_HOST: n8n.staging.myfrya.de
       N8N_PROTOCOL: https
       WEBHOOK_URL: https://n8n.staging.myfrya.de/
-      N8N_ENCRYPTION_KEY: I/Mgxa8CVUqoTBROWFoymGwIFdQBOomAf0VezV1M8yU=`r`n      EXECUTIONS_MODE: queue
+      N8N_ENCRYPTION_KEY: ${STAGING_N8N_ENCRYPTION_KEY}
+      EXECUTIONS_MODE: queue
       QUEUE_BULL_REDIS_HOST: redis
       QUEUE_BULL_REDIS_PORT: 6379
     volumes:
@@ -260,4 +279,3 @@ volumes:
 networks:
   frya-internal:
     driver: bridge
-

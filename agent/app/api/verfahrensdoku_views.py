@@ -21,7 +21,10 @@ async def list_docs(file_store: FileStore = Depends(get_file_store)) -> str:
 @router.get('/{file_name}')
 async def download_doc(file_name: str):
     settings = get_settings()
-    target = settings.verfahrensdoku_dir / file_name
+    base_dir = settings.verfahrensdoku_dir.resolve()
+    target = (base_dir / file_name).resolve()
+    if not target.is_relative_to(base_dir):
+        raise HTTPException(status_code=400, detail='Ungültiger Dateipfad')
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail='Dokument nicht gefunden')
     return FileResponse(path=target, filename=file_name, media_type='text/markdown')
