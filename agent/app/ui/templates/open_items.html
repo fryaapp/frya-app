@@ -1,0 +1,95 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h1>Open Items</h1>
+<p class="page-lead">Arbeitsstapel mit Status- und Prioritaetsfokus.</p>
+
+<section>
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Gesamt</p>
+      <p class="summary-value">{{ total_count }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Gefiltert</p>
+      <p class="summary-value">{{ filtered_count }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Prioritaetslogik</p>
+      <p class="summary-sub">{{ priority_note }}</p>
+    </article>
+  </div>
+</section>
+
+<section class="filter-panel">
+  <div class="section-head">
+    <h2>Filter</h2>
+    <a class="inline-link" href="/ui/open-items">Reset</a>
+  </div>
+  <form method="get" class="filters">
+    <label>Status
+      <select name="status">
+        {% for s in statuses %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Prioritaet
+      <select name="priority">
+        {% for p in priorities %}
+        <option value="{{ p }}" {% if p == selected_priority %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Anwenden</button>
+  </form>
+</section>
+
+<section>
+  <h2>Status-Summary</h2>
+  {% if status_counts %}
+  <div class="chip-row">
+    {% for status_key, count in status_counts.items() %}
+    <span class="chip"><strong>{{ status_key }}</strong>: {{ count }}</span>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Keine Statusdaten vorhanden.</p>
+  {% endif %}
+
+  <h2>Prioritaets-Summary</h2>
+  {% if priority_counts %}
+  <div class="chip-row">
+    {% for prio_key, count in priority_counts.items() %}
+    <span class="chip"><strong>{{ prio_key }}</strong>: {{ count }}</span>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Keine Prioritaetsdaten vorhanden.</p>
+  {% endif %}
+</section>
+
+<section>
+  {% if rows %}
+  <table>
+    <tr><th>ID</th><th>Case</th><th>Status</th><th>Prioritaet</th><th>Titel</th><th>Due</th><th>Updated</th></tr>
+    {% for r in rows %}
+    <tr>
+      <td><code>{{ r.item.item_id }}</code></td>
+      <td><a href="{{ case_href(r.item.case_id) }}">{{ r.item.case_id }}</a></td>
+      <td><span class="hint-badge">{{ r.item.status }}</span></td>
+      <td>
+        <span class="prio-badge prio-{{ r.priority|lower }}">{{ r.priority }}</span>
+      </td>
+      <td>{{ r.item.title }}</td>
+      <td>{{ r.item.due_at or '-' }}</td>
+      <td>{{ r.item.updated_at }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">Keine offenen Vorgaenge fuer den aktuellen Filter.</p>
+  <p class="empty-sub">Filter reduzieren oder auf <strong>ALL</strong> zurueckstellen.</p>
+  {% endif %}
+</section>
+{% endblock %}
+

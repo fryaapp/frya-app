@@ -1,0 +1,21 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h1>Rule Change Audit</h1>
+{% if changes %}
+<table>
+  <tr><th>Zeit</th><th>Datei</th><th>Alt</th><th>Neu</th><th>User</th><th>Grund</th></tr>
+  {% for c in changes %}
+  <tr>
+    <td>{{ c.changed_at }}</td>
+    <td><a href="/ui/rules/{{ c.file_name }}">{{ c.file_name }}</a></td>
+    <td>{{ c.old_version or '-' }}</td>
+    <td>{{ c.new_version or '-' }}</td>
+    <td>{{ c.changed_by }}</td>
+    <td>{{ c.reason }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">Keine Rule-Änderungen vorhanden.</p>
+{% endif %}
+{% endblock %}

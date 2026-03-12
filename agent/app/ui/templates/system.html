@@ -1,0 +1,149 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h1>System</h1>
+<p class="page-lead">Technischer Betriebsstatus fuer Operatoren: Connectoren, Policies, Modellkonfiguration.</p>
+
+{% set ns = namespace(connectors_ok=0, load_ok=0, load_failed=0) %}
+{% for c in connectors %}
+  {% if c.configured %}
+    {% set ns.connectors_ok = ns.connectors_ok + 1 %}
+  {% endif %}
+{% endfor %}
+{% for x in rule_load_status %}
+  {% if x.loaded %}
+    {% set ns.load_ok = ns.load_ok + 1 %}
+  {% else %}
+    {% set ns.load_failed = ns.load_failed + 1 %}
+  {% endif %}
+{% endfor %}
+
+<section>
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Connectoren konfiguriert</p>
+      <p class="summary-value">{{ ns.connectors_ok }} / {{ connectors|length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Required Policies</p>
+      <p class="summary-value {% if feature_state.required_policies_loaded %}ok{% else %}warn{% endif %}">
+        {% if feature_state.required_policies_loaded %}OK{% else %}WARNUNG{% endif %}
+      </p>
+      <p class="summary-sub">Missing roles: {{ feature_state.missing_required_roles|length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Rule Load Status</p>
+      <p class="summary-sub">geladen={{ ns.load_ok }}, fehlgeschlagen={{ ns.load_failed }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Aktives Modell</p>
+      <p class="summary-value small">{{ models.litellm_model }}</p>
+    </article>
+  </div>
+</section>
+
+<section>
+  <h2>Connector Status</h2>
+  <table>
+    <tr><th>Name</th><th>Status</th><th>Base URL</th></tr>
+    {% for c in connectors %}
+    <tr>
+      <td>{{ c.name }}</td>
+      <td>
+        {% if c.configured %}
+        <span class="state-badge state-ok">OK</span>
+        {% else %}
+        <span class="state-badge state-warn">NICHT KONFIGURIERT</span>
+        {% endif %}
+      </td>
+      <td>{{ c.base_url or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section>
+  <h2>Model / Provider</h2>
+  <table>
+    <tr><th>Key</th><th>Value</th></tr>
+    <tr><td>litellm_model</td><td>{{ models.litellm_model }}</td></tr>
+    <tr>
+      <td>openai_key_configured</td>
+      <td>
+        {% if models.openai_key_configured %}
+        <span class="state-badge state-ok">true</span>
+        {% else %}
+        <span class="state-badge">false</span>
+        {% endif %}
+      </td>
+    </tr>
+    <tr>
+      <td>anthropic_key_configured</td>
+      <td>
+        {% if models.anthropic_key_configured %}
+        <span class="state-badge state-ok">true</span>
+        {% else %}
+        <span class="state-badge">false</span>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>Policy Registry Entries</h2>
+  {% if rule_registry_entries %}
+  <table>
+    <tr><th>Datei</th><th>Rolle</th><th>Required</th></tr>
+    {% for e in rule_registry_entries %}
+    <tr>
+      <td>{{ e.file }}</td>
+      <td>{{ e.role }}</td>
+      <td>
+        {% if e.required %}
+        <span class="state-badge state-ok">true</span>
+        {% else %}
+        <span class="state-badge">false</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">Keine Registry-Entries.</p>
+  <p class="empty-sub">Pruefe Rule-Registry und Datenpfad unter /app/data/rules.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Policy Load Status</h2>
+  {% if rule_load_status %}
+  <table>
+    <tr><th>Datei</th><th>Rolle</th><th>Loaded</th><th>Fehler</th></tr>
+    {% for x in rule_load_status %}
+    <tr>
+      <td>{{ x.file }}</td>
+      <td>{{ x.role or '-' }}</td>
+      <td>
+        {% if x.loaded %}
+        <span class="state-badge state-ok">true</span>
+        {% else %}
+        <span class="state-badge state-warn">false</span>
+        {% endif %}
+      </td>
+      <td>{{ x.error or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">Kein Rule-Load-Status verfuegbar.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Feature / Role Activation</h2>
+  <p>Required loaded: <strong>{{ feature_state.required_policies_loaded }}</strong></p>
+  <p>Missing roles: {{ feature_state.missing_required_roles }}</p>
+  <p>Feature toggles model: {{ feature_state.explicit_feature_toggles_model }}</p>
+  <p><a class="btn-link" href="/ui/rules">Zu Rules</a> <a class="btn-link" href="/ui/rules/audit">Zu Rule Audit</a></p>
+</section>
+{% endblock %}

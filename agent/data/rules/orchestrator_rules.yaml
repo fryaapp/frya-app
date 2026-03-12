@@ -1,0 +1,6 @@
+﻿version: 1
+name: orchestrator_rules
+principles:
+  - no_irreversible_action_without_approval
+
+

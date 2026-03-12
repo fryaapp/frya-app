@@ -1,0 +1,484 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Case {{ case_id }}</h1>
+<p class="page-lead">Chronologie, Referenzen und operativer Zustand fuer diesen Fall.</p>
+
+{% if message %}
+<section class="action-panel">
+  <p class="summary-sub">{{ message }}</p>
+</section>
+{% endif %}
+
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Open Items</p>
+      <p class="summary-value">{{ open_items|length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Exceptions</p>
+      <p class="summary-value {% if exceptions|length > 0 %}warn{% endif %}">{{ exceptions|length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Approvals (dedicated)</p>
+      <p class="summary-value {% if approvals|selectattr('status','equalto','PENDING')|list|length > 0 %}warn{% endif %}">{{ approvals|length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Naechster Schritt</p>
+      <p class="summary-sub">
+        {% set pending_approvals = approvals|selectattr('status','equalto','PENDING')|list|length %}
+        {% if pending_approvals > 0 %}
+        {{ pending_approvals }} Freigabe(n) offen. Entscheidung noetig.
+        {% elif open_items|length > 0 %}
+        Open Items priorisieren und Status pruefen.
+        {% elif exceptions|length > 0 %}
+        Problemfall analysieren und eskalieren falls noetig.
+        {% else %}
+        Kein akuter Handlungsdruck sichtbar.
+        {% endif %}
+      </p>
+    </article>
+  </div>
+</section>
+
+{% if latest_gate %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Letzter Freigabemodus</p>
+      <p class="summary-value {% if latest_gate.mode in ['REQUIRE_USER_APPROVAL', 'BLOCK_ESCALATE'] %}warn{% elif latest_gate.mode == 'AUTO' %}ok{% endif %}">{{ latest_gate.mode }}</p>
+      <p class="summary-sub">Aktion: {{ latest_gate.action_key }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Grund</p>
+      <p class="summary-sub">{{ latest_gate.reason or '-' }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Naechster Schritt</p>
+      <p class="summary-sub">{{ latest_gate.next_step }}</p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if accounting_review %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Accounting Review</p>
+      <p class="summary-value {% if accounting_review.review_status == 'READY' %}ok{% else %}warn{% endif %}">{{ accounting_review.review_status }}</p>
+      <p class="summary-sub">Typ: {{ accounting_review.source_document_type }} | Next: {{ accounting_review.next_step }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Kernfelder</p>
+      <p class="summary-sub">
+        Sender: {{ accounting_review.sender or '-' }}<br>
+        Betrag: {{ accounting_review.total_amount or '-' }} {{ accounting_review.currency or '' }}<br>
+        Referenzen: {{ accounting_review.references|join(', ') if accounting_review.references else '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Review-Fokus</p>
+      <p class="summary-sub">{{ accounting_review.suggested_review_focus|join(' | ') }}</p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if accounting_analysis %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Accounting Analyst</p>
+      <p class="summary-value {% if accounting_analysis.global_decision == 'PROPOSED' %}ok{% else %}warn{% endif %}">{{ accounting_analysis.global_decision }}</p>
+      <p class="summary-sub">Candidate: {{ accounting_analysis.booking_candidate_type }} | Next: {{ accounting_analysis.suggested_next_step }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Vorschlag</p>
+      <p class="summary-sub">
+        Gegenpartei: {{ accounting_analysis.supplier_or_counterparty_hint.value if accounting_analysis.supplier_or_counterparty_hint else '-' }}<br>
+        Referenz: {{ accounting_analysis.invoice_reference_hint.value if accounting_analysis.invoice_reference_hint else '-' }}<br>
+        Betrag: {{ accounting_analysis.amount_summary.total_amount.value if accounting_analysis.amount_summary else '-' }} {{ accounting_analysis.amount_summary.currency.value if accounting_analysis.amount_summary and accounting_analysis.amount_summary.currency else '' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Risiken / Missing</p>
+      <p class="summary-sub">
+        Missing: {{ accounting_analysis.missing_accounting_fields|join(', ') if accounting_analysis.missing_accounting_fields else '-' }}<br>
+        Risiken: {{ accounting_analysis.accounting_risks|map(attribute='code')|join(', ') if accounting_analysis.accounting_risks else '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if accounting_operator_review %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Accounting Operator Review</p>
+      <p class="summary-value {% if accounting_operator_review.decision == 'CONFIRMED' %}ok{% else %}warn{% endif %}">{{ accounting_operator_review.decision }}</p>
+      <p class="summary-sub">Status: {{ accounting_operator_review.outcome_status }} | Next: {{ accounting_operator_review.suggested_next_step }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Review-Payload</p>
+      <p class="summary-sub">
+        Review-Ref: {{ accounting_operator_review.accounting_review_ref }}<br>
+        Open Item: {{ accounting_operator_review.review_item_title }}<br>
+        Folge: {{ accounting_operator_review.follow_up_open_item_title or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Notiz</p>
+      <p class="summary-sub">{{ accounting_operator_review.decision_note or '-' }}</p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if accounting_manual_handoff %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Manual Accounting Handoff</p>
+      <p class="summary-value ok">{{ accounting_manual_handoff.status }}</p>
+      <p class="summary-sub">Next: {{ accounting_manual_handoff.suggested_next_step }} | execution_allowed={{ accounting_manual_handoff.execution_allowed }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Manuelle Aufgabe</p>
+      <p class="summary-sub">
+        {{ accounting_manual_handoff.instruction_headline }}<br>
+        Open Item: {{ accounting_manual_handoff.open_item_title }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Anweisung</p>
+      <p class="summary-sub">{{ accounting_manual_handoff.instruction_detail }}</p>
+    </article>
+  </div>
+</section>
+{% elif accounting_operator_review and accounting_operator_review.decision == 'CONFIRMED' %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Manual Accounting Handoff</p>
+      <p class="summary-value warn">PENDING</p>
+      <p class="summary-sub">Bestaetigter Vorschlag liegt vor, aber der manuelle Handoff ist noch nicht explizit gesetzt.</p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if accounting_manual_handoff_resolution %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Manual Handoff Abschluss</p>
+      <p class="summary-value {% if accounting_manual_handoff_resolution.decision == 'COMPLETED' %}ok{% else %}warn{% endif %}">{{ accounting_manual_handoff_resolution.status }}</p>
+      <p class="summary-sub">Next: {{ accounting_manual_handoff_resolution.suggested_next_step }} | execution_allowed={{ accounting_manual_handoff_resolution.execution_allowed }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Folge</p>
+      <p class="summary-sub">
+        Handoff-Item: {{ accounting_manual_handoff_resolution.handoff_open_item_title }}<br>
+        Follow-up: {{ accounting_manual_handoff_resolution.follow_up_open_item_title or '-' }}<br>
+        Problem Case: {{ accounting_manual_handoff_resolution.problem_case_id or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Rueckmeldung</p>
+      <p class="summary-sub">
+        Note: {{ accounting_manual_handoff_resolution.resolution_note or '-' }}<br>
+        By: {{ accounting_manual_handoff_resolution.resolved_by }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if accounting_clarification_completion %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Accounting Klaerabschluss</p>
+      <p class="summary-value ok">{{ accounting_clarification_completion.status }}</p>
+      <p class="summary-sub">Next: {{ accounting_clarification_completion.suggested_next_step }} | execution_allowed={{ accounting_clarification_completion.execution_allowed }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Klaer-Open Item</p>
+      <p class="summary-sub">
+        {{ accounting_clarification_completion.clarification_open_item_title }}<br>
+        Problem Case: {{ accounting_clarification_completion.problem_case_id or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Abschlussnote</p>
+      <p class="summary-sub">
+        Note: {{ accounting_clarification_completion.clarification_note or '-' }}<br>
+        By: {{ accounting_clarification_completion.clarified_by }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if can_complete_accounting_clarification %}
+<section class="action-panel">
+  <h2>Accounting Klaerabschluss</h2>
+  <form method="post" action="{{ case_href(case_id) }}/accounting-clarification-complete" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Klaernote
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, wie der Rueckgabe-Fall menschlich geklaert wurde."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Klaerfall abschliessen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+
+{% if outside_agent_accounting_process %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Outside-Agent Accounting</p>
+      <p class="summary-value {% if outside_agent_accounting_process.resolution_recorded %}ok{% else %}warn{% endif %}">{{ outside_agent_accounting_process.status }}</p>
+      <p class="summary-sub">Next: {{ outside_agent_accounting_process.suggested_next_step }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Quelle</p>
+      <p class="summary-sub">
+        Source Status: {{ outside_agent_accounting_process.source_status }}<br>
+        Open Item: {{ outside_agent_accounting_process.outside_process_open_item_title or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Abgrenzung</p>
+      <p class="summary-sub">Nur externe menschliche Buchhaltungsarbeit dokumentieren. Kein Akaunting-Write, keine Zahlung, keine Finalisierung.</p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if external_accounting_process_resolution %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Externer Accounting-Abschluss</p>
+      <p class="summary-value {% if external_accounting_process_resolution.decision == 'COMPLETED' %}ok{% else %}warn{% endif %}">{{ external_accounting_process_resolution.status }}</p>
+      <p class="summary-sub">Next: {{ external_accounting_process_resolution.suggested_next_step }} | execution_allowed={{ external_accounting_process_resolution.execution_allowed }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Folge</p>
+      <p class="summary-sub">
+        Open Item: {{ external_accounting_process_resolution.outside_process_open_item_title }}<br>
+        Follow-up: {{ external_accounting_process_resolution.follow_up_open_item_title or '-' }}<br>
+        Problem Case: {{ external_accounting_process_resolution.problem_case_id or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Rueckmeldung</p>
+      <p class="summary-sub">
+        Note: {{ external_accounting_process_resolution.resolution_note or '-' }}<br>
+        By: {{ external_accounting_process_resolution.resolved_by }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+
+{% if external_return_clarification_completion %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Re-Klaerabschluss nach externem Ruecklauf</p>
+      <p class="summary-value ok">{{ external_return_clarification_completion.status }}</p>
+      <p class="summary-sub">Next: {{ external_return_clarification_completion.suggested_next_step }} | execution_allowed={{ external_return_clarification_completion.execution_allowed }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Klaer-Open Item</p>
+      <p class="summary-sub">
+        {{ external_return_clarification_completion.external_return_open_item_title }}<br>
+        Problem Case: {{ external_return_clarification_completion.problem_case_id or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Rueckmeldung</p>
+      <p class="summary-sub">
+        Note: {{ external_return_clarification_completion.clarification_note or '-' }}<br>
+        By: {{ external_return_clarification_completion.clarified_by }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if can_complete_external_return_clarification %}
+<section class="action-panel">
+  <h2>Externen Ruecklauf erneut klaeren</h2>
+  <form method="post" action="{{ case_href(case_id) }}/external-return-clarification-complete" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Re-Klaernote
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, wie der externe Ruecklauf menschlich erneut geklaert wurde."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Re-Klaerung abschliessen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% if can_resolve_external_accounting_process %}
+<section class="action-panel">
+  <h2>Externen Accounting-Prozess dokumentieren</h2>
+  <form method="post" action="{{ case_href(case_id) }}/external-accounting-resolution" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Abschlussnote
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, was ausserhalb Frya im manuellen Accounting-Prozess passiert ist."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit" name="decision" value="COMPLETED">Extern erledigt dokumentieren</button>
+      <button type="submit" name="decision" value="RETURNED">Ruecklauf dokumentieren</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% if can_submit_accounting_review %}
+<section class="action-panel">
+  <h2>Operatorischer Review-Schritt</h2>
+  <form method="post" action="{{ case_href(case_id) }}/accounting-review-decision" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Decision-Note
+      <textarea name="note" rows="3" placeholder="Kurz begruenden, falls noetig."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit" name="decision" value="CONFIRMED">Confirm</button>
+      <button type="submit" name="decision" value="REJECTED">Reject</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+<section>
+  <h2>Document Refs</h2>
+  {% if document_refs %}<pre>{{ document_refs }}</pre>{% else %}<p class="empty">Keine Document Refs.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Accounting Refs</h2>
+  {% if accounting_refs %}<pre>{{ accounting_refs }}</pre>{% else %}<p class="empty">Keine Accounting Refs.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Chronology</h2>
+  {% if chronology %}
+  <table>
+    <tr><th>Zeit</th><th>Source</th><th>Action</th><th>Result</th></tr>
+    {% for e in chronology %}
+    <tr><td>{{ e.created_at }}</td><td>{{ e.source }}</td><td>{{ e.action }}</td><td>{{ e.result }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Keine Chronology.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Approvals (Dedicated)</h2>
+  {% if approvals %}
+  <table>
+    <tr>
+      <th>Zeit</th><th>ID</th><th>Action</th><th>Mode</th><th>Status</th><th>Grund</th><th>Naechster Schritt</th><th>Scope</th><th>Open Item</th><th>Expires</th><th>Requested</th><th>Decided</th>
+    </tr>
+    {% for a in approvals %}
+    <tr>
+      <td>{{ a.requested_at }}</td>
+      <td>{{ a.approval_id }}</td>
+      <td>{{ a.action_type }}</td>
+      <td>{{ a.required_mode }}</td>
+      <td>
+        <span class="state-badge {% if a.status == 'PENDING' %}state-warn{% elif a.status == 'APPROVED' %}state-ok{% endif %}">{{ a.status }}</span>
+      </td>
+      <td>{{ a.reason or '-' }}</td>
+      <td>{{ approval_next_step(a.status) }}</td>
+      <td>{{ a.scope_ref or '-' }}</td>
+      <td>{{ a.open_item_id or '-' }}</td>
+      <td>{{ a.expires_at or '-' }}</td>
+      <td>{{ a.requested_by }}</td>
+      <td>{{ a.decided_by or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Keine Approvals.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Approvals (Audit Derived)</h2>
+  {% if approvals_from_audit %}
+  <table>
+    <tr><th>Zeit</th><th>Action</th><th>Status</th><th>Result</th></tr>
+    {% for e in approvals_from_audit %}
+    <tr><td>{{ e.created_at }}</td><td>{{ e.action }}</td><td>{{ e.approval_status }}</td><td>{{ e.result }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Keine audit-abgeleiteten Approvals.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Agent Decisions</h2>
+  {% if decisions %}
+  <table>
+    <tr><th>Zeit</th><th>Agent</th><th>Action</th><th>Result</th></tr>
+    {% for e in decisions %}
+    <tr><td>{{ e.created_at }}</td><td>{{ e.agent_name }}</td><td>{{ e.action }}</td><td>{{ e.result }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Keine Agent Decisions.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Exceptions</h2>
+  {% if exceptions %}
+  <table>
+    <tr><th>Zeit</th><th>Severity</th><th>Titel</th><th>Details</th></tr>
+    {% for p in exceptions %}
+    <tr><td>{{ p.created_at }}</td><td>{{ p.severity }}</td><td>{{ p.title }}</td><td>{{ p.details }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Keine Exceptions.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Open Items</h2>
+  {% if open_items %}
+  <table>
+    <tr><th>ID</th><th>Status</th><th>Titel</th><th>Beschreibung</th></tr>
+    {% for o in open_items %}
+    <tr><td>{{ o.item_id }}</td><td>{{ o.status }}</td><td>{{ o.title }}</td><td>{{ o.description }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Keine Open Items.</p>{% endif %}
+</section>
+
+<section>
+  <h2>Consulted Policies</h2>
+  {% if policy_refs %}
+  <table>
+    <tr><th>Name</th><th>Version</th><th>Path</th></tr>
+    {% for p in policy_refs %}
+    <tr><td>{{ p.policy_name or '' }}</td><td>{{ p.policy_version or '' }}</td><td>{{ p.policy_path or '' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="empty">Keine Policy-Referenzen in diesem Case.</p>{% endif %}
+</section>
+{% endblock %}
+
+
+
+
+
+
+

@@ -1,0 +1,131 @@
+version: 1
+name: approval_matrix
+rules:
+  - action: document_type_detect
+    mode: AUTO
+    keywords:
+      - document_type
+      - classify_document
+      - doktyp
+      - document classify
+  - action: tags_set
+    mode: AUTO
+    keywords:
+      - set_tag
+      - tag
+      - tags
+  - action: correspondent_assign
+    mode: AUTO
+    keywords:
+      - correspondent
+      - assign_vendor
+      - assign_contact
+      - korrespondent
+  - action: ocr_reanalyze
+    mode: AUTO
+    keywords:
+      - ocr_reanalyze
+      - ocr_retry
+      - tika_reanalyze
+      - ocr
+  - action: rule_policy_edit
+    mode: REQUIRE_USER_APPROVAL
+    keywords:
+      - rule_edit
+      - policy_edit
+      - rules_update
+      - policy_update
+    never_auto: true
+    strict_require: true
+  - action: akaunting_bill_invoice_draft_create
+    mode: PROPOSE_ONLY
+    keywords:
+      - bill_draft
+      - invoice_draft
+      - akaunting_draft
+      - draft_create
+    allow_auto_with_rule: true
+  - action: booking_proposal_create
+    mode: PROPOSE_ONLY
+    keywords:
+      - booking_proposal
+      - buchungsvorschlag
+      - posting_proposal
+  - action: booking_finalize
+    mode: REQUIRE_USER_APPROVAL
+    keywords:
+      - post_booking
+      - booking_finalize
+      - finalize_booking
+      - buchung_finalisieren
+    allow_auto_with_rule: true
+    strict_require: true
+  - action: payment_proposal_create
+    mode: PROPOSE_ONLY
+    keywords:
+      - payment_proposal
+      - zahlungsvorschlag
+    allow_auto_with_rule: true
+  - action: payment_execute
+    mode: BLOCK_ESCALATE
+    keywords:
+      - payment_execute
+      - payment_post
+      - zahlung_ausfuehren
+      - zahlung_buchen
+    always_block: true
+    never_auto: true
+  - action: document_mark_done
+    mode: PROPOSE_ONLY
+    keywords:
+      - document_done
+      - mark_done
+      - erledigt_markieren
+    allow_auto_with_rule: true
+  - action: open_item_create
+    mode: AUTO
+    keywords:
+      - open_item_create
+      - wiedervorlage_anlegen
+      - create_open_item
+  - action: reminder_send
+    mode: PROPOSE_ONLY
+    keywords:
+      - send_reminder
+      - reminder_send
+      - reminder
+    allow_auto_with_rule: true
+  - action: problem_case_create
+    mode: AUTO
+    keywords:
+      - problem_case_create
+      - problemfall
+      - exception_record
+  - action: human_readable_review_generate
+    mode: AUTO
+    keywords:
+      - review_view
+      - pruefsicht
+      - human_readable_review
+  - action: recurring_document_draft_create
+    mode: PROPOSE_ONLY
+    keywords:
+      - recurring_draft
+      - repeat_invoice_draft
+      - wiederkehrend
+    allow_auto_with_rule: true
+  - action: correction_case_mark
+    mode: AUTO
+    keywords:
+      - mark_correction
+      - korrekturfall
+      - correction_mark
+  - action: side_effect_run_start
+    mode: REQUIRE_USER_APPROVAL
+    keywords:
+      - side_effect
+      - execute_workflow
+      - trigger_workflow
+      - agent_run_with_side_effect
+    allow_auto_with_rule: true
+    strict_require: true

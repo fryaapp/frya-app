@@ -1,0 +1,18 @@
+Lies zuerst die Uebergabe in:
+
+C:\Users\User\Desktop\Frya App\CLAUDE_CODE_HANDOFF.md
+
+Dann arbeite ab dort weiter.
+
+Wichtige Regeln:
+
+- Antworte im kompakten Format mit `>JA<` am Anfang.
+- Trenne strikt zwischen lokal, getestet und live.
+- Kein Architektur-Replay.
+- Kein Scope-Sprung.
+- Arbeite paketweise.
+- Wenn du live etwas beweist, nutze auf dem Staging-Server bevorzugt den laufenden Agenten direkt ueber `http://<container_ip>:8001`.
+
+Naechster fachlicher Einstieg laut Handoff:
+
+- Paket 21: read-only Akaunting-Abgleich hinter den konservativen Endzustaenden

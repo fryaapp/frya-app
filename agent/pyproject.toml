@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frya-agent"
+version = "0.1.0"
+description = "FRYA Agent backend with GoBD-oriented audit, open-items and connector architecture"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<0.116",
+  "uvicorn[standard]>=0.30,<0.31",
+  "pydantic>=2.8,<3.0",
+  "pydantic-settings>=2.4,<3.0",
+  "httpx>=0.28,<0.29",
+  "litellm>=1.56,<2.0",
+  "langgraph>=0.2,<0.3",
+  "asyncpg>=0.30,<0.31",
+  "redis>=5.0,<6.0",
+  "PyYAML>=6.0,<7.0",
+  "jinja2>=3.1,<4.0",
+  "itsdangerous>=2.2,<3.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2,<9.0",
+  "pytest-asyncio>=0.23,<0.24",
+  "pytest-cov>=5.0,<6.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+"app.ui" = ["templates/*.html", "static/*.css"]

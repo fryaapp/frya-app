@@ -1,4 +1,4 @@
-package de.myfrya.app.ui.navigation
+﻿package de.myfrya.app.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import de.myfrya.app.data.auth.AuthTokenStore
 import de.myfrya.app.ui.screens.capture.CaptureScreen
 import de.myfrya.app.ui.screens.login.LoginScreen
+import de.myfrya.app.ui.screens.plan.BuildPlanScreen
 import de.myfrya.app.ui.screens.queue.QueueScreen
 
 @Composable
@@ -47,6 +48,12 @@ fun AppNavHost(
                         popUpTo(Routes.Queue.route) { inclusive = true }
                     }
                 }
+            )
+        }
+        composable(Routes.BuildPlan.route) {
+            BuildPlanScreen(
+                onNavigateToQueue = { navController.navigate(Routes.Queue.route) },
+                onNavigateToCapture = { navController.navigate(Routes.Capture.route) }
             )
         }
     }

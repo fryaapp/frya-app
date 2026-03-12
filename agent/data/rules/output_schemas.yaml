@@ -1,0 +1,13 @@
+﻿version: 1
+name: output_schemas
+schemas:
+  case_summary:
+    required: [case_id, status, recommendation]
+  document_analysis_result:
+    required: [case_id, event_source, document_type, global_decision, recommended_next_step, ready_for_accounting_review]
+    field_statuses: [FOUND, MISSING, UNCERTAIN, CONFLICT]
+    document_types: [INVOICE, REMINDER, LETTER, OTHER]
+  accounting_analysis_result:
+    required: [case_id, accounting_review_ref, booking_candidate_type, booking_confidence, global_decision, suggested_next_step]
+    decisions: [PROPOSED, LOW_CONFIDENCE, BLOCKED_FOR_REVIEW]
+    candidate_types: [INVOICE_STANDARD_EXPENSE, REMINDER_REFERENCE_CHECK, NO_CANDIDATE]

@@ -14,16 +14,19 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import de.myfrya.app.data.auth.AuthTokenStore
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(onLoginSuccess: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val tokenStore = remember { AuthTokenStore(context.applicationContext) }
     val viewModel = remember(tokenStore) { LoginViewModel(tokenStore) }
 
@@ -60,7 +63,7 @@ fun LoginScreen(onLoginSuccess: () -> Unit) {
         if (viewModel.isLoading) {
             CircularProgressIndicator()
         } else {
-            Button(onClick = { viewModel.onLoginClicked(onLoginSuccess) }) {
+            Button(onClick = { scope.launch { viewModel.login(onLoginSuccess) } }) {
                 Text("Login")
             }
         }

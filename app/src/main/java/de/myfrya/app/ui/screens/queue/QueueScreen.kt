@@ -20,10 +20,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import de.myfrya.app.data.api.HealthRepository
 import de.myfrya.app.data.queue.AppDatabase
 import de.myfrya.app.data.queue.QueueItemEntity
 import de.myfrya.app.data.queue.QueueRepository
@@ -38,8 +38,11 @@ fun QueueScreen(
     val context = LocalContext.current
     val appContext = context.applicationContext
     val db = remember { AppDatabase.getInstance(appContext) }
-    val repository = remember(db) { QueueRepository(db.queueDao()) }
-    val viewModel = remember(repository, appContext) { QueueViewModel(repository, appContext) }
+    val repository = remember(db, appContext) { QueueRepository(db.queueDao(), appContext) }
+    val healthRepository = remember { HealthRepository() }
+    val viewModel = remember(repository, healthRepository, appContext) {
+        QueueViewModel(repository, healthRepository, appContext)
+    }
     val scope = rememberCoroutineScope()
 
     val items by produceState(initialValue = emptyList<QueueItemEntity>(), viewModel) {
@@ -47,15 +50,32 @@ fun QueueScreen(
     }
     val lastWorkState by viewModel.lastWorkState.collectAsState(initial = "—")
     val lastWorkId by viewModel.lastWorkId.collectAsState(initial = null)
+    val lastWorkError by viewModel.lastWorkError.collectAsState(initial = null)
+    val apiStatus by viewModel.apiStatus.collectAsState(initial = null)
     val workIdShort = lastWorkId?.toString()?.take(8) ?: "—"
+
+    val countPending = items.count { it.status == "PENDING" }
+    val countRunning = items.count { it.status == "RUNNING" }
+    val countFailed = items.count { it.status == "FAILED" }
+    val countSuccess = items.count { it.status == "SUCCESS" }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text("Queue")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Queue")
+            Button(onClick = onNavigateToCapture) {
+                Text("Capture")
+            }
+        }
         Text("Last Work: $lastWorkState ($workIdShort)")
+        lastWorkError?.let { err -> Text("Work Error: $err") }
+        Text("Items: ${items.size} | PENDING: $countPending | RUNNING: $countRunning | FAILED: $countFailed | SUCCESS: $countSuccess")
         Spacer(modifier = Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -81,9 +101,22 @@ fun QueueScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(onClick = { viewModel.startUpload() }) {
-                Text("Run Upload Worker")
+            Button(onClick = {
+                scope.launch { viewModel.startUploadNowDebug() }
+            }) {
+                Text("Start Upload Now (Debug)")
             }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(onClick = {
+                scope.launch { viewModel.checkApi() }
+            }) {
+                Text("API prüfen")
+            }
+            Text("Staging: ${apiStatus ?: "—"}")
         }
         Spacer(modifier = Modifier.height(16.dp))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {

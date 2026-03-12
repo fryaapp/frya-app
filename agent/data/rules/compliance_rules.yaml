@@ -1,0 +1,6 @@
+﻿version: 1
+name: compliance_rules
+standards:
+  - gobd_oriented
+
+

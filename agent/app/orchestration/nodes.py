@@ -1,0 +1,714 @@
+﻿from __future__ import annotations
+
+import json
+import uuid
+
+from litellm import acompletion
+
+from app.accounting_analysis.models import AccountingAnalysisInput, AccountingAnalysisResult
+from app.accounting_review.models import AccountingReviewDraft
+from app.config import get_settings
+from app.dependencies import (
+    get_accounting_analysis_service,
+    get_approval_service,
+    get_audit_service,
+    get_document_analysis_service,
+    get_open_items_service,
+    get_paperless_connector,
+    get_policy_access_layer,
+    get_problem_case_service,
+)
+from app.document_analysis.models import DocumentAnalysisInput, DocumentAnalysisResult
+from app.open_items.models import OpenItemStatus
+from app.orchestration.state import AgentState
+
+
+_ACTIVE_ITEM_STATUSES: set[OpenItemStatus] = {'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED'}
+
+
+async def classify_intent(state: AgentState) -> AgentState:
+    if state.get('document_ref') or state.get('paperless_metadata') or state.get('source') == 'paperless_webhook':
+        state['intent'] = 'DOCUMENT_REVIEW'
+        return state
+
+    text = (state.get('message') or '').lower()
+    if 'rechnung' in text or 'dokument' in text:
+        intent = 'DOCUMENT_REVIEW'
+    elif 'buch' in text or 'konto' in text:
+        intent = 'ACCOUNTING_QUERY'
+    elif 'workflow' in text or 'wiedervorlage' in text:
+        intent = 'WORKFLOW_TRIGGER'
+    else:
+        intent = 'UNKNOWN'
+    state['intent'] = intent
+    return state
+
+
+async def draft_action_with_llm(state: AgentState) -> AgentState:
+    settings = get_settings()
+    prompt = (
+        'Du bist ein digitaler Buchhaltungsmitarbeiter. '
+        'Erzeuge nur einen Aktionsentwurf als JSON mit Feldern action, reason, reversible. '
+        'Keine Ausfuehrung.'
+    )
+    messages = [
+        {'role': 'system', 'content': prompt},
+        {'role': 'user', 'content': state.get('message', '')},
+    ]
+    try:
+        completion = await acompletion(model=settings.llm_model, messages=messages, max_tokens=300)
+        content = completion.choices[0].message.content
+        parsed = {'raw': content, 'action': 'NONE'}
+        try:
+            parsed_candidate = json.loads(content)
+            if isinstance(parsed_candidate, dict):
+                parsed = parsed_candidate
+        except Exception:
+            pass
+        state['planned_action'] = parsed
+    except Exception as exc:
+        state['planned_action'] = {'action': 'NONE', 'reason': f'LLM unavailable: {exc}', 'reversible': True}
+
+    state.setdefault('approved', False)
+    return state
+
+
+async def _build_document_context(case_id: str) -> dict[str, object]:
+    audit_service = get_audit_service()
+    open_items_service = get_open_items_service()
+    problem_service = get_problem_case_service()
+
+    chronology = await audit_service.by_case(case_id, limit=25)
+    open_items = await open_items_service.list_by_case(case_id)
+    problems = await problem_service.by_case(case_id, limit=10)
+
+    return {
+        'recent_actions': [event.action for event in chronology[-10:]],
+        'open_item_count': len(open_items),
+        'open_item_titles': [item.title for item in open_items[:5]],
+        'problem_titles': [problem.title for problem in problems[:5]],
+        'problem_types': [problem.exception_type for problem in problems if problem.exception_type],
+    }
+
+
+def _document_policy_refs() -> list[dict[str, str]]:
+    policy_access = get_policy_access_layer()
+    return policy_access.get_policy_refs(
+        [
+            'orchestrator_policy',
+            'runtime_policy',
+            'compliance_policy',
+            'problemfall_policy',
+            'document_analyst_policy',
+            'output_schemas',
+        ]
+    )
+
+
+def _accounting_policy_refs() -> list[dict[str, str]]:
+    policy_access = get_policy_access_layer()
+    return policy_access.get_policy_refs(
+        [
+            'orchestrator_policy',
+            'runtime_policy',
+            'compliance_policy',
+            'accounting_analyst_policy',
+            'output_schemas',
+        ]
+    )
+
+
+def _merge_policy_refs(*collections: list[dict[str, str]]) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    seen: set[tuple[str | None, str | None, str | None]] = set()
+    for items in collections:
+        for item in items:
+            key = (item.get('policy_name'), item.get('policy_version'), item.get('policy_path'))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
+async def run_document_analyst(state: AgentState) -> AgentState:
+    metadata = dict(state.get('paperless_metadata') or {})
+    document_ref = str(state.get('document_ref') or metadata.get('document_id') or metadata.get('id') or '') or None
+    fetch_warning = None
+
+    if document_ref:
+        try:
+            remote_document = await get_paperless_connector().get_document(document_ref)
+            if isinstance(remote_document, dict):
+                merged_metadata = dict(remote_document)
+                merged_metadata.update(metadata)
+                metadata = merged_metadata
+        except Exception as exc:
+            fetch_warning = str(exc)
+
+    case_context = await _build_document_context(state.get('case_id', 'uncategorized'))
+    if fetch_warning:
+        case_context['fetch_warning'] = fetch_warning
+
+    analysis_input = DocumentAnalysisInput(
+        case_id=state.get('case_id', 'uncategorized'),
+        document_ref=document_ref,
+        event_source=state.get('source', 'api'),
+        paperless_metadata=metadata,
+        ocr_text=state.get('ocr_text'),
+        preview_text=state.get('preview_text'),
+        case_context=case_context,
+    )
+    analysis = await get_document_analysis_service().analyze(analysis_input)
+    state['document_ref'] = document_ref
+    state['paperless_metadata'] = metadata
+    state['case_context'] = case_context
+    state['document_analysis'] = analysis.model_dump(mode='json')
+    return state
+
+
+async def _ensure_case_open_item(
+    case_id: str,
+    *,
+    title: str,
+    description: str,
+    source: str,
+    desired_status: OpenItemStatus,
+    document_ref: str | None = None,
+    accounting_ref: str | None = None,
+) -> str | None:
+    open_items_service = get_open_items_service()
+    existing = await open_items_service.list_by_case(case_id)
+    for item in existing:
+        if item.title == title and item.status in _ACTIVE_ITEM_STATUSES:
+            if item.status != desired_status:
+                await open_items_service.update_status(item.item_id, desired_status)
+            return item.item_id
+
+    created = await open_items_service.create_item(
+        case_id=case_id,
+        title=title,
+        description=description,
+        source=source,
+        document_ref=document_ref,
+        accounting_ref=accounting_ref,
+    )
+    if desired_status != 'OPEN':
+        await open_items_service.update_status(created.item_id, desired_status)
+    return created.item_id
+
+
+async def _transition_case_open_items(
+    case_id: str,
+    *,
+    source: str,
+    titles: set[str],
+    final_status: OpenItemStatus,
+) -> None:
+    open_items_service = get_open_items_service()
+    existing = await open_items_service.list_by_case(case_id)
+    for item in existing:
+        if item.source != source:
+            continue
+        if item.title not in titles:
+            continue
+        if item.status not in _ACTIVE_ITEM_STATUSES:
+            continue
+        await open_items_service.update_status(item.item_id, final_status)
+
+
+async def _ensure_problem_case(case_id: str, *, title: str, details: str, document_ref: str | None = None) -> str | None:
+    problem_service = get_problem_case_service()
+    existing = await problem_service.by_case(case_id, limit=50)
+    for item in existing:
+        if item.title == title:
+            return item.problem_id
+
+    created = await problem_service.add_case(
+        case_id=case_id,
+        title=title,
+        details=details,
+        severity='HIGH',
+        exception_type='DOCUMENT_ANALYSIS_CONFLICT',
+        document_ref=document_ref,
+        created_by='document-analyst',
+    )
+    return created.problem_id
+
+
+def _document_result_summary(result: DocumentAnalysisResult) -> str:
+    return (
+        f'decision={result.global_decision};type={result.document_type.value or "OTHER"};'
+        f'next={result.recommended_next_step};missing={",".join(result.missing_fields) or "-"};'
+        f'ready={result.ready_for_accounting_review}'
+    )
+
+
+def _build_accounting_review_draft(result: DocumentAnalysisResult) -> AccountingReviewDraft | None:
+    if result.document_type.value not in {'INVOICE', 'REMINDER'}:
+        return None
+    if result.global_decision != 'ANALYZED':
+        return None
+    if not result.ready_for_accounting_review:
+        return None
+    if result.missing_fields:
+        return None
+
+    total_amount = next((item for item in result.amounts if item.label == 'TOTAL' and item.status == 'FOUND'), None)
+    if total_amount is None:
+        total_amount = next((item for item in result.amounts if item.status == 'FOUND'), None)
+    if total_amount is None or result.currency.status != 'FOUND' or result.document_date.status != 'FOUND':
+        return None
+    if result.sender.status != 'FOUND':
+        return None
+    if result.document_type.value == 'REMINDER':
+        if result.due_date.status != 'FOUND':
+            return None
+        if not any(ref.status == 'FOUND' for ref in result.references):
+            return None
+
+    references = [ref.value for ref in result.references if ref.status == 'FOUND' and ref.value]
+    risk_codes = [risk.code for risk in result.risks]
+    focus = [
+        'Betrag und Waehrung gegen Originaldokument pruefen.',
+        'Dokumentdatum und Referenzen vor manueller Folgearbeit bestaetigen.',
+    ]
+    if result.document_type.value == 'REMINDER':
+        focus.insert(0, 'Mahnbezug, Faelligkeit und offene Referenzrechnung pruefen.')
+    else:
+        focus.insert(0, 'Rechnungsdaten und Kernfelder fuer die Review Queue bestaetigen.')
+
+    return AccountingReviewDraft(
+        case_id=result.case_id,
+        document_ref=result.document_ref,
+        source_document_type=result.document_type.value,
+        review_status='READY',
+        ready_for_accounting_review=True,
+        analysis_summary=_document_result_summary(result),
+        sender=result.sender.value,
+        recipient=result.recipient.value,
+        total_amount=str(total_amount.amount) if total_amount.amount is not None else None,
+        currency=result.currency.value,
+        document_date=result.document_date.value.isoformat() if result.document_date.value else None,
+        due_date=result.due_date.value.isoformat() if result.due_date.value else None,
+        references=references,
+        missing_fields=list(result.missing_fields),
+        risks=risk_codes,
+        suggested_review_focus=focus,
+        next_step='ACCOUNTING_REVIEW',
+    )
+
+
+def _accounting_review_ref(review: AccountingReviewDraft) -> str:
+    return f'{review.case_id}:{review.document_ref or "none"}:{review.review_version}'
+
+
+def _accounting_analysis_open_item_title(result: AccountingAnalysisResult) -> str:
+    if result.booking_candidate_type == 'REMINDER_REFERENCE_CHECK':
+        return 'Mahnungsbezug pruefen'
+    return 'Buchungsvorschlag pruefen'
+
+
+async def finalize_document_review(state: AgentState) -> AgentState:
+    result = DocumentAnalysisResult.model_validate(state.get('document_analysis', {}))
+    case_id = state.get('case_id', 'uncategorized')
+    document_ref = result.document_ref
+    summary = _document_result_summary(result)
+    policy_refs = _document_policy_refs()
+    accounting_review = _build_accounting_review_draft(result)
+
+    await get_audit_service().log_event(
+        {
+            'event_id': str(uuid.uuid4()),
+            'case_id': case_id,
+            'source': state.get('source', 'api'),
+            'document_ref': document_ref,
+            'agent_name': 'document-analyst',
+            'approval_status': 'NOT_REQUIRED',
+            'action': 'DOCUMENT_ANALYSIS_COMPLETED',
+            'result': summary,
+            'llm_output': result.model_dump(mode='json'),
+            'policy_refs': policy_refs,
+        }
+    )
+
+    open_item_id = None
+    problem_id = None
+    if accounting_review is not None:
+        await get_audit_service().log_event(
+            {
+                'event_id': str(uuid.uuid4()),
+                'case_id': case_id,
+                'source': state.get('source', 'api'),
+                'document_ref': document_ref,
+                'agent_name': 'accounting-review',
+                'approval_status': 'NOT_REQUIRED',
+                'action': 'ACCOUNTING_REVIEW_DRAFT_READY',
+                'result': accounting_review.analysis_summary,
+                'llm_output': accounting_review.model_dump(mode='json'),
+                'policy_refs': policy_refs,
+            }
+        )
+        open_item_id = await _ensure_case_open_item(
+            case_id,
+            title='Accounting Review durchfuehren',
+            description=accounting_review.analysis_summary,
+            source='document_analyst',
+            desired_status='OPEN',
+            document_ref=document_ref,
+        )
+        await _transition_case_open_items(
+            case_id,
+            source='document_analyst',
+            titles={
+                'Accounting Review vorbereiten',
+                'Dokumentanalyse pruefen',
+                'Dokumentdaten pruefen',
+                'Dokumentkonflikt pruefen',
+            },
+            final_status='COMPLETED',
+        )
+    elif result.global_decision == 'CONFLICT':
+        open_item_id = await _ensure_case_open_item(
+            case_id,
+            title='Dokumentkonflikt pruefen',
+            description=summary,
+            source='document_analyst',
+            desired_status='OPEN',
+            document_ref=document_ref,
+        )
+        problem_id = await _ensure_problem_case(
+            case_id,
+            title='Document analysis conflict',
+            details=summary,
+            document_ref=document_ref,
+        )
+    elif result.global_decision in {'LOW_CONFIDENCE', 'INCOMPLETE'}:
+        desired_status: OpenItemStatus = 'WAITING_DATA' if result.recommended_next_step == 'OCR_RECHECK' else 'OPEN'
+        open_item_id = await _ensure_case_open_item(
+            case_id,
+            title='Dokumentdaten pruefen',
+            description=summary,
+            source='document_analyst',
+            desired_status=desired_status,
+            document_ref=document_ref,
+        )
+        if any(risk.severity == 'HIGH' for risk in result.risks):
+            problem_id = await _ensure_problem_case(
+                case_id,
+                title='Document analysis requires review',
+                details=summary,
+                document_ref=document_ref,
+            )
+    else:
+        open_item_id = await _ensure_case_open_item(
+            case_id,
+            title='Dokumentanalyse pruefen',
+            description=summary,
+            source='document_analyst',
+            desired_status='OPEN',
+            document_ref=document_ref,
+        )
+
+    state['policy_refs_consulted'] = policy_refs
+    if accounting_review is not None:
+        state['accounting_review'] = accounting_review.model_dump(mode='json')
+    state['output'] = {
+        'status': 'ACCOUNTING_REVIEW' if accounting_review is not None else result.global_decision,
+        'approval_mode': 'AUTO',
+        'action_key': 'document_analyze',
+        'message': 'ACCOUNTING_REVIEW' if accounting_review is not None else result.recommended_next_step,
+        'document_analysis': result.model_dump(mode='json'),
+        'accounting_review': accounting_review.model_dump(mode='json') if accounting_review is not None else None,
+        'recommended_next_step': 'ACCOUNTING_REVIEW' if accounting_review is not None else result.recommended_next_step,
+        'ready_for_accounting_review': accounting_review is not None,
+        'policy_gate_reason': 'Document analysis completed without critical side effects.',
+        'policy_refs': policy_refs,
+        'open_item_id': open_item_id,
+        'problem_id': problem_id,
+        'execution_allowed': False,
+    }
+    return state
+
+
+async def run_accounting_analyst(state: AgentState) -> AgentState:
+    review_payload = state.get('accounting_review')
+    document_payload = state.get('document_analysis')
+    if not review_payload or not document_payload:
+        return state
+
+    review = AccountingReviewDraft.model_validate(review_payload)
+    if review.review_status != 'READY' or not review.ready_for_accounting_review:
+        return state
+
+    document_analysis = DocumentAnalysisResult.model_validate(document_payload)
+    review_ref = _accounting_review_ref(review)
+    accounting_input = AccountingAnalysisInput(
+        case_id=state.get('case_id', review.case_id),
+        accounting_review_ref=review_ref,
+        review_draft=review,
+        document_analysis_result=document_analysis,
+        case_context=dict(state.get('case_context') or {}),
+    )
+    accounting_analysis = await get_accounting_analysis_service().analyze(accounting_input)
+    policy_refs = _accounting_policy_refs()
+
+    await get_audit_service().log_event(
+        {
+            'event_id': str(uuid.uuid4()),
+            'case_id': review.case_id,
+            'source': state.get('source', 'api'),
+            'document_ref': review.document_ref,
+            'accounting_ref': review_ref,
+            'agent_name': 'accounting-analyst',
+            'approval_status': 'NOT_REQUIRED',
+            'action': 'ACCOUNTING_ANALYSIS_COMPLETED',
+            'result': accounting_analysis.analysis_summary,
+            'llm_output': accounting_analysis.model_dump(mode='json'),
+            'policy_refs': policy_refs,
+        }
+    )
+
+    output = dict(state.get('output', {}))
+    open_item_id = output.get('open_item_id')
+    if accounting_analysis.global_decision == 'PROPOSED':
+        open_item_id = await _ensure_case_open_item(
+            review.case_id,
+            title=_accounting_analysis_open_item_title(accounting_analysis),
+            description=accounting_analysis.analysis_summary,
+            source='accounting_analyst',
+            desired_status='OPEN',
+            document_ref=review.document_ref,
+            accounting_ref=review_ref,
+        )
+        await _transition_case_open_items(
+            review.case_id,
+            source='document_analyst',
+            titles={'Accounting Review durchfuehren'},
+            final_status='COMPLETED',
+        )
+        output['status'] = 'ACCOUNTING_ANALYST_READY'
+    else:
+        output['status'] = accounting_analysis.global_decision
+
+    combined_policy_refs = _merge_policy_refs(output.get('policy_refs', []), policy_refs)
+    state['policy_refs_consulted'] = combined_policy_refs
+    state['accounting_analysis'] = accounting_analysis.model_dump(mode='json')
+    output['accounting_analysis'] = accounting_analysis.model_dump(mode='json')
+    output['recommended_next_step'] = accounting_analysis.suggested_next_step
+    output['ready_for_accounting_confirmation'] = accounting_analysis.ready_for_accounting_confirmation
+    output['ready_for_user_approval'] = accounting_analysis.ready_for_user_approval
+    output['open_item_id'] = open_item_id
+    output['message'] = accounting_analysis.suggested_next_step
+    output['policy_refs'] = combined_policy_refs
+    output['execution_allowed'] = False
+    state['output'] = output
+    return state
+
+
+def _planned_context(state: AgentState) -> dict[str, object]:
+    planned = state.get('planned_action', {})
+    if not isinstance(planned, dict):
+        planned = {}
+
+    missing_fields = planned.get('missing_fields')
+    missing_required_data = bool(planned.get('missing_required_data'))
+    if isinstance(missing_fields, list) and missing_fields:
+        missing_required_data = True
+
+    reversible = planned.get('reversible')
+    irreversible = bool(planned.get('irreversible'))
+    if reversible is False:
+        irreversible = True
+
+    return {
+        'confidence': planned.get('confidence'),
+        'missing_required_data': missing_required_data,
+        'conflict_detected': bool(planned.get('conflict_detected') or planned.get('conflict')),
+        'explicit_workflow_rule': bool(planned.get('explicit_workflow_rule') or planned.get('workflow_rule')),
+        'deterministic_rule_path': bool(state.get('deterministic_rule_path', False)),
+        'side_effect': bool(planned.get('side_effect')),
+        'irreversible': irreversible,
+        'external_target': bool(planned.get('external_target')),
+        'amount_above_threshold': bool(planned.get('amount_above_threshold')),
+    }
+
+
+async def apply_policy_constraints(state: AgentState) -> AgentState:
+    policy_access = get_policy_access_layer()
+    planned_action = state.get('planned_action', {})
+    action_name = ''
+    if isinstance(planned_action, dict):
+        action_name = str(planned_action.get('action', ''))
+    intent = str(state.get('intent', 'UNKNOWN'))
+
+    gate = policy_access.evaluate_gate(intent=intent, action_name=action_name, context=_planned_context(state))
+    state['policy_blocked'] = gate.blocked
+    state['requires_approval'] = gate.requires_approval
+    state['deterministic_rule_path'] = gate.deterministic_rule_path
+    state['policy_gate_reason'] = gate.reason
+    state['policy_refs_consulted'] = gate.consulted_policy_refs
+    state['approval_mode'] = gate.decision_mode  # type: ignore[assignment]
+    state['gate_action_key'] = gate.action_key
+    state['gate_requires_open_item'] = gate.requires_open_item
+    state['gate_requires_problem_case'] = gate.requires_problem_case
+    state['execution_allowed'] = gate.execution_allowed
+    return state
+
+
+async def enforce_approval_gate(state: AgentState) -> AgentState:
+    planned_action = state.get('planned_action', {})
+    action_label = state.get('gate_action_key') or str(planned_action.get('action', 'UNKNOWN_ACTION'))
+    gate_reason = state.get('policy_gate_reason', 'Freigabelogik ohne Begruendung.')
+    case_id = state.get('case_id', 'uncategorized')
+
+    document_ref = None
+    accounting_ref = None
+    if isinstance(planned_action, dict):
+        raw_doc = planned_action.get('document_ref')
+        raw_acc = planned_action.get('accounting_ref')
+        document_ref = str(raw_doc) if raw_doc is not None else None
+        accounting_ref = str(raw_acc) if raw_acc is not None else None
+
+    approval_mode = state.get('approval_mode', 'PROPOSE_ONLY')
+    if state.get('policy_blocked', False) or approval_mode == 'BLOCK_ESCALATE':
+        open_item_id = None
+        if state.get('gate_requires_open_item', True):
+            open_item_id = await _ensure_case_open_item(
+                case_id,
+                title=f'Blockiert: {action_label}',
+                description=gate_reason,
+                source='approval_gate',
+                desired_status='WAITING_USER',
+                document_ref=document_ref,
+                accounting_ref=accounting_ref,
+            )
+
+        problem_id = None
+        if state.get('gate_requires_problem_case', True):
+            problem_id = await _ensure_problem_case(
+                case_id,
+                title=f'Approval block: {action_label}',
+                details=gate_reason,
+                document_ref=document_ref,
+            )
+
+        state['output'] = {
+            'status': 'BLOCKED_POLICY',
+            'approval_mode': 'BLOCK_ESCALATE',
+            'action_key': action_label,
+            'message': gate_reason,
+            'planned_action': planned_action,
+            'policy_gate_reason': gate_reason,
+            'policy_refs': state.get('policy_refs_consulted', []),
+            'open_item_id': open_item_id,
+            'problem_id': problem_id,
+            'execution_allowed': False,
+        }
+        return state
+
+    if approval_mode == 'REQUIRE_USER_APPROVAL':
+        approval_service = get_approval_service()
+
+        approved = False
+        incoming_approval_id = state.get('approval_id')
+        if state.get('approved', False) and incoming_approval_id:
+            existing = await approval_service.get(str(incoming_approval_id))
+            if existing and existing.status == 'APPROVED' and existing.case_id == case_id:
+                approved = True
+                state['approval_id'] = existing.approval_id
+
+        if approved:
+            state['output'] = {
+                'status': 'READY_FOR_DETERMINISTIC_EXECUTION',
+                'approval_mode': 'REQUIRE_USER_APPROVAL',
+                'action_key': action_label,
+                'planned_action': planned_action,
+                'deterministic_rule_path': state.get('deterministic_rule_path', False),
+                'policy_gate_reason': gate_reason,
+                'policy_refs': state.get('policy_refs_consulted', []),
+                'execution_allowed': True,
+            }
+            return state
+
+        approval = await approval_service.request_approval(
+            case_id=case_id,
+            action_type=action_label,
+            scope_ref=planned_action.get('scope_ref') if isinstance(planned_action, dict) else None,
+            requested_by='frya-orchestrator',
+            reason=gate_reason,
+            policy_refs=state.get('policy_refs_consulted', []),
+            required_mode='REQUIRE_USER_APPROVAL',
+            approval_context={
+                'intent': state.get('intent', 'UNKNOWN'),
+                'action_key': action_label,
+                'deterministic_rule_path': state.get('deterministic_rule_path', False),
+            },
+            source='approval_gate',
+        )
+
+        if not approval.open_item_id:
+            open_item_id = await _ensure_case_open_item(
+                case_id,
+                title=f'Freigabe ausstehend: {action_label}',
+                description=gate_reason,
+                source='approval_gate',
+                desired_status='WAITING_USER',
+                document_ref=document_ref,
+                accounting_ref=accounting_ref,
+            )
+            if open_item_id:
+                approval = await approval_service.attach_open_item(approval.approval_id, open_item_id) or approval
+
+        state['approval_id'] = approval.approval_id
+        state['output'] = {
+            'status': 'WAITING_APPROVAL',
+            'approval_mode': 'REQUIRE_USER_APPROVAL',
+            'action_key': action_label,
+            'message': 'Freigabe erforderlich vor Seiteneffekt.',
+            'approval_id': approval.approval_id,
+            'planned_action': planned_action,
+            'policy_gate_reason': gate_reason,
+            'policy_refs': state.get('policy_refs_consulted', []),
+            'open_item_id': approval.open_item_id,
+            'execution_allowed': False,
+        }
+        return state
+
+    if approval_mode == 'PROPOSE_ONLY':
+        open_item_id = None
+        if state.get('gate_requires_open_item', True):
+            open_item_id = await _ensure_case_open_item(
+                case_id,
+                title=f'Vorschlag pruefen: {action_label}',
+                description=gate_reason,
+                source='approval_gate',
+                desired_status='OPEN',
+                document_ref=document_ref,
+                accounting_ref=accounting_ref,
+            )
+
+        state['output'] = {
+            'status': 'PROPOSE_ONLY',
+            'approval_mode': 'PROPOSE_ONLY',
+            'action_key': action_label,
+            'message': 'Aktion wird nur als Vorschlag bereitgestellt.',
+            'planned_action': planned_action,
+            'policy_gate_reason': gate_reason,
+            'policy_refs': state.get('policy_refs_consulted', []),
+            'open_item_id': open_item_id,
+            'execution_allowed': False,
+        }
+        return state
+
+    state['output'] = {
+        'status': 'READY_FOR_DETERMINISTIC_EXECUTION',
+        'approval_mode': 'AUTO',
+        'action_key': action_label,
+        'planned_action': planned_action,
+        'deterministic_rule_path': state.get('deterministic_rule_path', False),
+        'policy_gate_reason': gate_reason,
+        'policy_refs': state.get('policy_refs_consulted', []),
+        'execution_allowed': True,
+    }
+    return state

@@ -1,0 +1,47 @@
+﻿<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FRYA UI - {{ title or 'UI' }}</title>
+  <link rel="stylesheet" href="/ui/static/ui.css" />
+</head>
+<body>
+  {% set path = request.url.path %}
+  <header class="topbar">
+    <div class="brand">FRYA Operator UI</div>
+    <div class="notice">{{ internal_notice }}</div>
+    <div class="auth-state">
+      {% if auth_user %}
+      <span class="auth-user">{{ auth_user.username }} ({{ auth_user.role }})</span>
+      <form method="post" action="/auth/logout" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+        <button type="submit">Logout</button>
+      </form>
+      {% else %}
+      <a href="/auth/login">Login</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <nav>
+        <a class="{% if path == '/ui/dashboard' %}active{% endif %}" href="/ui/dashboard">Dashboard</a>
+        <a class="{% if path.startswith('/ui/cases') %}active{% endif %}" href="/ui/cases">Cases</a>
+        <a class="{% if path.startswith('/ui/open-items') %}active{% endif %}" href="/ui/open-items">Open Items</a>
+        <a class="{% if path.startswith('/ui/problem-cases') %}active{% endif %}" href="/ui/problem-cases">Problem Cases</a>
+        <a class="{% if path.startswith('/ui/rules') and path != '/ui/rules/audit' %}active{% endif %}" href="/ui/rules">Rules</a>
+        <a class="{% if path == '/ui/rules/audit' %}active{% endif %}" href="/ui/rules/audit">Rule Audit</a>
+        <a class="{% if path.startswith('/ui/verfahrensdoku') %}active{% endif %}" href="/ui/verfahrensdoku">Verfahrensdoku</a>
+        <a class="{% if path.startswith('/ui/system') %}active{% endif %}" href="/ui/system">System</a>
+      </nav>
+    </aside>
+
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>
+

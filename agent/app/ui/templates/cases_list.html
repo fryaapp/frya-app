@@ -1,0 +1,69 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h1>Cases</h1>
+<p class="page-lead">Alle bekannten Faelle aus dem Audit-Log. Fokus: schnell finden, oeffnen, bewerten.</p>
+
+{% if case_rows %}
+{% set ns = namespace(with_activity=0, without_activity=0) %}
+{% for row in case_rows %}
+  {% if row.last_activity %}
+    {% set ns.with_activity = ns.with_activity + 1 %}
+  {% else %}
+    {% set ns.without_activity = ns.without_activity + 1 %}
+  {% endif %}
+{% endfor %}
+
+<section>
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Gesamt</p>
+      <p class="summary-value">{{ case_rows|length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Mit letzter Aktivitaet</p>
+      <p class="summary-value">{{ ns.with_activity }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Ohne Zeitstempel</p>
+      <p class="summary-value {% if ns.without_activity > 0 %}warn{% endif %}">{{ ns.without_activity }}</p>
+    </article>
+  </div>
+</section>
+
+<section>
+  <table>
+    <tr>
+      <th>Case ID</th>
+      <th>Typ</th>
+      <th>Letzte Aktivitaet</th>
+      <th>Letzte Aktion</th>
+      <th>Letztes Ergebnis</th>
+      <th>Aktion</th>
+    </tr>
+    {% for row in case_rows %}
+    <tr>
+      <td><code>{{ row.case_id }}</code></td>
+      <td>{{ row.kind }}</td>
+      <td>
+        {% if row.last_activity %}
+        {{ row.last_activity }}
+        {% else %}
+        <span class="hint-badge">keine Angabe</span>
+        {% endif %}
+      </td>
+      <td>{{ row.last_action }}</td>
+      <td>{{ row.last_result }}</td>
+      <td><a class="btn-link" href="{{ case_href(row.case_id) }}">Fall oeffnen</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% else %}
+<section>
+  <p class="empty">Keine Cases vorhanden.</p>
+  <p class="empty-sub">Sobald der Agent neue Events verarbeitet, erscheinen Faelle hier automatisch.</p>
+  <p><a class="btn-link" href="/ui/dashboard">Zurueck zum Dashboard</a></p>
+</section>
+{% endif %}
+{% endblock %}
+
