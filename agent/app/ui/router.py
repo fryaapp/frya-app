@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.status import HTTP_303_SEE_OTHER
 
+from app.accounting_analysis.akaunting_reconciliation_service import AkauntingReconciliationService
 from app.accounting_analysis.models import (
     AccountingClarificationCompletionInput,
     AccountingOperatorReviewDecisionInput,
@@ -30,6 +31,7 @@ from app.cases.urls import ui_case_href
 from app.config import get_settings
 from app.dependencies import (
     get_accounting_operator_review_service,
+    get_akaunting_reconciliation_service,
     get_approval_service,
     get_audit_service,
     get_file_store,
@@ -210,6 +212,18 @@ def _latest_external_accounting_process_resolution(events: list[Any]) -> dict[st
 def _latest_external_return_clarification_completion(events: list[Any]) -> dict[str, Any] | None:
     for event in reversed(events):
         if getattr(event, 'action', None) != 'EXTERNAL_RETURN_CLARIFICATION_COMPLETED':
+            continue
+        if not getattr(event, 'llm_output', None):
+            continue
+        payload = _normalize_payload(event.llm_output)
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _latest_akaunting_probe(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'AKAUNTING_PROBE_EXECUTED':
             continue
         if not getattr(event, 'llm_output', None):
             continue
@@ -497,6 +511,20 @@ async def ui_case_external_return_clarification_complete(
         msg = str(exc)
     return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
 
+@router.post('/cases/{case_id:path}/akaunting-probe', dependencies=[Depends(require_csrf)])
+async def ui_case_akaunting_probe(
+    request: Request,
+    case_id: str,
+    reconciliation_service: AkauntingReconciliationService = Depends(get_akaunting_reconciliation_service),
+) -> RedirectResponse:
+    try:
+        await reconciliation_service.probe_case(case_id=case_id, accounting_data={})
+        msg = 'Akaunting-Abgleich ausgefuehrt.'
+    except Exception as exc:
+        msg = f'Probe-Fehler: {exc}'
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
 @router.get('/cases/{case_id:path}', response_class=HTMLResponse)
 async def ui_case_detail(
     request: Request,
@@ -534,6 +562,7 @@ async def ui_case_detail(
         external_accounting_process_resolution,
         external_return_clarification_completion,
     )
+    akaunting_probe = _latest_akaunting_probe(chronology)
 
     return TEMPLATES.TemplateResponse(
         request,
@@ -561,6 +590,7 @@ async def ui_case_detail(
             outside_agent_accounting_process=outside_agent_accounting_process,
             external_accounting_process_resolution=external_accounting_process_resolution,
             external_return_clarification_completion=external_return_clarification_completion,
+            akaunting_probe=akaunting_probe,
             can_submit_accounting_review=_can_submit_accounting_review(accounting_analysis, accounting_operator_review),
             can_complete_accounting_clarification=_can_complete_accounting_clarification(accounting_manual_handoff_resolution, accounting_clarification_completion),
             can_resolve_external_accounting_process=_can_resolve_external_accounting_process(outside_agent_accounting_process, external_accounting_process_resolution),

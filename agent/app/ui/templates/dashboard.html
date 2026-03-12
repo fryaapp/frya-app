@@ -6,45 +6,45 @@
 <section>
   <div class="summary-grid">
     <article class="summary-card">
-      <p class="summary-label">Health</p>
+      <p class="summary-label">Systemstatus <span class="en-hint">(Health)</span></p>
       <p class="summary-value {% if health.status == 'ok' %}ok{% else %}warn{% endif %}">{{ health.status|upper }}</p>
-      <p class="summary-sub">Service: {{ health.service }}</p>
+      <p class="summary-sub">Dienst: {{ health.service }}</p>
     </article>
 
     <article class="summary-card">
-      <p class="summary-label">Policy-Status</p>
+      <p class="summary-label">Richtlinien-Status <span class="en-hint">(Policy-Status)</span></p>
       <p class="summary-value {% if policies_ok %}ok{% else %}warn{% endif %}">
         {% if policies_ok %}OK{% else %}WARNUNG{% endif %}
       </p>
-      <p class="summary-sub">Fehlende Required: {{ summary.policy_missing }}</p>
+      <p class="summary-sub">Fehlende Pflicht-Richtlinien: {{ summary.policy_missing }}</p>
     </article>
 
     <article class="summary-card">
-      <p class="summary-label">Recent Cases</p>
+      <p class="summary-label">Aktuelle Faelle <span class="en-hint">(Recent Cases)</span></p>
       <p class="summary-value">{{ summary.recent_cases }}</p>
       <p class="summary-sub"><a class="inline-link" href="/ui/cases">Zur Liste</a></p>
     </article>
 
     <article class="summary-card">
-      <p class="summary-label">Open Items</p>
+      <p class="summary-label">Offene Aufgaben <span class="en-hint">(Open Items)</span></p>
       <p class="summary-value">{{ summary.open_items }}</p>
       <p class="summary-sub"><a class="inline-link" href="/ui/open-items">Arbeitsstapel</a></p>
     </article>
 
     <article class="summary-card">
-      <p class="summary-label">Pending Approvals</p>
+      <p class="summary-label">Ausstehende Freigaben <span class="en-hint">(Pending Approvals)</span></p>
       <p class="summary-value {% if summary.pending_approvals > 0 %}warn{% endif %}">{{ summary.pending_approvals }}</p>
-      <p class="summary-sub"><a class="inline-link" href="/inspect/approvals">Inspect Approvals</a></p>
+      <p class="summary-sub"><a class="inline-link" href="/inspect/approvals">Freigaben pruefen</a></p>
     </article>
 
     <article class="summary-card">
-      <p class="summary-label">Problem Cases</p>
+      <p class="summary-label">Problemfaelle <span class="en-hint">(Problem Cases)</span></p>
       <p class="summary-value">{{ summary.problem_cases }}</p>
       <p class="summary-sub"><a class="inline-link" href="/ui/problem-cases">Stoerungen</a></p>
     </article>
 
     <article class="summary-card">
-      <p class="summary-label">LLM Modell</p>
+      <p class="summary-label">KI-Modell <span class="en-hint">(LLM Model)</span></p>
       <p class="summary-value small">{{ health.llm_model }}</p>
     </article>
   </div>
@@ -52,35 +52,35 @@
 
 {% if not policies_ok %}
 <section class="panel-warn">
-  <h2>Policy-Warnung</h2>
+  <h2>Richtlinien-Warnung <span class="en-hint">(Policy Warning)</span></h2>
   {% if policies_missing %}
-  <p class="warn-text">Mindestens eine Required-Policy fehlt. Operator-Entscheidungen nur mit Vorsicht fortsetzen.</p>
+  <p class="warn-text">Mindestens eine Pflicht-Richtlinie fehlt. Operator-Entscheidungen nur mit Vorsicht fortsetzen.</p>
   <ul class="compact-list">
     {% for role in policies_missing %}
     <li><code>{{ role }}</code></li>
     {% endfor %}
   </ul>
   {% else %}
-  <p class="empty">Policy-Status ist nicht OK, aber Missing-Roles sind leer.</p>
+  <p class="empty">Richtlinien-Status ist nicht OK, aber fehlende Rollen sind leer.</p>
   {% endif %}
   <p><a class="btn-link" href="/ui/system">Systemstatus pruefen</a></p>
 </section>
 {% endif %}
 
 <section>
-  <h2>Quick Start</h2>
+  <h2>Schnellstart <span class="en-hint">(Quick Start)</span></h2>
   <div class="quick-grid">
-    <a class="quick-card" href="/ui/open-items"><strong>Open Items</strong><span>Offene Arbeit priorisieren</span></a>
-    <a class="quick-card" href="/ui/problem-cases"><strong>Problem Cases</strong><span>Kritische Faelle sofort pruefen</span></a>
-    <a class="quick-card" href="/ui/cases"><strong>Cases</strong><span>Fallchronologie und Referenzen</span></a>
-    <a class="quick-card" href="/ui/rules"><strong>Rules</strong><span>Regelbasis und Ladezustand</span></a>
+    <a class="quick-card" href="/ui/open-items"><strong>Offene Aufgaben <span class="en-hint">(Open Items)</span></strong><span>Offene Arbeit priorisieren</span></a>
+    <a class="quick-card" href="/ui/problem-cases"><strong>Problemfaelle <span class="en-hint">(Problem Cases)</span></strong><span>Kritische Faelle sofort pruefen</span></a>
+    <a class="quick-card" href="/ui/cases"><strong>Faelle <span class="en-hint">(Cases)</span></strong><span>Fallchronologie und Referenzen</span></a>
+    <a class="quick-card" href="/ui/rules"><strong>Regeln <span class="en-hint">(Rules)</span></strong><span>Regelbasis und Ladezustand</span></a>
   </div>
 </section>
 
 <section>
   <div class="section-head">
-    <h2>Recent Cases</h2>
-    <a class="inline-link" href="/ui/cases">Alle Cases</a>
+    <h2>Aktuelle Faelle <span class="en-hint">(Recent Cases)</span></h2>
+    <a class="inline-link" href="/ui/cases">Alle Faelle</a>
   </div>
   {% if recent_cases %}
   <div class="case-box-grid">
@@ -92,18 +92,18 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="empty">Noch keine Cases im Audit-Log.</p>
+  <p class="empty">Noch keine Faelle im Pruefprotokoll.</p>
   {% endif %}
 </section>
 
 <section>
   <div class="section-head">
-    <h2>Pending Approvals</h2>
-    <a class="inline-link" href="/inspect/approvals">Alle Approvals</a>
+    <h2>Ausstehende Freigaben <span class="en-hint">(Pending Approvals)</span></h2>
+    <a class="inline-link" href="/inspect/approvals">Alle Freigaben</a>
   </div>
   {% if pending_approvals %}
   <table>
-    <tr><th>Zeit</th><th>Case</th><th>Action</th><th>Status</th><th>Grund</th></tr>
+    <tr><th>Zeit</th><th>Fall <span class="en-hint">(Case)</span></th><th>Aktion <span class="en-hint">(Action)</span></th><th>Status</th><th>Grund</th></tr>
     {% for approval in pending_approvals %}
     <tr>
       <td>{{ approval.requested_at }}</td>
@@ -120,7 +120,7 @@
 </section>
 
 <section>
-  <h2>Open Item Counts</h2>
+  <h2>Offene Aufgaben Uebersicht <span class="en-hint">(Open Item Counts)</span></h2>
   {% if open_item_counts %}
   <div class="chip-row">
     {% for k, v in open_item_counts.items() %}
@@ -128,18 +128,18 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="empty">Aktuell keine Open Items.</p>
+  <p class="empty">Aktuell keine offenen Aufgaben.</p>
   {% endif %}
 </section>
 
 <section>
   <div class="section-head">
-    <h2>Recent Problem Cases</h2>
-    <a class="inline-link" href="/ui/problem-cases">Alle Problem Cases</a>
+    <h2>Aktuelle Problemfaelle <span class="en-hint">(Recent Problem Cases)</span></h2>
+    <a class="inline-link" href="/ui/problem-cases">Alle Problemfaelle</a>
   </div>
   {% if problem_cases %}
   <table>
-    <tr><th>Zeit</th><th>Case</th><th>Severity</th><th>Titel</th></tr>
+    <tr><th>Zeit</th><th>Fall <span class="en-hint">(Case)</span></th><th>Schwere <span class="en-hint">(Severity)</span></th><th>Titel</th></tr>
     {% for p in problem_cases %}
     <tr>
       <td>{{ p.created_at }}</td>
@@ -150,18 +150,18 @@
     {% endfor %}
   </table>
   {% else %}
-  <p class="empty">Keine Problem Cases vorhanden.</p>
+  <p class="empty">Keine Problemfaelle vorhanden.</p>
   {% endif %}
 </section>
 
 <section>
   <div class="section-head">
-    <h2>Recent Rule Changes</h2>
-    <a class="inline-link" href="/ui/rules/audit">Audit anzeigen</a>
+    <h2>Aktuelle Regelaenderungen <span class="en-hint">(Recent Rule Changes)</span></h2>
+    <a class="inline-link" href="/ui/rules/audit">Pruefprotokoll anzeigen</a>
   </div>
   {% if rule_changes %}
   <table>
-    <tr><th>Zeit</th><th>Datei</th><th>Alt</th><th>Neu</th><th>User</th><th>Grund</th></tr>
+    <tr><th>Zeit</th><th>Datei</th><th>Alt</th><th>Neu</th><th>Benutzer <span class="en-hint">(User)</span></th><th>Grund</th></tr>
     {% for c in rule_changes %}
     <tr>
       <td>{{ c.changed_at }}</td>
@@ -174,7 +174,7 @@
     {% endfor %}
   </table>
   {% else %}
-  <p class="empty">Keine Rule-Aenderungen vorhanden.</p>
+  <p class="empty">Keine Regelaenderungen vorhanden.</p>
   {% endif %}
 </section>
 {% endblock %}

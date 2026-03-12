@@ -316,6 +316,52 @@
 </section>
 {% endif %}
 
+<!-- Akaunting-Abgleich Block -->
+<section class="panel action-panel">
+  <h3>Akaunting-Abgleich <span class="en-hint">(Reconciliation Probe)</span></h3>
+  {% if akaunting_probe %}
+  <div class="probe-result probe-{{ akaunting_probe.result|lower }}">
+    <div class="summary-grid compact">
+      <article class="summary-card">
+        <p class="summary-label">Ergebnis</p>
+        <p class="summary-value {% if akaunting_probe.result == 'MATCH_FOUND' %}ok{% elif akaunting_probe.result == 'NO_MATCH_FOUND' %}warn{% else %}warn{% endif %}">{{ akaunting_probe.result }}</p>
+        <p class="summary-sub"><span class="badge">read-only</span> akaunting_write_executed={{ akaunting_probe.akaunting_write_executed }}</p>
+      </article>
+      <article class="summary-card">
+        <p class="summary-label">Gepruefte Felder</p>
+        <p class="summary-sub">
+          Referenz: {{ akaunting_probe.probe_fields.get('reference') or '-' }}<br>
+          Betrag: {{ akaunting_probe.probe_fields.get('amount') or '-' }}<br>
+          Kontakt: {{ akaunting_probe.probe_fields.get('contact_name') or '-' }}
+        </p>
+      </article>
+      <article class="summary-card">
+        <p class="summary-label">Treffer (max 5)</p>
+        <p class="summary-sub">
+          {% if akaunting_probe.matches %}
+            {% for m in akaunting_probe.matches %}
+            id={{ m.get('id', '?') }}, Ref={{ m.get('document_number') or m.get('number') or '-' }}, Betrag={{ m.get('amount') or m.get('total') or '-' }}<br>
+            {% endfor %}
+          {% else %}
+            Keine Treffer.
+          {% endif %}
+        </p>
+      </article>
+      <article class="summary-card">
+        <p class="summary-label">Hinweis</p>
+        <p class="summary-sub">{{ akaunting_probe.note }}</p>
+      </article>
+    </div>
+  </div>
+  {% else %}
+  <p class="empty">Noch kein Abgleich durchgefuehrt.</p>
+  <form method="post" action="{{ case_href(case_id) }}/akaunting-probe">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+    <button type="submit" class="btn-link">Abgleich jetzt starten</button>
+  </form>
+  {% endif %}
+</section>
+
 {% if can_complete_external_return_clarification %}
 <section class="action-panel">
   <h2>Externen Ruecklauf erneut klaeren</h2>

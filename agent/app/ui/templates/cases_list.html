@@ -1,6 +1,6 @@
 ﻿{% extends 'base.html' %}
 {% block content %}
-<h1>Cases</h1>
+<h1>Faelle <span class="en-hint">(Cases)</span></h1>
 <p class="page-lead">Alle bekannten Faelle aus dem Audit-Log. Fokus: schnell finden, oeffnen, bewerten.</p>
 
 {% if case_rows %}
@@ -33,11 +33,11 @@
 <section>
   <table>
     <tr>
-      <th>Case ID</th>
+      <th>Fall-ID <span class="en-hint">(Case ID)</span></th>
       <th>Typ</th>
       <th>Letzte Aktivitaet</th>
-      <th>Letzte Aktion</th>
-      <th>Letztes Ergebnis</th>
+      <th>Letzte Aktion <span class="en-hint">(Action)</span></th>
+      <th>Letztes Ergebnis <span class="en-hint">(Result)</span></th>
       <th>Aktion</th>
     </tr>
     {% for row in case_rows %}

@@ -1,6 +1,6 @@
 ﻿{% extends 'base.html' %}
 {% block content %}
-<h1>Open Items</h1>
+<h1>Offene Aufgaben <span class="en-hint">(Open Items)</span></h1>
 <p class="page-lead">Arbeitsstapel mit Status- und Prioritaetsfokus.</p>
 
 <section>
@@ -45,7 +45,7 @@
 </section>
 
 <section>
-  <h2>Status-Summary</h2>
+  <h2>Status-Uebersicht <span class="en-hint">(Status Summary)</span></h2>
   {% if status_counts %}
   <div class="chip-row">
     {% for status_key, count in status_counts.items() %}
@@ -56,7 +56,7 @@
   <p class="empty">Keine Statusdaten vorhanden.</p>
   {% endif %}
 
-  <h2>Prioritaets-Summary</h2>
+  <h2>Prioritaets-Uebersicht <span class="en-hint">(Priority Summary)</span></h2>
   {% if priority_counts %}
   <div class="chip-row">
     {% for prio_key, count in priority_counts.items() %}
@@ -71,7 +71,7 @@
 <section>
   {% if rows %}
   <table>
-    <tr><th>ID</th><th>Case</th><th>Status</th><th>Prioritaet</th><th>Titel</th><th>Due</th><th>Updated</th></tr>
+    <tr><th>ID</th><th>Fall <span class="en-hint">(Case)</span></th><th>Status</th><th>Prioritaet</th><th>Titel</th><th>Faellig <span class="en-hint">(Due)</span></th><th>Aktualisiert <span class="en-hint">(Updated)</span></th></tr>
     {% for r in rows %}
     <tr>
       <td><code>{{ r.item.item_id }}</code></td>

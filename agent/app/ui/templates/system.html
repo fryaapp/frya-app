@@ -24,14 +24,14 @@
       <p class="summary-value">{{ ns.connectors_ok }} / {{ connectors|length }}</p>
     </article>
     <article class="summary-card">
-      <p class="summary-label">Required Policies</p>
+      <p class="summary-label">Pflicht-Richtlinien <span class="en-hint">(Required Policies)</span></p>
       <p class="summary-value {% if feature_state.required_policies_loaded %}ok{% else %}warn{% endif %}">
         {% if feature_state.required_policies_loaded %}OK{% else %}WARNUNG{% endif %}
       </p>
-      <p class="summary-sub">Missing roles: {{ feature_state.missing_required_roles|length }}</p>
+      <p class="summary-sub">Fehlende Rollen: {{ feature_state.missing_required_roles|length }}</p>
     </article>
     <article class="summary-card">
-      <p class="summary-label">Rule Load Status</p>
+      <p class="summary-label">Regellade-Status <span class="en-hint">(Rule Load Status)</span></p>
       <p class="summary-sub">geladen={{ ns.load_ok }}, fehlgeschlagen={{ ns.load_failed }}</p>
     </article>
     <article class="summary-card">
@@ -42,7 +42,7 @@
 </section>
 
 <section>
-  <h2>Connector Status</h2>
+  <h2>Verbindungsstatus <span class="en-hint">(Connector Status)</span></h2>
   <table>
     <tr><th>Name</th><th>Status</th><th>Base URL</th></tr>
     {% for c in connectors %}
@@ -62,7 +62,7 @@
 </section>
 
 <section>
-  <h2>Model / Provider</h2>
+  <h2>KI-Modell / Anbieter <span class="en-hint">(Model / Provider)</span></h2>
   <table>
     <tr><th>Key</th><th>Value</th></tr>
     <tr><td>litellm_model</td><td>{{ models.litellm_model }}</td></tr>
@@ -90,7 +90,7 @@
 </section>
 
 <section>
-  <h2>Policy Registry Entries</h2>
+  <h2>Richtlinien-Eintraege <span class="en-hint">(Policy Registry Entries)</span></h2>
   {% if rule_registry_entries %}
   <table>
     <tr><th>Datei</th><th>Rolle</th><th>Required</th></tr>
@@ -115,7 +115,7 @@
 </section>
 
 <section>
-  <h2>Policy Load Status</h2>
+  <h2>Richtlinien-Ladestatus <span class="en-hint">(Policy Load Status)</span></h2>
   {% if rule_load_status %}
   <table>
     <tr><th>Datei</th><th>Rolle</th><th>Loaded</th><th>Fehler</th></tr>
@@ -140,10 +140,10 @@
 </section>
 
 <section>
-  <h2>Feature / Role Activation</h2>
-  <p>Required loaded: <strong>{{ feature_state.required_policies_loaded }}</strong></p>
-  <p>Missing roles: {{ feature_state.missing_required_roles }}</p>
-  <p>Feature toggles model: {{ feature_state.explicit_feature_toggles_model }}</p>
-  <p><a class="btn-link" href="/ui/rules">Zu Rules</a> <a class="btn-link" href="/ui/rules/audit">Zu Rule Audit</a></p>
+  <h2>Funktionen / Rollen-Aktivierung <span class="en-hint">(Feature / Role Activation)</span></h2>
+  <p>Pflicht-Richtlinien geladen: <strong>{{ feature_state.required_policies_loaded }}</strong></p>
+  <p>Fehlende Rollen: {{ feature_state.missing_required_roles }}</p>
+  <p>Funktions-Schalter: {{ feature_state.explicit_feature_toggles_model }}</p>
+  <p><a class="btn-link" href="/ui/rules">Zu Regeln</a> <a class="btn-link" href="/ui/rules/audit">Zu Regelprotokoll</a></p>
 </section>
 {% endblock %}

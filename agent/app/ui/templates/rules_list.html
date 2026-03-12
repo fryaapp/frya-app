@@ -1,8 +1,8 @@
 ﻿{% extends 'base.html' %}
 {% block content %}
-<h1>Rules</h1>
+<h1>Regeln <span class="en-hint">(Rules)</span></h1>
 <table>
-  <tr><th>Datei</th><th>Rolle</th><th>Format</th><th>Version</th><th>Status</th><th>Fehler</th></tr>
+  <tr><th>Datei</th><th>Rolle</th><th>Format</th><th>Version</th><th>Status</th><th>Fehler <span class="en-hint">(Error)</span></th></tr>
   {% for x in status_items %}
   <tr>
     <td><a href="/ui/rules/{{ x.file }}">{{ x.file }}</a></td>

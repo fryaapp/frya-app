@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from app.accounting_analysis.akaunting_reconciliation_service import AkauntingReconciliationService
+from app.accounting_analysis.akaunting_reconciliation_service import AkauntingProbeResult, AkauntingReconciliationService
 from app.accounting_analysis.models import (
     AkauntingReconciliationInput,
     AccountingClarificationCompletionInput,
@@ -382,6 +382,24 @@ async def case_akaunting_reconciliation_lookup(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/akaunting-probe')
+async def case_akaunting_probe(
+    case_id: str,
+    accounting_data: dict | None = None,
+    reconciliation_service: AkauntingReconciliationService = Depends(get_akaunting_reconciliation_service),
+    audit_service: AuditService = Depends(get_audit_service),
+) -> dict:
+    """Read-only Akaunting probe. No write, no payment, no finalisation."""
+    if accounting_data is None:
+        accounting_data = {}
+    result: AkauntingProbeResult = await reconciliation_service.probe_case(
+        case_id=case_id,
+        accounting_data=accounting_data,
+    )
+    assert result.akaunting_write_executed is False, 'Safety invariant violated'
     return result.model_dump(mode='json')
 
 
