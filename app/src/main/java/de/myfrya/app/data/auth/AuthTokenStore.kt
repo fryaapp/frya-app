@@ -19,9 +19,17 @@ class AuthTokenStore(context: Context) {
     )
 
     private val keyAccessToken = "access_token"
+    private val keyRefreshToken = "refresh_token"
 
     fun saveToken(token: String) {
         prefs.edit().putString(keyAccessToken, token).apply()
+    }
+
+    fun saveTokens(accessToken: String, refreshToken: String) {
+        prefs.edit()
+            .putString(keyAccessToken, accessToken)
+            .putString(keyRefreshToken, refreshToken)
+            .apply()
     }
 
     fun getToken(): String? = prefs.getString(keyAccessToken, null)
@@ -29,6 +37,9 @@ class AuthTokenStore(context: Context) {
     fun hasToken(): Boolean = (getToken() ?: "").isNotBlank()
 
     fun clear() {
-        prefs.edit().remove(keyAccessToken).apply()
+        prefs.edit()
+            .remove(keyAccessToken)
+            .remove(keyRefreshToken)
+            .apply()
     }
 }

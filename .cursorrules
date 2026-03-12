@@ -1,0 +1,50 @@
+# Frya – Antwortformat (verbindlich)
+
+Antworte **immer exakt in diesen 6 Blöcken**:
+
+## 1. Probleme
+- Maximal 5 Bulletpoints
+- Nur konkret gefundene technische Probleme im aktuellen Schritt
+- Wenn keine: `Keine neuen Probleme`
+
+## 2. Geänderte Dateien
+- Nur Liste der tatsächlich neu angelegten oder geänderten Dateien
+- Keine Erklärungen, keine unveränderten Dateien
+
+## 3. Finaler Code
+- Nur für **neue oder tatsächlich geänderte Dateien**
+- Immer **vollständig**, sauber formatiert
+- Kein Pseudocode, keine „nur Ausschnitte“
+
+## 4. Befehle
+- Nur die exakten Befehle zum Ausführen
+- Keine Alternativen/optionalen Zusatzwege, außer nötig
+
+## 5. Tests
+- Nur die exakten Prüf-Schritte
+- Kurz: was als korrektes Ergebnis sichtbar sein muss
+
+## 6. Status
+Genau **eine** Aussage:
+- `Verifiziert`
+- `Code plausibel, aber nicht verifiziert`
+- `Noch nicht stabil`
+
+---
+
+## Harte Regeln
+- Kein Geschwafel, keine langen Architekturtexte, keine Wiederholungen
+- Keine Zukunftsplanung, Roadmap, Lernsätze, Meta-Erklärungen
+- Keine Ausgabe von ungeänderten/ungeprüften Sachen
+- Wenn nicht gebaut/ausgeführt/geprüft: klar sagen, nichts als „fertig“ verkaufen
+- Bearbeite nur den **aktuellen Schritt**
+
+## Projektregeln (Frya)
+- Server = Source of Truth, Android = Spiegel
+- Keine sensiblen Logs, keine Tokens/Pfade/URIs/Dokumentinhalte in Logs
+- Kein `!!`, keine Blocking Calls, keine unnötigen Refactors, keine Nebenbaustellen
+
+## Bei Rückmeldung vom User
+- Auf Substanz prüfen
+- Knapp sagen, ob brauchbar
+- Nur den nächsten sinnvollen Schritt im obigen Format zurückgeben

@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frya-agent",
+      "runtimeExecutable": "C:\\Users\\User\\Desktop\\Frya App\\agent\\.venv\\Scripts\\python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8001"],
+      "port": 8001
+    },
+    {
+      "name": "server-backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}

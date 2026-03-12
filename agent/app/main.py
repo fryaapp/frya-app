@@ -1,0 +1,263 @@
+﻿from __future__ import annotations
+
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from urllib.parse import quote
+
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.status import HTTP_303_SEE_OTHER
+
+from app.api.approval_views import router as approval_router
+from app.api.audit_views import router as audit_router
+from app.api.case_views import router as case_router
+from app.api.health import router as health_router
+from app.api.open_items_views import router as open_items_router
+from app.api.problem_views import router as problem_router
+from app.api.proposal_views import router as proposal_router
+from app.api.rules_views import router as rules_router
+from app.api.verfahrensdoku_views import router as verfahrensdoku_router
+from app.api.webhooks import router as webhooks_router
+from app.api.ws import router as ws_router
+from app.approvals.service import ApprovalService
+from app.audit.service import AuditService
+from app.auth.csrf import require_csrf
+from app.auth.dependencies import require_admin
+from app.auth.models import AuthUser
+from app.auth.router import router as auth_router
+from app.config import get_settings
+from app.dependencies import (
+    get_approval_service,
+    get_audit_service,
+    get_open_items_service,
+    get_policy_access_layer,
+    get_problem_case_service,
+    get_rule_change_audit_service,
+)
+from app.open_items.service import OpenItemsService
+from app.orchestration.graph import build_graph
+from app.problems.service import ProblemCaseService
+from app.rules.audit_service import RuleChangeAuditService
+from app.rules.policy_access import REQUIRED_POLICY_ROLES
+from app.ui.router import router as ui_router
+
+AUTH_TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / 'ui' / 'templates'))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    audit_service: AuditService = get_audit_service()
+    open_items_service: OpenItemsService = get_open_items_service()
+    problem_service: ProblemCaseService = get_problem_case_service()
+    rule_change_service: RuleChangeAuditService = get_rule_change_audit_service()
+    approval_service: ApprovalService = get_approval_service()
+
+    await audit_service.initialize()
+    await open_items_service.initialize()
+    await problem_service.initialize()
+    await rule_change_service.initialize()
+    await approval_service.initialize()
+
+    app.state.graph = build_graph()
+
+    policy_access = get_policy_access_layer()
+    ok, missing = policy_access.required_policies_loaded()
+    startup_policy_refs = policy_access.get_policy_refs(list(REQUIRED_POLICY_ROLES))
+
+    await audit_service.log_event(
+        {
+            'event_id': str(uuid.uuid4()),
+            'case_id': 'system-startup',
+            'source': 'system',
+            'agent_name': 'frya-bootstrap',
+            'approval_status': 'NOT_REQUIRED',
+            'action': 'SYSTEM_STARTUP',
+            'result': 'Agent backend initialized',
+            'policy_refs': startup_policy_refs,
+        }
+    )
+
+    await audit_service.log_event(
+        {
+            'event_id': str(uuid.uuid4()),
+            'case_id': 'system-policies',
+            'source': 'system',
+            'agent_name': 'frya-bootstrap',
+            'approval_status': 'NOT_REQUIRED',
+            'action': 'POLICY_LOAD_STATUS',
+            'result': 'all_required_loaded' if ok else f'missing_required={missing}',
+            'policy_refs': startup_policy_refs,
+        }
+    )
+
+    yield
+
+
+app = FastAPI(title='FRYA Agent Backend', version='0.3.0', lifespan=lifespan)
+settings = get_settings()
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.auth_session_secret,
+    session_cookie=settings.auth_session_cookie_name,
+    max_age=settings.auth_session_max_age_seconds,
+    same_site=settings.auth_cookie_samesite,
+    https_only=settings.auth_cookie_secure,
+    domain=settings.auth_cookie_domain,
+)
+
+
+@app.exception_handler(HTTPException)
+async def auth_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code == 401:
+        if request.url.path.startswith('/ui'):
+            next_target = request.url.path
+            if request.url.query:
+                next_target = f'{next_target}?{request.url.query}'
+            encoded_next = quote(next_target, safe='')
+            return RedirectResponse(url=f'/auth/login?next={encoded_next}', status_code=HTTP_303_SEE_OTHER)
+        return JSONResponse(status_code=401, content={'detail': 'not_authenticated'})
+
+    if exc.status_code == 403:
+        if request.url.path.startswith('/ui'):
+            return AUTH_TEMPLATES.TemplateResponse(
+                request,
+                '403.html',
+                {
+                    'request': request,
+                    'title': 'Forbidden',
+                    'message': 'Keine Berechtigung fuer diese Aktion.',
+                },
+                status_code=403,
+            )
+        return JSONResponse(status_code=403, content={'detail': 'forbidden'})
+
+    return await http_exception_handler(request, exc)
+
+
+ui_static_dir = Path(__file__).resolve().parent / 'ui' / 'static'
+app.mount('/ui/static', StaticFiles(directory=str(ui_static_dir)), name='ui_static')
+
+app.include_router(health_router)
+app.include_router(auth_router)
+app.include_router(webhooks_router)
+app.include_router(ws_router)
+app.include_router(audit_router)
+app.include_router(case_router)
+app.include_router(open_items_router)
+app.include_router(problem_router)
+app.include_router(proposal_router)
+app.include_router(rules_router)
+app.include_router(approval_router)
+app.include_router(verfahrensdoku_router)
+app.include_router(ui_router)
+
+
+@app.post('/agent/run')
+async def run_agent_case(
+    payload: dict,
+    _admin: AuthUser = Depends(require_admin),
+    _csrf: None = Depends(require_csrf),
+):
+    graph = app.state.graph
+    audit_service: AuditService = get_audit_service()
+    approval_service: ApprovalService = get_approval_service()
+
+    case_id = payload.get('case_id', str(uuid.uuid4()))
+
+    approved = bool(payload.get('approved', False))
+    approval_id = payload.get('approval_id')
+    approval_decision = payload.get('approval_decision')
+
+    if approved and not approval_id:
+        approved = False
+
+    if approval_id and approval_decision:
+        try:
+            decided = await approval_service.decide_approval(
+                approval_id=approval_id,
+                decision=str(approval_decision),
+                decided_by=str(payload.get('decided_by', 'api-user')),
+                reason=payload.get('decision_reason'),
+                source='agent_run',
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if decided is None:
+            raise HTTPException(status_code=404, detail='Approval nicht gefunden')
+        approved = decided.status == 'APPROVED'
+        approval_id = decided.approval_id
+
+    state = {
+        'case_id': case_id,
+        'source': payload.get('source', 'api'),
+        'message': payload.get('message', payload.get('ocr_text', '')),
+        'document_ref': payload.get('document_ref'),
+        'paperless_metadata': payload.get('paperless_metadata') or {},
+        'ocr_text': payload.get('ocr_text'),
+        'preview_text': payload.get('preview_text'),
+        'approved': approved,
+        'approval_id': approval_id,
+    }
+    result = await graph.ainvoke(state)
+
+    output = result.get('output', {}) if isinstance(result, dict) else {}
+    policy_refs = output.get('policy_refs', []) if isinstance(output, dict) else []
+    status_value = str(output.get('status', 'UNKNOWN'))
+    decision_mode = str(output.get('approval_mode', 'UNKNOWN'))
+    action_key = str(output.get('action_key', 'unknown_action'))
+    gate_reason = str(output.get('policy_gate_reason', ''))
+    approval_id = str(output.get('approval_id') or approval_id or '')
+
+    approval_status = 'NOT_REQUIRED'
+    if status_value == 'WAITING_APPROVAL':
+        approval_status = 'PENDING'
+    elif decision_mode == 'BLOCK_ESCALATE':
+        approval_status = 'REJECTED'
+    elif approved or status_value == 'READY_FOR_DETERMINISTIC_EXECUTION':
+        approval_status = 'APPROVED'
+
+    await audit_service.log_event(
+        {
+            'event_id': str(uuid.uuid4()),
+            'case_id': case_id,
+            'source': state.get('source', 'api'),
+            'agent_name': 'frya-orchestrator',
+            'approval_status': approval_status,
+            'workflow_name': 'n8n' if output.get('deterministic_rule_path') else None,
+            'action': 'APPROVAL_GATE_DECISION',
+            'result': f'mode={decision_mode};action={action_key};status={status_value};approval_id={approval_id or "-"};reason={gate_reason}',
+            'llm_output': {
+                'status': status_value,
+                'approval_mode': decision_mode,
+                'action_key': action_key,
+                'approval_id': approval_id or None,
+                'execution_allowed': output.get('execution_allowed', False),
+            },
+            'policy_refs': policy_refs,
+        }
+    )
+
+    await audit_service.log_event(
+        {
+            'event_id': str(uuid.uuid4()),
+            'case_id': case_id,
+            'source': state.get('source', 'api'),
+            'agent_name': 'frya-orchestrator',
+            'approval_status': approval_status,
+            'workflow_name': 'n8n' if output.get('deterministic_rule_path') else None,
+            'action': 'AGENT_RUN_COMPLETED',
+            'result': status_value,
+            'llm_output': output,
+            'policy_refs': policy_refs,
+        }
+    )
+
+    return {'status': 'ok', 'case_id': case_id, 'result': result}
+
+

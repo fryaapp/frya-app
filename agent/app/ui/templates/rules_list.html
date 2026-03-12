@@ -1,0 +1,17 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h1>Rules</h1>
+<table>
+  <tr><th>Datei</th><th>Rolle</th><th>Format</th><th>Version</th><th>Status</th><th>Fehler</th></tr>
+  {% for x in status_items %}
+  <tr>
+    <td><a href="/ui/rules/{{ x.file }}">{{ x.file }}</a></td>
+    <td>{{ x.role or '' }}</td>
+    <td>{{ x.format }}</td>
+    <td>{{ x.version or '-' }}</td>
+    <td>{% if x.loaded %}OK{% else %}ERROR{% endif %}</td>
+    <td>{{ x.error or '' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

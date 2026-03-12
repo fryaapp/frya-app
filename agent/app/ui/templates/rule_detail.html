@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Rule: {{ doc.file }}</h1>
+<p>Format: {{ doc.format }} | Version: {{ doc.version or '-' }} | Rolle: {{ doc.role or '-' }}</p>
+{% if message %}<p class="flash">{{ message }}</p>{% endif %}
+{% if approval_record %}
+<section class="panel-warn">
+  <h2>Freigabe-Status</h2>
+  <p><strong>ID:</strong> {{ approval_record.approval_id }}</p>
+  <p><strong>Modus:</strong> {{ approval_record.required_mode }}</p>
+  <p><strong>Status:</strong> {{ approval_record.status }}</p>
+  <p><strong>Grund:</strong> {{ approval_record.reason or '-' }}</p>
+  <p><strong>Naechster Schritt:</strong> {{ approval_next_step(approval_record.status) }}</p>
+</section>
+{% endif %}
+
+<section>
+  <h2>Aktueller Inhalt</h2>
+  <pre>{{ doc.content }}</pre>
+</section>
+
+<section>
+  <h2>Edit (auditierbar, admin)</h2>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+    <label>Approval ID
+      <input type="text" name="approval_id" value="{{ approval_id or '' }}" />
+    </label>
+    <label>Begruendung
+      <input type="text" name="reason" required />
+    </label>
+    <label>Content
+      <textarea name="content" rows="24" required>{{ doc.content }}</textarea>
+    </label>
+    <button type="submit">Speichern</button>
+  </form>
+</section>
+{% endblock %}

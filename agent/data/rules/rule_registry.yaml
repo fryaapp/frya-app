@@ -1,0 +1,45 @@
+﻿version: 1
+entries:
+  - file: policies/orchestrator_policy.md
+    role: orchestrator_policy
+    required: true
+  - file: policies/runtime_policy.md
+    role: runtime_policy
+    required: true
+  - file: policies/gobd_compliance_policy.md
+    role: compliance_policy
+    required: true
+  - file: policies/accounting_analyst_policy.md
+    role: accounting_analyst_policy
+    required: true
+  - file: policies/problemfall_policy.md
+    role: problemfall_policy
+    required: true
+  - file: policies/freigabematrix.md
+    role: approval_matrix_policy
+    required: true
+  - file: policies/document_analyst_policy.md
+    role: document_analyst_policy
+    required: false
+  - file: orchestrator_rules.yaml
+    role: legacy_orchestrator_schema
+    required: false
+  - file: runtime_rules.yaml
+    role: legacy_runtime_schema
+    required: false
+  - file: compliance_rules.yaml
+    role: legacy_compliance_schema
+    required: false
+  - file: approval_matrix.yaml
+    role: legacy_approval_matrix_schema
+    required: false
+  - file: exception_rules.yaml
+    role: legacy_exception_schema
+    required: false
+  - file: communication_rules.yaml
+    role: legacy_communication_schema
+    required: false
+  - file: output_schemas.yaml
+    role: output_schemas
+    required: true
+

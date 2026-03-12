@@ -1,0 +1,6 @@
+﻿version: 1
+name: exception_rules
+policies:
+  - log_problem_case
+
+

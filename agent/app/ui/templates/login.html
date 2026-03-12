@@ -1,0 +1,28 @@
+﻿<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FRYA Login</title>
+  <link rel="stylesheet" href="/ui/static/ui.css" />
+</head>
+<body>
+  <main class="content" style="max-width: 520px; margin: 4rem auto;">
+    <h1>FRYA Login</h1>
+    <p>Interner Zugriff fuer Operator/Admin.</p>
+    {% if error %}
+    <p class="panel-warn">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/auth/login">
+      <input type="hidden" name="next" value="{{ next or '/ui/dashboard' }}" />
+      <label>Username
+        <input type="text" name="username" autocomplete="username" required />
+      </label>
+      <label>Passwort
+        <input type="password" name="password" autocomplete="current-password" required />
+      </label>
+      <button type="submit">Anmelden</button>
+    </form>
+  </main>
+</body>
+</html>

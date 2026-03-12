@@ -1,0 +1,88 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h1>Problem Cases</h1>
+<p class="page-lead">Stoerungen, Exceptions und kritische Faelle fuer die operative Bearbeitung.</p>
+<p class="empty-sub">{{ status_note }}</p>
+
+{% set ns = namespace(high=0, medium=0, low=0) %}
+{% for row in rows %}
+  {% if row.risk == 'HIGH' %}
+    {% set ns.high = ns.high + 1 %}
+  {% elif row.risk == 'MEDIUM' %}
+    {% set ns.medium = ns.medium + 1 %}
+  {% elif row.risk == 'LOW' %}
+    {% set ns.low = ns.low + 1 %}
+  {% endif %}
+{% endfor %}
+
+<section>
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Gefilterte Problem Cases</p>
+      <p class="summary-value">{{ rows|length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">HIGH Risk</p>
+      <p class="summary-value {% if ns.high > 0 %}warn{% endif %}">{{ ns.high }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Aktiver Filter</p>
+      <p class="summary-sub">Type={{ selected_type }}, Risk={{ selected_risk }}, Status={{ selected_status }}</p>
+    </article>
+  </div>
+</section>
+
+<section class="filter-panel">
+  <div class="section-head">
+    <h2>Filter</h2>
+    <a class="inline-link" href="/ui/problem-cases">Reset</a>
+  </div>
+  <form method="get" class="filters">
+    <label>Type
+      <select name="type">
+        {% for t in type_options %}
+        <option value="{{ t }}" {% if t == selected_type %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Risk
+      <select name="risk">
+        {% for r in risk_options %}
+        <option value="{{ r }}" {% if r == selected_risk %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Status
+      <select name="status">
+        {% for s in status_options %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Anwenden</button>
+  </form>
+</section>
+
+<section>
+{% if rows %}
+<table>
+  <tr><th>Zeit</th><th>Case</th><th>Type</th><th>Risk</th><th>Status</th><th>Titel</th><th>Aktion</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.problem.created_at }}</td>
+    <td><a href="{{ case_href(r.problem.case_id) }}">{{ r.problem.case_id }}</a></td>
+    <td>{{ r.type }}</td>
+    <td><span class="sev-badge sev-{{ r.risk|lower }}">{{ r.risk }}</span></td>
+    <td><span class="hint-badge">{{ r.status }}</span></td>
+    <td>{{ r.problem.title }}</td>
+    <td><a class="btn-link" href="{{ case_href(r.problem.case_id) }}">Fall oeffnen</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="empty">Keine Problem Cases fuer die gewaehlten Filter.</p>
+<p class="empty-sub">Filter lockern oder auf Reset gehen, falls erwartet wurde, dass Faelle sichtbar sind.</p>
+{% endif %}
+</section>
+{% endblock %}
+

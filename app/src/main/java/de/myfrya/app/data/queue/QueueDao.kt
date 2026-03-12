@@ -18,7 +18,7 @@ interface QueueDao {
     suspend fun getOldestPending(): QueueItemEntity?
 
     @Query("UPDATE queue_items SET status = :status, errorMessage = :errorMessage WHERE id = :id")
-    suspend fun updateStatus(id: Long, status: QueueStatus, errorMessage: String? = null)
+    suspend fun updateStatus(id: Long, status: String, errorMessage: String? = null)
 
     @Query("UPDATE queue_items SET status = 'PENDING', errorMessage = null WHERE status = 'FAILED'")
     suspend fun retryFailed()

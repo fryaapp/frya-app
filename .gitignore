@@ -13,3 +13,21 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Secrets
+staging.env
+*.env
+
+# Temp probe/deploy scripts
+tmp_*.py
+tmp_*.sh
+tmp_*.tgz
+tmp_*.txt
+tmp.compose*.yml
+
+# Python
+agent/.venv/
+agent/__pycache__/
+agent/.pytest_cache/
+**/__pycache__/
+**/*.pyc

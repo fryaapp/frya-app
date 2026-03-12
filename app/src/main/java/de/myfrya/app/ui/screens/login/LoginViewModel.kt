@@ -3,7 +3,12 @@ package de.myfrya.app.ui.screens.login
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import de.myfrya.app.data.api.ApiClient
+import de.myfrya.app.data.api.LoginRequest
 import de.myfrya.app.data.auth.AuthTokenStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import retrofit2.HttpException
 
 class LoginViewModel(private val tokenStore: AuthTokenStore) {
 
@@ -26,7 +31,7 @@ class LoginViewModel(private val tokenStore: AuthTokenStore) {
         error = null
     }
 
-    fun onLoginClicked(onLoginSuccess: () -> Unit) {
+    suspend fun login(onLoginSuccess: () -> Unit) {
         error = null
         if (!email.contains("@")) {
             error = "Ungültige E-Mail"
@@ -37,8 +42,23 @@ class LoginViewModel(private val tokenStore: AuthTokenStore) {
             return
         }
         isLoading = true
-        tokenStore.saveToken("dev-token")
+        val result = runCatching {
+            withContext(Dispatchers.IO) {
+                ApiClient.authApi.login(LoginRequest(email = email.trim(), password = password))
+            }
+        }
         isLoading = false
-        onLoginSuccess()
+        result.fold(
+            onSuccess = { response ->
+                tokenStore.saveToken(response.accessToken)
+                onLoginSuccess()
+            },
+            onFailure = { e ->
+                error = when (e) {
+                    is HttpException -> if (e.code() == 401) "E-Mail oder Passwort falsch" else "Anmeldung fehlgeschlagen"
+                    else -> "Anmeldung fehlgeschlagen"
+                }
+            }
+        )
     }
 }

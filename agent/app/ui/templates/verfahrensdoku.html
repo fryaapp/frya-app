@@ -1,0 +1,16 @@
+﻿{% extends 'base.html' %}
+{% block content %}
+<h1>Verfahrensdokumentation</h1>
+{% if files %}
+<ul>
+  {% for f in files %}
+  <li>
+    {{ f }}
+    <a href="/inspect/verfahrensdoku/{{ f.split('/')[-1] }}">Download</a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">Keine Verfahrensdoku-Artefakte gefunden.</p>
+{% endif %}
+{% endblock %}

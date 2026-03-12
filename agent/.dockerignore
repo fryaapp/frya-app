@@ -1,0 +1,26 @@
+# VCS / IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Python cache/artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Local env / secrets
+.env
+.env.*
+
+# Local virtualenvs
+.venv/
+venv/
+
+# Test and docs not needed in runtime image
+tests/
+README.md
