@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     n8n_default_workflow: str = 'default-frya-workflow'
 
     auth_users_json: str = '[]'
-    auth_session_secret: str = 'dev-insecure-session-secret-change-me'
+    auth_session_secret: str
     auth_session_cookie_name: str = 'frya_session'
     auth_session_max_age_seconds: int = 28800
     auth_session_idle_timeout_seconds: int = 28800

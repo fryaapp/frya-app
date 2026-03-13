@@ -1,6 +1,6 @@
 ﻿{% extends 'base.html' %}
 {% block content %}
-<h1>Problem Cases</h1>
+<h1>Problemfaelle <span class="en-hint">(Problem Cases)</span></h1>
 <p class="page-lead">Stoerungen, Exceptions und kritische Faelle fuer die operative Bearbeitung.</p>
 <p class="empty-sub">{{ status_note }}</p>
 
@@ -18,11 +18,11 @@
 <section>
   <div class="summary-grid compact">
     <article class="summary-card">
-      <p class="summary-label">Gefilterte Problem Cases</p>
+      <p class="summary-label">Gefilterte Problemfaelle <span class="en-hint">(Problem Cases)</span></p>
       <p class="summary-value">{{ rows|length }}</p>
     </article>
     <article class="summary-card">
-      <p class="summary-label">HIGH Risk</p>
+      <p class="summary-label">Hohes Risiko <span class="en-hint">(High Risk)</span></p>
       <p class="summary-value {% if ns.high > 0 %}warn{% endif %}">{{ ns.high }}</p>
     </article>
     <article class="summary-card">
@@ -38,14 +38,14 @@
     <a class="inline-link" href="/ui/problem-cases">Reset</a>
   </div>
   <form method="get" class="filters">
-    <label>Type
+    <label>Typ <span class="en-hint">(Type)</span>
       <select name="type">
         {% for t in type_options %}
         <option value="{{ t }}" {% if t == selected_type %}selected{% endif %}>{{ t }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>Risk
+    <label>Risiko <span class="en-hint">(Risk)</span>
       <select name="risk">
         {% for r in risk_options %}
         <option value="{{ r }}" {% if r == selected_risk %}selected{% endif %}>{{ r }}</option>
@@ -66,7 +66,7 @@
 <section>
 {% if rows %}
 <table>
-  <tr><th>Zeit</th><th>Case</th><th>Type</th><th>Risk</th><th>Status</th><th>Titel</th><th>Aktion</th></tr>
+  <tr><th>Zeit</th><th>Fall <span class="en-hint">(Case)</span></th><th>Typ <span class="en-hint">(Type)</span></th><th>Risiko <span class="en-hint">(Risk)</span></th><th>Status</th><th>Titel</th><th>Aktion</th></tr>
   {% for r in rows %}
   <tr>
     <td>{{ r.problem.created_at }}</td>
