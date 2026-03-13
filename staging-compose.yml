@@ -77,7 +77,7 @@ services:
       retries: 10
 
   tika:
-    image: ghcr.io/paperless-ngx/tika:latest
+    image: apache/tika:latest
     container_name: frya-tika
     restart: unless-stopped
     networks:
@@ -95,7 +95,7 @@ services:
       - frya-internal
 
   paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:2.14
+    image: paperlessngx/paperless-ngx:2.14
     container_name: frya-paperless
     restart: unless-stopped
     depends_on:
