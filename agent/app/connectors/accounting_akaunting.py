@@ -68,11 +68,9 @@ class AkauntingConnector(AccountingConnector):
 
         Uses /api/documents?search=type:bill (Akaunting v3 documents endpoint).
         """
-        # Build search string: type:bill is mandatory; append additional filters
-        search_parts = ['type:bill']
-        if reference:
-            search_parts.append(reference)
-        params: dict[str, str] = {'search': ' '.join(search_parts)}
+        # Only pass type:bill to Akaunting – bare reference tokens cause HTTP 500.
+        # Reference, contact_name and amount are filtered client-side below.
+        params: dict[str, str] = {'search': 'type:bill'}
         if date_from:
             params['date_from'] = date_from
         if date_to:
@@ -89,6 +87,12 @@ class AkauntingConnector(AccountingConnector):
                 items: list[dict] = data.get('data', data) if isinstance(data, dict) else data
                 if not isinstance(items, list):
                     return []
+                if reference:
+                    ref_lower = reference.lower()
+                    items = [
+                        i for i in items
+                        if ref_lower in (i.get('document_number') or i.get('number') or i.get('reference') or '').lower()
+                    ]
                 if contact_name:
                     cn_lower = contact_name.lower()
                     items = [
@@ -116,11 +120,9 @@ class AkauntingConnector(AccountingConnector):
 
         Uses /api/documents?search=type:invoice (Akaunting v3 documents endpoint).
         """
-        # Build search string: type:invoice is mandatory; append additional filters
-        search_parts = ['type:invoice']
-        if reference:
-            search_parts.append(reference)
-        params: dict[str, str] = {'search': ' '.join(search_parts)}
+        # Only pass type:invoice to Akaunting – bare reference tokens cause HTTP 500.
+        # Reference, contact_name and amount are filtered client-side below.
+        params: dict[str, str] = {'search': 'type:invoice'}
         try:
             async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
                 response = await client.get(
@@ -133,6 +135,12 @@ class AkauntingConnector(AccountingConnector):
                 items: list[dict] = data.get('data', data) if isinstance(data, dict) else data
                 if not isinstance(items, list):
                     return []
+                if reference:
+                    ref_lower = reference.lower()
+                    items = [
+                        i for i in items
+                        if ref_lower in (i.get('document_number') or i.get('number') or i.get('reference') or '').lower()
+                    ]
                 if contact_name:
                     cn_lower = contact_name.lower()
                     items = [
