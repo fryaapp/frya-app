@@ -103,9 +103,7 @@ class AkauntingConnector(AccountingConnector):
                         if abs(float(i.get('amount', i.get('total', 0)) or 0) - amount) <= tolerance
                     ]
                 return items[:5]
-        except httpx.ConnectError:
-            return []
-        except httpx.TimeoutException:
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return []
 
     async def search_invoices(
@@ -149,9 +147,7 @@ class AkauntingConnector(AccountingConnector):
                         if abs(float(i.get('amount', i.get('total', 0)) or 0) - amount) <= tolerance
                     ]
                 return items[:5]
-        except httpx.ConnectError:
-            return []
-        except httpx.TimeoutException:
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return []
 
     async def search_contacts(self, name: str | None = None) -> list[dict]:
@@ -172,7 +168,5 @@ class AkauntingConnector(AccountingConnector):
                 if not isinstance(items, list):
                     return []
                 return items[:5]
-        except httpx.ConnectError:
-            return []
-        except httpx.TimeoutException:
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return []
