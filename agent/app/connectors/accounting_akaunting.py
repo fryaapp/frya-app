@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import httpx
 
@@ -11,20 +11,37 @@ class AkauntingConnector(AccountingConnector):
     """Akaunting connector starts intentionally conservative.
 
     Financial truth is Akaunting. This connector exposes read and draft boundaries only.
+
+    Auth: prefers HTTP Basic Auth (email + password). Falls back to Bearer token if set.
+    Endpoints: uses /api/documents?search=type:bill|invoice (Akaunting v3 unified endpoint).
     """
 
-    def __init__(self, base_url: str, token: str | None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        token: str | None = None,
+        email: str | None = None,
+        password: str | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip('/')
         self.token = token
+        self.email = email
+        self.password = password
+
+    def _auth(self) -> httpx.BasicAuth | None:
+        """Return Basic Auth if credentials are set, else None."""
+        if self.email and self.password:
+            return httpx.BasicAuth(self.email, self.password)
+        return None
 
     def _headers(self) -> dict[str, str]:
         headers = {'Accept': 'application/json'}
-        if self.token:
+        if not (self.email and self.password) and self.token:
             headers['Authorization'] = f'Bearer {self.token}'
         return headers
 
     async def get_object(self, object_type: str, object_id: str) -> dict:
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(timeout=20, auth=self._auth()) as client:
             response = await client.get(
                 f'{self.base_url}/api/{object_type}/{object_id}',
                 headers=self._headers(),
@@ -47,18 +64,23 @@ class AkauntingConnector(AccountingConnector):
         date_to: str | None = None,
         contact_name: str | None = None,
     ) -> list[dict]:
-        """Read-only search for bills (Eingangsrechnungen). GET only, no write."""
-        params: dict[str, str] = {}
+        """Read-only search for bills (Eingangsrechnungen). GET only, no write.
+
+        Uses /api/documents?search=type:bill (Akaunting v3 documents endpoint).
+        """
+        # Build search string: type:bill is mandatory; append additional filters
+        search_parts = ['type:bill']
         if reference:
-            params['search'] = reference
+            search_parts.append(reference)
+        params: dict[str, str] = {'search': ' '.join(search_parts)}
         if date_from:
             params['date_from'] = date_from
         if date_to:
             params['date_to'] = date_to
         try:
-            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
                 response = await client.get(
-                    f'{self.base_url}/api/bills',
+                    f'{self.base_url}/api/documents',
                     headers=self._headers(),
                     params=params,
                 )
@@ -92,14 +114,19 @@ class AkauntingConnector(AccountingConnector):
         amount: float | None = None,
         contact_name: str | None = None,
     ) -> list[dict]:
-        """Read-only search for invoices (Ausgangsrechnungen). GET only, no write."""
-        params: dict[str, str] = {}
+        """Read-only search for invoices (Ausgangsrechnungen). GET only, no write.
+
+        Uses /api/documents?search=type:invoice (Akaunting v3 documents endpoint).
+        """
+        # Build search string: type:invoice is mandatory; append additional filters
+        search_parts = ['type:invoice']
         if reference:
-            params['search'] = reference
+            search_parts.append(reference)
+        params: dict[str, str] = {'search': ' '.join(search_parts)}
         try:
-            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
                 response = await client.get(
-                    f'{self.base_url}/api/invoices',
+                    f'{self.base_url}/api/documents',
                     headers=self._headers(),
                     params=params,
                 )
@@ -133,7 +160,7 @@ class AkauntingConnector(AccountingConnector):
         if name:
             params['search'] = name
         try:
-            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
                 response = await client.get(
                     f'{self.base_url}/api/contacts',
                     headers=self._headers(),

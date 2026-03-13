@@ -27,6 +27,8 @@ class Settings(BaseSettings):
 
     akaunting_base_url: str
     akaunting_token: str | None = None
+    akaunting_email: str | None = None
+    akaunting_password: str | None = None
 
     telegram_bot_token: str | None = None
     telegram_default_chat_id: str | None = None

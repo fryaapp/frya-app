@@ -133,7 +133,12 @@ def get_accounting_operator_review_service() -> AccountingOperatorReviewService:
 @lru_cache
 def get_akaunting_connector() -> AkauntingConnector:
     settings = get_settings()
-    return AkauntingConnector(settings.akaunting_base_url, settings.akaunting_token)
+    return AkauntingConnector(
+        settings.akaunting_base_url,
+        token=settings.akaunting_token,
+        email=settings.akaunting_email,
+        password=settings.akaunting_password,
+    )
 
 
 @lru_cache
