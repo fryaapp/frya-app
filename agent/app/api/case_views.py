@@ -25,11 +25,14 @@ from app.auth.csrf import require_csrf
 from app.auth.dependencies import require_admin, require_operator
 from app.auth.models import AuthUser
 from app.cases.urls import inspect_case_href
+from app.banking.models import BankTransactionProbeResult
+from app.banking.service import BankTransactionService
 from app.dependencies import (
     get_accounting_operator_review_service,
     get_akaunting_reconciliation_service,
     get_approval_service,
     get_audit_service,
+    get_bank_transaction_service,
     get_open_items_service,
     get_problem_case_service,
 )
@@ -400,6 +403,35 @@ async def case_akaunting_probe(
         accounting_data=accounting_data,
     )
     assert result.akaunting_write_executed is False, 'Safety invariant violated'
+    return result.model_dump(mode='json')
+
+
+class BankTransactionProbeBody(BaseModel):
+    reference: str | None = None
+    amount: float | None = None
+    contact_name: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+
+
+@router.post('/{case_id:path}/bank-transaction-probe')
+async def case_bank_transaction_probe(
+    case_id: str,
+    body: BankTransactionProbeBody | None = None,
+    bank_service: BankTransactionService = Depends(get_bank_transaction_service),
+) -> dict:
+    """Read-only bank transaction probe via Akaunting. No write, no payment initiation."""
+    if body is None:
+        body = BankTransactionProbeBody()
+    result: BankTransactionProbeResult = await bank_service.probe_transactions(
+        case_id=case_id,
+        reference=body.reference,
+        amount=body.amount,
+        contact_name=body.contact_name,
+        date_from=body.date_from,
+        date_to=body.date_to,
+    )
+    assert result.bank_write_executed is False, 'Bank safety invariant violated'
     return result.model_dump(mode='json')
 
 

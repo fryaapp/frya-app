@@ -362,6 +362,71 @@
   {% endif %}
 </section>
 
+<!-- Bank-Transaktion Probe Block -->
+<section class="panel action-panel">
+  <h3>Bank-Transaktions-Probe <span class="en-hint">(Read-only)</span></h3>
+  {% if bank_transaction_probe %}
+  <div class="probe-result probe-{{ bank_transaction_probe.result|lower }}">
+    <div class="summary-grid compact">
+      <article class="summary-card">
+        <p class="summary-label">Ergebnis</p>
+        <p class="summary-value {% if bank_transaction_probe.result == 'MATCH_FOUND' %}ok{% elif bank_transaction_probe.result == 'NO_MATCH_FOUND' %}warn{% else %}warn{% endif %}">{{ bank_transaction_probe.result }}</p>
+        <p class="summary-sub"><span class="badge">read-only</span> bank_write_executed={{ bank_transaction_probe.bank_write_executed }}</p>
+      </article>
+      <article class="summary-card">
+        <p class="summary-label">Gepruefte Felder</p>
+        <p class="summary-sub">
+          Referenz: {{ bank_transaction_probe.probe_fields.get('reference') or '-' }}<br>
+          Betrag: {{ bank_transaction_probe.probe_fields.get('amount') or '-' }}<br>
+          Kontakt: {{ bank_transaction_probe.probe_fields.get('contact_name') or '-' }}<br>
+          Von: {{ bank_transaction_probe.probe_fields.get('date_from') or '-' }}<br>
+          Bis: {{ bank_transaction_probe.probe_fields.get('date_to') or '-' }}
+        </p>
+      </article>
+      <article class="summary-card">
+        <p class="summary-label">Treffer (max 5)</p>
+        <p class="summary-sub">
+          {% if bank_transaction_probe.matches %}
+            {% for m in bank_transaction_probe.matches %}
+            id={{ m.get('id', '?') }}, Ref={{ m.get('reference') or '-' }}, Betrag={{ m.get('amount') or '-' }}, Datum={{ m.get('paid_at') or m.get('date') or '-' }}<br>
+            {% endfor %}
+          {% else %}
+          Keine Treffer
+          {% endif %}
+        </p>
+      </article>
+      <article class="summary-card">
+        <p class="summary-label">Hinweis</p>
+        <p class="summary-sub">{{ bank_transaction_probe.note }}</p>
+      </article>
+    </div>
+  </div>
+  <details class="mt-sm">
+    <summary class="btn-link">Erneut suchen</summary>
+    <form method="post" action="{{ case_href(case_id) }}/bank-transaction-probe" class="stack gap-sm mt-sm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+      <label>Referenz <input type="text" name="reference" placeholder="z.B. RE-2024-001" /></label>
+      <label>Betrag <input type="number" step="0.01" name="amount" placeholder="z.B. 150.00" /></label>
+      <label>Kontakt <input type="text" name="contact_name" placeholder="Firmenname oder Person" /></label>
+      <label>Von (Datum) <input type="date" name="date_from" /></label>
+      <label>Bis (Datum) <input type="date" name="date_to" /></label>
+      <button type="submit" class="btn-link">Probe starten</button>
+    </form>
+  </details>
+  {% else %}
+  <p class="empty">Noch keine Bank-Probe durchgefuehrt.</p>
+  <form method="post" action="{{ case_href(case_id) }}/bank-transaction-probe" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+    <label>Referenz <input type="text" name="reference" placeholder="z.B. RE-2024-001" /></label>
+    <label>Betrag <input type="number" step="0.01" name="amount" placeholder="z.B. 150.00" /></label>
+    <label>Kontakt <input type="text" name="contact_name" placeholder="Firmenname oder Person" /></label>
+    <label>Von (Datum) <input type="date" name="date_from" /></label>
+    <label>Bis (Datum) <input type="date" name="date_to" /></label>
+    <button type="submit" class="btn-link">Probe starten</button>
+  </form>
+  {% endif %}
+</section>
+
 {% if can_complete_external_return_clarification %}
 <section class="action-panel">
   <h2>Externen Ruecklauf erneut klaeren</h2>

@@ -29,11 +29,13 @@ from app.auth.dependencies import require_admin, require_operator
 from app.auth.models import AuthUser
 from app.cases.urls import ui_case_href
 from app.config import get_settings
+from app.banking.service import BankTransactionService
 from app.dependencies import (
     get_accounting_operator_review_service,
     get_akaunting_reconciliation_service,
     get_approval_service,
     get_audit_service,
+    get_bank_transaction_service,
     get_file_store,
     get_open_items_service,
     get_policy_access_layer,
@@ -224,6 +226,18 @@ def _latest_external_return_clarification_completion(events: list[Any]) -> dict[
 def _latest_akaunting_probe(events: list[Any]) -> dict[str, Any] | None:
     for event in reversed(events):
         if getattr(event, 'action', None) != 'AKAUNTING_PROBE_EXECUTED':
+            continue
+        if not getattr(event, 'llm_output', None):
+            continue
+        payload = _normalize_payload(event.llm_output)
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _latest_bank_transaction(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'BANK_TRANSACTION_PROBE_EXECUTED':
             continue
         if not getattr(event, 'llm_output', None):
             continue
@@ -525,6 +539,34 @@ async def ui_case_akaunting_probe(
     return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
 
 
+@router.post('/cases/{case_id:path}/bank-transaction-probe', dependencies=[Depends(require_csrf)])
+async def ui_case_bank_transaction_probe(
+    request: Request,
+    case_id: str,
+    reference: str | None = Form(default=None),
+    amount: str | None = Form(default=None),
+    contact_name: str | None = Form(default=None),
+    date_from: str | None = Form(default=None),
+    date_to: str | None = Form(default=None),
+    bank_service: BankTransactionService = Depends(get_bank_transaction_service),
+) -> RedirectResponse:
+    try:
+        amount_float: float | None = float(amount) if amount and amount.strip() else None
+        result = await bank_service.probe_transactions(
+            case_id=case_id,
+            reference=reference or None,
+            amount=amount_float,
+            contact_name=contact_name or None,
+            date_from=date_from or None,
+            date_to=date_to or None,
+        )
+        assert result.bank_write_executed is False, 'Bank safety invariant violated'
+        msg = f'Bank-Probe: {result.result.value}'
+    except Exception as exc:
+        msg = f'Bank-Probe-Fehler: {exc}'
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
 @router.get('/cases/{case_id:path}', response_class=HTMLResponse)
 async def ui_case_detail(
     request: Request,
@@ -563,6 +605,7 @@ async def ui_case_detail(
         external_return_clarification_completion,
     )
     akaunting_probe = _latest_akaunting_probe(chronology)
+    bank_transaction_probe = _latest_bank_transaction(chronology)
 
     return TEMPLATES.TemplateResponse(
         request,
@@ -591,6 +634,7 @@ async def ui_case_detail(
             external_accounting_process_resolution=external_accounting_process_resolution,
             external_return_clarification_completion=external_return_clarification_completion,
             akaunting_probe=akaunting_probe,
+            bank_transaction_probe=bank_transaction_probe,
             can_submit_accounting_review=_can_submit_accounting_review(accounting_analysis, accounting_operator_review),
             can_complete_accounting_clarification=_can_complete_accounting_clarification(accounting_manual_handoff_resolution, accounting_clarification_completion),
             can_resolve_external_accounting_process=_can_resolve_external_accounting_process(outside_agent_accounting_process, external_accounting_process_resolution),

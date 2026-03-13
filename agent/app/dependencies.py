@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from app.accounting_analysis.akaunting_reconciliation_service import AkauntingReconciliationService
+from app.banking.service import BankTransactionService
 from app.accounting_analysis.review_service import AccountingOperatorReviewService
 from app.accounting_analysis.service import AccountingAnalysisService
 from app.connectors.accounting_akaunting import AkauntingConnector
@@ -144,6 +145,14 @@ def get_akaunting_connector() -> AkauntingConnector:
 @lru_cache
 def get_akaunting_reconciliation_service() -> AkauntingReconciliationService:
     return AkauntingReconciliationService(
+        akaunting_connector=get_akaunting_connector(),
+        audit_service=get_audit_service(),
+    )
+
+
+@lru_cache
+def get_bank_transaction_service() -> BankTransactionService:
+    return BankTransactionService(
         akaunting_connector=get_akaunting_connector(),
         audit_service=get_audit_service(),
     )

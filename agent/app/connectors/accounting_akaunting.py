@@ -104,7 +104,7 @@ class AkauntingConnector(AccountingConnector):
                     ]
                 return items[:5]
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
-            return []
+            return []  # search_bills error boundary
 
     async def search_invoices(
         self,
@@ -148,7 +148,7 @@ class AkauntingConnector(AccountingConnector):
                     ]
                 return items[:5]
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
-            return []
+            return []  # search_invoices error boundary
 
     async def search_contacts(self, name: str | None = None) -> list[dict]:
         """Read-only search for contacts. GET only, no write."""
@@ -168,5 +168,67 @@ class AkauntingConnector(AccountingConnector):
                 if not isinstance(items, list):
                     return []
                 return items[:5]
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
+            return []  # search_contacts error boundary
+
+    async def search_transactions(
+        self,
+        reference: str | None = None,
+        amount: float | None = None,
+        contact_name: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+    ) -> list[dict]:
+        """Read-only search for banking transactions. GET only, no write."""
+        params: dict[str, str] = {}
+        if reference:
+            params['search'] = reference
+        if date_from:
+            params['date_from'] = date_from
+        if date_to:
+            params['date_to'] = date_to
+        try:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
+                response = await client.get(
+                    f'{self.base_url}/api/transactions',
+                    headers=self._headers(),
+                    params=params,
+                )
+                response.raise_for_status()
+                data = response.json()
+                items: list[dict] = data.get('data', data) if isinstance(data, dict) else data
+                if not isinstance(items, list):
+                    return []
+                if contact_name:
+                    cn_lower = contact_name.lower()
+                    items = [
+                        i for i in items
+                        if cn_lower in (i.get('contact_name') or '').lower()
+                        or cn_lower in (i.get('contact', {}) or {}).get('name', '').lower()
+                    ]
+                if amount is not None:
+                    tolerance = abs(amount) * 0.05
+                    items = [
+                        i for i in items
+                        if abs(float(i.get('amount', 0) or 0) - amount) <= tolerance
+                    ]
+                return items[:5]
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
+            return []
+
+    async def search_accounts(self) -> list[dict]:
+        """Read-only: return all bank accounts. GET only, no write."""
+        try:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
+                response = await client.get(
+                    f'{self.base_url}/api/accounts',
+                    headers=self._headers(),
+                )
+                response.raise_for_status()
+                data = response.json()
+                items: list[dict] = data.get('data', data) if isinstance(data, dict) else data
+                if not isinstance(items, list):
+                    return []
+                return items[:20]
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return []
