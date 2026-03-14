@@ -1,6 +1,7 @@
 """Banking operator reconciliation review service.
 
 V1.3 — Conservative operator review step after a read-only probe.
+V1.4 — Manual handoff path (after CONFIRMED) + clarification path (after REJECTED/RETURNED).
 
 Boundary contract:
 - Reads audit + open items to validate state.
@@ -15,6 +16,11 @@ import uuid
 
 from app.audit.service import AuditService
 from app.banking.models import (
+    BankClarificationInput,
+    BankClarificationResult,
+    BankManualHandoffDecision,
+    BankManualHandoffInput,
+    BankManualHandoffResult,
     BankReconciliationDecision,
     BankReconciliationReviewInput,
     BankReconciliationReviewResult,
@@ -22,6 +28,8 @@ from app.banking.models import (
 from app.open_items.service import OpenItemsService
 
 _REVIEW_VERSION = 'bank-reconciliation-review-v1.3'
+_HANDOFF_VERSION = 'bank-manual-handoff-v1.4'
+_CLARIF_VERSION = 'bank-clarification-v1.4'
 _ACTIVE_STATUSES = {'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED'}
 
 
@@ -185,6 +193,192 @@ class BankReconciliationReviewService:
         )
 
         return result
+
+    # ------------------------------------------------------------------
+    # Manual Handoff (after CONFIRMED)
+    # ------------------------------------------------------------------
+
+    async def complete_manual_handoff(
+        self,
+        payload: BankManualHandoffInput,
+    ) -> BankManualHandoffResult:
+        """Record outcome of a manual banking handoff attempt.
+
+        COMPLETED → closes the WAITING_DATA follow-up item; case resolved.
+        RETURNED  → closes the WAITING_DATA item; creates a new OPEN
+                    clarification item so the operator knows action is needed.
+
+        Safety: bank_write_executed is always False; no Akaunting write.
+        """
+        handoff_id = str(uuid.uuid4())
+        audit_event_id = str(uuid.uuid4())
+        case_id = payload.case_id
+
+        # Close the WAITING_DATA follow-up item from the prior CONFIRMED review
+        existing_items = await self.open_items_service.list_by_case(case_id)
+        closed_item_id: str | None = None
+        for item in existing_items:
+            if (
+                item.status in _ACTIVE_STATUSES
+                and 'MANUELLE ABSTIMMUNG' in item.title.upper()
+            ):
+                await self.open_items_service.update_status(item.item_id, 'COMPLETED')
+                closed_item_id = item.item_id
+                break
+
+        # Determine outcome
+        follow_up_item_id: str | None = None
+        follow_up_item_title: str | None = None
+
+        if payload.decision == BankManualHandoffDecision.COMPLETED:
+            outcome_status = 'BANK_MANUAL_HANDOFF_COMPLETED'
+            audit_action = 'BANK_MANUAL_HANDOFF_COMPLETED'
+            summary = (
+                f'Manueller Handoff für Transaktion {payload.transaction_id} ABGESCHLOSSEN. '
+                f'Keine weiteren Aktionen erforderlich. Kein Akaunting-Write.'
+            )
+        else:
+            outcome_status = 'BANK_MANUAL_HANDOFF_RETURNED'
+            audit_action = 'BANK_MANUAL_HANDOFF_RETURNED'
+            # Create clarification follow-up
+            clarif_title = (
+                f'[Banking] Klärung nach Rückgabe: '
+                f'Transaktion {payload.transaction_id or "?"}'
+            )
+            clarif_description = (
+                f'Manueller Handoff für Transaktion {payload.transaction_id} wurde zurückgegeben. '
+                f'Klärungshinweis: {payload.note or "-"}. '
+                f'Kein automatischer Write. Kein Payment.'
+            )
+            clarif_item = await self.open_items_service.create_item(
+                case_id=case_id,
+                title=clarif_title,
+                description=clarif_description,
+                source=_HANDOFF_VERSION,
+            )
+            follow_up_item_id = clarif_item.item_id
+            follow_up_item_title = clarif_title
+            summary = (
+                f'Manueller Handoff für Transaktion {payload.transaction_id} ZURÜCKGEGEBEN. '
+                f'Klärung erforderlich. Folge-Open-Item erstellt. Kein Akaunting-Write.'
+            )
+
+        # Audit log
+        await self.audit_service.log_event({
+            'event_id': audit_event_id,
+            'case_id': case_id,
+            'source': payload.source,
+            'agent_name': _HANDOFF_VERSION,
+            'action': audit_action,
+            'approval_status': (
+                'APPROVED' if payload.decision == BankManualHandoffDecision.COMPLETED
+                else 'REJECTED'
+            ),
+            'result': outcome_status,
+            'llm_output': {
+                'handoff_id': handoff_id,
+                'transaction_id': payload.transaction_id,
+                'decision': payload.decision.value,
+                'note': payload.note,
+                'decided_by': payload.decided_by,
+                'closed_open_item_id': closed_item_id,
+                'follow_up_open_item_id': follow_up_item_id,
+                'outcome_status': outcome_status,
+                'bank_write_executed': False,
+                'no_financial_write': True,
+            },
+        })
+
+        return BankManualHandoffResult(
+            handoff_id=handoff_id,
+            case_id=case_id,
+            transaction_id=payload.transaction_id,
+            decision=payload.decision,
+            outcome_status=outcome_status,
+            note=payload.note,
+            decided_by=payload.decided_by,
+            closed_open_item_id=closed_item_id,
+            follow_up_open_item_id=follow_up_item_id,
+            follow_up_open_item_title=follow_up_item_title,
+            audit_event_id=audit_event_id,
+            summary=summary,
+            bank_write_executed=False,
+            no_financial_write=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Clarification (after REJECTED or RETURNED)
+    # ------------------------------------------------------------------
+
+    async def complete_clarification(
+        self,
+        payload: BankClarificationInput,
+    ) -> BankClarificationResult:
+        """Record completion of a banking clarification step.
+
+        Closes the open OPEN clarification item and logs the resolution.
+
+        Safety: bank_write_executed is always False; no Akaunting write.
+        """
+        clarification_id = str(uuid.uuid4())
+        audit_event_id = str(uuid.uuid4())
+        case_id = payload.case_id
+
+        # Close the open clarification item
+        existing_items = await self.open_items_service.list_by_case(case_id)
+        closed_item_id: str | None = None
+        for item in existing_items:
+            if item.status in _ACTIVE_STATUSES and (
+                'KLÄRUNG' in item.title.upper()
+                or 'KLARUNG' in item.title.upper()
+                or 'KLAERUNG' in item.title.upper()
+                or 'KLÄRUNG NACH RÜCKGABE' in item.title.upper()
+            ):
+                await self.open_items_service.update_status(item.item_id, 'COMPLETED')
+                closed_item_id = item.item_id
+                break
+
+        outcome_status = 'BANK_CLARIFICATION_COMPLETED'
+        summary = (
+            f'Klärung für Transaktion {payload.transaction_id} ABGESCHLOSSEN. '
+            f'Auflösungshinweis: {payload.resolution_note or "-"}. '
+            f'Kein Akaunting-Write.'
+        )
+
+        # Audit log
+        await self.audit_service.log_event({
+            'event_id': audit_event_id,
+            'case_id': case_id,
+            'source': payload.source,
+            'agent_name': _CLARIF_VERSION,
+            'action': 'BANK_CLARIFICATION_COMPLETED',
+            'approval_status': 'APPROVED',
+            'result': outcome_status,
+            'llm_output': {
+                'clarification_id': clarification_id,
+                'transaction_id': payload.transaction_id,
+                'resolution_note': payload.resolution_note,
+                'decided_by': payload.decided_by,
+                'closed_open_item_id': closed_item_id,
+                'outcome_status': outcome_status,
+                'bank_write_executed': False,
+                'no_financial_write': True,
+            },
+        })
+
+        return BankClarificationResult(
+            clarification_id=clarification_id,
+            case_id=case_id,
+            transaction_id=payload.transaction_id,
+            outcome_status=outcome_status,
+            resolution_note=payload.resolution_note,
+            decided_by=payload.decided_by,
+            closed_open_item_id=closed_item_id,
+            audit_event_id=audit_event_id,
+            summary=summary,
+            bank_write_executed=False,
+            no_financial_write=True,
+        )
 
     # ------------------------------------------------------------------
     # Helpers

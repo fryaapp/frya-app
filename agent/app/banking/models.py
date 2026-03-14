@@ -151,3 +151,83 @@ class BankReconciliationReviewResult(BaseModel):
     # Safety fields — always False / True
     bank_write_executed: bool = False
     no_financial_write: bool = True
+
+
+# ---------------------------------------------------------------------------
+# V1.4 — Banking Manual Handoff + Clarification paths
+# ---------------------------------------------------------------------------
+
+class BankManualHandoffDecision(str, Enum):
+    """Outcome of a banking manual handoff attempt.
+
+    COMPLETED: external manual reconciliation succeeded — case can be closed.
+    RETURNED:  external party returned the case; clarification needed before retry.
+    """
+    COMPLETED = 'COMPLETED'
+    RETURNED = 'RETURNED'
+
+
+class BankManualHandoffInput(BaseModel):
+    """Operator input after initiating / completing manual banking reconciliation.
+
+    Conservative: records the outcome of a human action in an external system.
+    No write to Akaunting, no payment, no finalization.
+    """
+    case_id: str
+    transaction_id: str | int | None = None
+    decision: BankManualHandoffDecision
+    note: str = ''
+    decided_by: str = 'operator'
+    source: str = 'bank-manual-handoff'
+
+
+class BankManualHandoffResult(BaseModel):
+    """Result of a banking manual handoff step.
+
+    Safety invariants: bank_write_executed=False, no_financial_write=True.
+    """
+    handoff_id: str
+    case_id: str
+    transaction_id: str | int | None = None
+    decision: BankManualHandoffDecision
+    outcome_status: str    # BANK_MANUAL_HANDOFF_COMPLETED | BANK_MANUAL_HANDOFF_RETURNED
+    note: str
+    decided_by: str
+    closed_open_item_id: str | None = None
+    follow_up_open_item_id: str | None = None
+    follow_up_open_item_title: str | None = None
+    audit_event_id: str
+    summary: str
+    bank_write_executed: bool = False
+    no_financial_write: bool = True
+
+
+class BankClarificationInput(BaseModel):
+    """Operator input to resolve a banking clarification item (after REJECTED or RETURNED).
+
+    Conservative: records that the clarification step is done.
+    No write to Akaunting, no payment, no finalization.
+    """
+    case_id: str
+    transaction_id: str | int | None = None
+    resolution_note: str = ''
+    decided_by: str = 'operator'
+    source: str = 'bank-clarification'
+
+
+class BankClarificationResult(BaseModel):
+    """Result of completing a banking clarification step.
+
+    Safety invariants: bank_write_executed=False, no_financial_write=True.
+    """
+    clarification_id: str
+    case_id: str
+    transaction_id: str | int | None = None
+    outcome_status: str    # BANK_CLARIFICATION_COMPLETED
+    resolution_note: str
+    decided_by: str
+    closed_open_item_id: str | None = None
+    audit_event_id: str
+    summary: str
+    bank_write_executed: bool = False
+    no_financial_write: bool = True

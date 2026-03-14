@@ -26,6 +26,9 @@ from app.auth.dependencies import require_admin, require_operator
 from app.auth.models import AuthUser
 from app.cases.urls import inspect_case_href
 from app.banking.models import (
+    BankClarificationInput,
+    BankManualHandoffDecision,
+    BankManualHandoffInput,
     BankReconciliationDecision,
     BankReconciliationReviewInput,
     BankReconciliationReviewResult,
@@ -129,6 +132,28 @@ def _latest_bank_reconciliation_review(events):
     for event in reversed(events):
         action = getattr(event, 'action', '') or ''
         if action in {'BANK_RECONCILIATION_CONFIRMED', 'BANK_RECONCILIATION_REJECTED'}:
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_bank_manual_handoff(events):
+    """V1.4: latest BANK_MANUAL_HANDOFF_COMPLETED or _RETURNED audit event."""
+    for event in reversed(events):
+        action = getattr(event, 'action', '') or ''
+        if action in {'BANK_MANUAL_HANDOFF_COMPLETED', 'BANK_MANUAL_HANDOFF_RETURNED'}:
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_bank_clarification(events):
+    """V1.4: latest BANK_CLARIFICATION_COMPLETED audit event."""
+    for event in reversed(events):
+        action = getattr(event, 'action', '') or ''
+        if action == 'BANK_CLARIFICATION_COMPLETED':
             payload = _normalize_payload(getattr(event, 'llm_output', None))
             if isinstance(payload, dict):
                 return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
@@ -576,6 +601,98 @@ async def case_banking_review_status(
     return latest or {'status': 'NO_REVIEW_YET', 'case_id': case_id}
 
 
+# ---------------------------------------------------------------------------
+# V1.4 — Banking Manual Handoff
+# ---------------------------------------------------------------------------
+
+class BankManualHandoffBody(BaseModel):
+    """Request body for POST /bank-manual-handoff.
+
+    Records outcome of a manual banking reconciliation attempt.
+    No financial system write occurs.
+    """
+    transaction_id: str | int | None = None
+    decision: BankManualHandoffDecision
+    note: str = ''
+    decided_by: str = 'operator'
+
+
+@router.post('/{case_id:path}/bank-manual-handoff', dependencies=[Depends(require_csrf)])
+async def case_bank_manual_handoff(
+    case_id: str,
+    body: BankManualHandoffBody,
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    _user: AuthUser = Depends(require_operator),
+) -> dict:
+    """V1.4 operator banking manual handoff step.
+
+    COMPLETED: handoff done, case resolved.
+    RETURNED: handoff returned; clarification open item created.
+    No Akaunting write. No payment. bank_write_executed is always False.
+    """
+    payload = BankManualHandoffInput(
+        case_id=case_id,
+        transaction_id=body.transaction_id,
+        decision=body.decision,
+        note=body.note,
+        decided_by=body.decided_by,
+    )
+    result = await review_service.complete_manual_handoff(payload)
+    assert result.bank_write_executed is False, 'Bank handoff safety invariant violated'
+    assert result.no_financial_write is True, 'Bank handoff financial safety violated'
+    return result.model_dump(mode='json')
+
+
+@router.get('/{case_id:path}/banking/handoff-status')
+async def case_banking_handoff_status(
+    case_id: str,
+    audit_service: AuditService = Depends(get_audit_service),
+) -> dict:
+    """V1.4 read-only: return latest banking handoff event for this case."""
+    chronology = await audit_service.by_case(case_id, limit=500)
+    latest = _latest_bank_manual_handoff(list(chronology))
+    return latest or {'status': 'NO_HANDOFF_YET', 'case_id': case_id}
+
+
+# ---------------------------------------------------------------------------
+# V1.4 — Banking Clarification
+# ---------------------------------------------------------------------------
+
+class BankClarificationBody(BaseModel):
+    """Request body for POST /bank-clarification-complete.
+
+    Records resolution of a banking clarification item.
+    No financial system write occurs.
+    """
+    transaction_id: str | int | None = None
+    resolution_note: str = ''
+    decided_by: str = 'operator'
+
+
+@router.post('/{case_id:path}/bank-clarification-complete', dependencies=[Depends(require_csrf)])
+async def case_bank_clarification_complete(
+    case_id: str,
+    body: BankClarificationBody,
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    _user: AuthUser = Depends(require_operator),
+) -> dict:
+    """V1.4 operator banking clarification completion.
+
+    Closes the open clarification item (after REJECTED or RETURNED handoff).
+    No Akaunting write. No payment. bank_write_executed is always False.
+    """
+    payload = BankClarificationInput(
+        case_id=case_id,
+        transaction_id=body.transaction_id,
+        resolution_note=body.resolution_note,
+        decided_by=body.decided_by,
+    )
+    result = await review_service.complete_clarification(payload)
+    assert result.bank_write_executed is False, 'Bank clarification safety invariant violated'
+    assert result.no_financial_write is True, 'Bank clarification financial safety violated'
+    return result.model_dump(mode='json')
+
+
 @router.get('/{case_id:path}/json')
 async def case_view_json(
     case_id: str,
@@ -612,6 +729,8 @@ async def case_view_json(
         'accounting_analysis': _latest_accounting_analysis(chronology),
         'accounting_operator_review': _latest_accounting_operator_review(chronology),
         'bank_reconciliation_review': _latest_bank_reconciliation_review(chronology),
+        'bank_manual_handoff': _latest_bank_manual_handoff(chronology),
+        'bank_clarification': _latest_bank_clarification(chronology),
         'accounting_manual_handoff': _latest_accounting_manual_handoff(chronology),
         'accounting_manual_handoff_resolution': _latest_accounting_manual_handoff_resolution(chronology),
         'accounting_clarification_completion': _latest_accounting_clarification_completion(chronology),
@@ -720,6 +839,49 @@ async def case_view(
             '</p>'
         )
 
+    # V1.4 Banking Manual Handoff
+    bank_handoff = _latest_bank_manual_handoff(chronology)
+    bank_handoff_html = ''
+    if bank_handoff:
+        h_action = bank_handoff.get('action', '')
+        h_color = '#2d862d' if h_action == 'BANK_MANUAL_HANDOFF_COMPLETED' else '#cc7700'
+        bank_handoff_html = (
+            '<h2>Banking Manual Handoff (V1.4)</h2>'
+            '<table border="1" cellpadding="6">'
+            '<tr><th>Zeit</th><th>Entscheidung</th><th>TX-ID</th><th>Notiz</th><th>Entscheider</th><th>Outcome</th></tr>'
+            f'<tr>'
+            f'<td>{bank_handoff.get("created_at", "-")}</td>'
+            f'<td style="color:{h_color};font-weight:bold">{bank_handoff.get("decision", "-")}</td>'
+            f'<td>{bank_handoff.get("transaction_id", "-")}</td>'
+            f'<td>{bank_handoff.get("note", "-")}</td>'
+            f'<td>{bank_handoff.get("decided_by", "-")}</td>'
+            f'<td>{bank_handoff.get("outcome_status", "-")}</td>'
+            f'</tr></table>'
+            '<p style="color:#666;font-size:0.9em">'
+            '[bank_write_executed=False | no_financial_write=True]'
+            '</p>'
+        )
+
+    # V1.4 Banking Clarification
+    bank_clarif = _latest_bank_clarification(chronology)
+    bank_clarif_html = ''
+    if bank_clarif:
+        bank_clarif_html = (
+            '<h2>Banking Clarification (V1.4)</h2>'
+            '<table border="1" cellpadding="6">'
+            '<tr><th>Zeit</th><th>TX-ID</th><th>Auflösungshinweis</th><th>Entscheider</th><th>Outcome</th></tr>'
+            f'<tr>'
+            f'<td>{bank_clarif.get("created_at", "-")}</td>'
+            f'<td>{bank_clarif.get("transaction_id", "-")}</td>'
+            f'<td>{bank_clarif.get("resolution_note", "-")}</td>'
+            f'<td>{bank_clarif.get("decided_by", "-")}</td>'
+            f'<td style="color:#2d862d;font-weight:bold">{bank_clarif.get("outcome_status", "-")}</td>'
+            f'</tr></table>'
+            '<p style="color:#666;font-size:0.9em">'
+            '[bank_write_executed=False | no_financial_write=True]'
+            '</p>'
+        )
+
     manual_handoff = _latest_accounting_manual_handoff(chronology)
     manual_handoff_html = ''
     if manual_handoff:
@@ -757,6 +919,8 @@ async def case_view(
         f'{latest_gate_html}'
         f'{operator_review_html}'
         f'{bank_review_html}'
+        f'{bank_handoff_html}'
+        f'{bank_clarif_html}'
         f'{manual_handoff_html}'
         f'{manual_handoff_resolution_html}'
         f'{clarification_completion_html}'
