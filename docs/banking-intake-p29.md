@@ -1,11 +1,14 @@
 # Banking Paket 29 — Produktionsnaher Intake-Pfad für Banktransaktionen
 
-Stand: 2026-03-14 | Verified on staging
+Stand: 2026-03-14 | STEP 1+2 verified on staging
 
 ## Zusammenfassung
 
-Der bisherige Zuführungsweg (direkter SQL-INSERT in `akai_transactions`) ist **kein Produktionspfad**.
-Dieser Paket dokumentiert und verifiziert den **ersten echten produktionsnahen Intake-Pfad** über die Akaunting REST API.
+Der SQL-INSERT-Sonderweg ist vollständig abgelöst. Staging-Basis besteht ausschließlich aus
+**4 API-konformen Transaktionen** (alle via Akaunting REST API, gültige PM-Codes, `created_from=operator-api-intake-v29*`).
+
+SQL-Altlasten (id=1,2,3, `created_from=staging-seed`, ungültiger PM-Code `offline-payments.transfer.1`)
+wurden via Akaunting REST API DELETE entfernt.
 
 ---
 
@@ -124,14 +127,30 @@ Der alte SQL-INSERT (`INSERT INTO akai_transactions ...`) war **nur für den ini
 
 ---
 
+## Saubere Staging-Basis nach STEP 2 (Stand 2026-03-14)
+
+| id | Nummer | Betrag | Ref | Typ | PM-Code | Quelle |
+|---|---|---|---|---|---|---|
+| 5 | TRX-2026-004 | 320 EUR | INV-2026-003 | income | offline-payments.cash.1 | operator-api-intake-v29 |
+| 6 | TRX-2026-A01 | 1450 EUR | INV-2026-101 | income | offline-payments.bank_transfer.2 | operator-api-intake-v29-step2 |
+| 7 | TRX-2026-A02 | 89.90 EUR | OUT-2026-042 | expense | offline-payments.cash.1 | operator-api-intake-v29-step2 |
+| 8 | TRX-2026-A03 | 2300 EUR | INV-2026-102 | income | offline-payments.bank_transfer.2 | operator-api-intake-v29-step2 |
+
+Entfernte SQL-Altlasten: id=1 (TRX-2026-001), id=2 (TRX-2026-002), id=3 (TRX-2026-003)
+Delete-Methode: `DELETE /api/transactions/{id}?company_id=1` mit `X-Company: 1` (HTTP 204 je Eintrag)
+
 ## Pflichtprüfpunkte
 
 - ✅ Kein Bank-Write durch Frya
 - ✅ Kein Akaunting-Write durch Frya
 - ✅ Keine Zahlung
 - ✅ Keine Finalisierung
-- ✅ Herkunft der Transaction klar benannt (`created_from: operator-api-intake-v29`)
-- ✅ Produktionsnaher Intake (REST API) klar von SQL-Sonderweg getrennt
-- ✅ Audit klar (Frya CONFIRM-Event für TRX-2026-004 live geloggt)
+- ✅ Herkunft jeder TX klar benannt (created_from)
+- ✅ SQL-Altlasten id=1,2,3 via Akaunting REST API entfernt
+- ✅ Alle verbleibenden TXs mit gültigen PM-Codes
+- ✅ feed_status.transactions_total=4 bestätigt
+- ✅ Probe MATCH_FOUND auf INV-2026-101 (id=6) + INV-2026-102 (id=8)
+- ✅ CONFIRM: bank_write_executed=False, no_financial_write=True
+- ✅ REJECT: bank_write_executed=False
 - ✅ Inspect JSON klar (bank_reconciliation_review sichtbar)
-- ✅ Feed-Sicht klar (feed_total=4 nach API-Intake)
+- ✅ Kein Mischzustand SQL+API mehr
