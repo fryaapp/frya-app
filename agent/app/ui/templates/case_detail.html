@@ -362,10 +362,16 @@
   {% endif %}
 </section>
 
-<!-- Bank-Transaktion Probe Block (V1.1: Kandidaten mit Score/Reason) -->
+<!-- Bank-Transaktion Probe Block (V1.2: FeedStatus · NO_TRANSACTIONS_AVAILABLE · Kandidaten) -->
 <section class="panel action-panel">
-  <h3>Bank-Transaktions-Probe <span class="en-hint">(Read-only · V1.1)</span></h3>
+  <h3>Bank-Transaktions-Probe <span class="en-hint">(Read-only · V1.2)</span></h3>
   {% if bank_transaction_probe %}
+  {# V1.2: test-data warning banner #}
+  {% if bank_transaction_probe.is_test_data %}
+  <div style="background:#fff3cd;border:1px solid #ffc107;padding:6px 10px;border-radius:4px;margin-bottom:8px;font-size:0.85em;">
+    ⚠️ <strong>TESTDATEN</strong> — Diese Probe lief auf operator-supplied Testdaten, nicht auf Live-Akaunting-Transaktionen.
+  </div>
+  {% endif %}
   <div class="probe-result probe-{{ bank_transaction_probe.result|lower }}">
     <div class="summary-grid compact">
       <article class="summary-card">
@@ -374,6 +380,7 @@
           {% if bank_transaction_probe.result == 'MATCH_FOUND' %}ok
           {% elif bank_transaction_probe.result == 'CANDIDATE_FOUND' %}warn
           {% elif bank_transaction_probe.result == 'AMBIGUOUS_MATCH' %}warn
+          {% elif bank_transaction_probe.result == 'NO_TRANSACTIONS_AVAILABLE' %}warn
           {% else %}warn{% endif %}">{{ bank_transaction_probe.result }}</p>
         <p class="summary-sub">
           <span class="badge">read-only</span>
@@ -381,6 +388,22 @@
           actor={{ bank_transaction_probe.actor }}
         </p>
       </article>
+      {# V1.2: Feed Status Card #}
+      {% set fs = bank_transaction_probe.feed_status %}
+      {% if fs %}
+      <article class="summary-card">
+        <p class="summary-label">Feed-Status</p>
+        <p class="summary-sub">
+          Quelle: <code style="font-size:0.8em;">{{ fs.source_url or '-' }}</code><br>
+          Erreichbar: <strong>{{ 'JA' if fs.reachable else 'NEIN' }}</strong><br>
+          Konten: {{ fs.accounts_available }}<br>
+          Transaktionen gesamt: <strong>{{ fs.transactions_total }}</strong>
+        </p>
+        {% if not fs.reachable %}
+        <p class="summary-sub" style="color:#c00;">{{ fs.note }}</p>
+        {% endif %}
+      </article>
+      {% endif %}
       <article class="summary-card">
         <p class="summary-label">Gepruefte Felder</p>
         <p class="summary-sub">
@@ -396,11 +419,21 @@
         <p class="summary-sub">{{ bank_transaction_probe.note }}</p>
       </article>
     </div>
-    {# V1.1: Strukturierte Kandidaten-Liste mit Scores #}
+    {# V1.2: NO_TRANSACTIONS_AVAILABLE explanation #}
+    {% if bank_transaction_probe.result == 'NO_TRANSACTIONS_AVAILABLE' %}
+    <div style="background:#f8f9fa;border-left:3px solid #6c757d;padding:6px 10px;margin-top:8px;font-size:0.85em;">
+      <strong>Feed erreichbar, aber keine Transaktionen im System.</strong>
+      Der Abgleich kann erst laufen, wenn Banktransaktionen in Akaunting erfasst sind.
+      {% if fs and fs.accounts_available > 0 %}
+      {{ fs.accounts_available }} Konto(en) vorhanden.
+      {% endif %}
+    </div>
+    {% endif %}
+    {# V1.1/V1.2: Strukturierte Kandidaten-Liste mit Scores #}
     {% set candidates = bank_transaction_probe.get('candidates') if bank_transaction_probe is mapping else bank_transaction_probe.candidates %}
     {% if candidates %}
     <div class="mt-sm">
-      <p class="summary-label">Kandidaten ({{ candidates|length }}):</p>
+      <p class="summary-label">Kandidaten ({{ candidates|length }}){% if bank_transaction_probe.is_test_data %} <span style="color:#856404;font-size:0.8em;">· TESTDATEN</span>{% endif %}:</p>
       <table style="width:100%;font-size:0.85em;border-collapse:collapse;">
         <thead>
           <tr>
@@ -431,6 +464,8 @@
         </tbody>
       </table>
     </div>
+    {% elif bank_transaction_probe.result not in ('NO_TRANSACTIONS_AVAILABLE',) %}
+    <p class="summary-sub mt-sm" style="color:#666;">Keine Kandidaten – keine Transaktion hat Score &gt; 0 erreicht.</p>
     {% endif %}
   </div>
   <details class="mt-sm">

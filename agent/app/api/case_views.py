@@ -25,7 +25,7 @@ from app.auth.csrf import require_csrf
 from app.auth.dependencies import require_admin, require_operator
 from app.auth.models import AuthUser
 from app.cases.urls import inspect_case_href
-from app.banking.models import BankTransactionProbeResult
+from app.banking.models import BankTransactionProbeResult, FeedStatus
 from app.banking.service import BankTransactionService
 from app.dependencies import (
     get_accounting_operator_review_service,
@@ -414,6 +414,19 @@ class BankTransactionProbeBody(BaseModel):
     date_to: str | None = None
 
 
+class BankTestProbeBody(BaseModel):
+    """V1.2: test-mode probe body. Caller supplies transactions; system scores them.
+
+    All results are flagged is_test_data=True and logged as BANK_TEST_PROBE_EXECUTED.
+    """
+    test_transactions: list[dict]
+    reference: str | None = None
+    amount: float | None = None
+    contact_name: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+
+
 @router.post('/{case_id:path}/bank-transaction-probe')
 async def case_bank_transaction_probe(
     case_id: str,
@@ -433,6 +446,41 @@ async def case_bank_transaction_probe(
     )
     assert result.bank_write_executed is False, 'Bank safety invariant violated'
     return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/bank-test-probe')
+async def case_bank_test_probe(
+    case_id: str,
+    body: BankTestProbeBody,
+    bank_service: BankTransactionService = Depends(get_bank_transaction_service),
+) -> dict:
+    """V1.2 read-only test probe: score caller-supplied transactions with V1.2 pipeline.
+
+    Result is flagged is_test_data=True. No write, no payment, no Akaunting write.
+    Useful for demonstrating candidate scoring when live feed has no transactions.
+    """
+    result: BankTransactionProbeResult = await bank_service.probe_test_transactions(
+        case_id=case_id,
+        test_transactions=body.test_transactions,
+        reference=body.reference,
+        amount=body.amount,
+        contact_name=body.contact_name,
+        date_from=body.date_from,
+        date_to=body.date_to,
+    )
+    assert result.bank_write_executed is False, 'Bank safety invariant violated'
+    assert result.is_test_data is True, 'Test-probe must be flagged is_test_data'
+    return result.model_dump(mode='json')
+
+
+@router.get('/{case_id:path}/banking/feed-status')
+async def case_banking_feed_status(
+    case_id: str,
+    bank_service: BankTransactionService = Depends(get_bank_transaction_service),
+) -> dict:
+    """V1.2 read-only: return live banking feed health (accounts, transaction count, reachability)."""
+    feed: FeedStatus = await bank_service.get_feed_status()
+    return feed.model_dump(mode='json')
 
 
 @router.get('/{case_id:path}/json')

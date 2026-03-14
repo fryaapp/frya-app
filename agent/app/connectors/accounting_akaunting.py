@@ -240,3 +240,67 @@ class AkauntingConnector(AccountingConnector):
                 return items[:20]
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return []
+
+    async def get_feed_status(self) -> dict:
+        """Read-only: probe feed health — account count + total transaction count.
+
+        Returns:
+            {
+                'reachable': bool,
+                'source_url': str,
+                'accounts_available': int,
+                'transactions_total': int,
+                'note': str,
+            }
+        V1.2: used to populate FeedStatus on every probe result.
+        """
+        status = {
+            'reachable': False,
+            'source_url': self.base_url,
+            'accounts_available': 0,
+            'transactions_total': 0,
+            'note': '',
+        }
+        try:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
+                # Account count
+                acc_resp = await client.get(
+                    f'{self.base_url}/api/accounts',
+                    headers=self._headers(),
+                )
+                acc_resp.raise_for_status()
+                acc_data = acc_resp.json()
+                acc_items = acc_data.get('data', acc_data) if isinstance(acc_data, dict) else acc_data
+                acc_meta = acc_data.get('meta', {}) if isinstance(acc_data, dict) else {}
+                status['accounts_available'] = (
+                    acc_meta.get('total')
+                    or (len(acc_items) if isinstance(acc_items, list) else 0)
+                )
+
+                # Transaction total — fetch with limit=1 just to read meta.total
+                tx_resp = await client.get(
+                    f'{self.base_url}/api/transactions',
+                    headers=self._headers(),
+                    params={'limit': '1'},
+                )
+                tx_resp.raise_for_status()
+                tx_data = tx_resp.json()
+                tx_items = tx_data.get('data', tx_data) if isinstance(tx_data, dict) else tx_data
+                tx_meta = tx_data.get('meta', {}) if isinstance(tx_data, dict) else {}
+                status['transactions_total'] = (
+                    tx_meta.get('total')
+                    or (len(tx_items) if isinstance(tx_items, list) else 0)
+                )
+
+                status['reachable'] = True
+                status['note'] = (
+                    f'Feed erreichbar. Konten: {status["accounts_available"]}, '
+                    f'Transaktionen gesamt: {status["transactions_total"]}.'
+                )
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            status['note'] = f'Feed nicht erreichbar: {exc}'
+        except httpx.HTTPStatusError as exc:
+            status['note'] = f'Feed HTTP-Fehler {exc.response.status_code}: {exc.response.text[:120]}'
+        except Exception as exc:
+            status['note'] = f'Feed-Fehler: {exc}'
+        return status
