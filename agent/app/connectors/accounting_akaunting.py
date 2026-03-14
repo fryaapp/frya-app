@@ -187,10 +187,16 @@ class AkauntingConnector(AccountingConnector):
         date_from: str | None = None,
         date_to: str | None = None,
     ) -> list[dict]:
-        """Read-only search for banking transactions. GET only, no write."""
+        """Read-only search for banking transactions. GET only, no write.
+
+        Note: Akaunting's /api/transactions?search=... returns 0 results for bare
+        reference tokens (same issue as documents). Fix: fetch all transactions
+        without a search param, then filter reference/contact/amount client-side.
+        Date params (date_from/date_to) are passed server-side as they work correctly.
+        """
+        # Do NOT pass reference as search param — Akaunting returns 0 for bare tokens.
+        # All field filtering happens client-side.
         params: dict[str, str] = {}
-        if reference:
-            params['search'] = reference
         if date_from:
             params['date_from'] = date_from
         if date_to:
@@ -207,12 +213,22 @@ class AkauntingConnector(AccountingConnector):
                 items: list[dict] = data.get('data', data) if isinstance(data, dict) else data
                 if not isinstance(items, list):
                     return []
+                # Client-side filters
+                if reference:
+                    ref_lower = reference.lower()
+                    items = [
+                        i for i in items
+                        if ref_lower in (
+                            i.get('reference') or i.get('number') or i.get('description') or ''
+                        ).lower()
+                    ]
                 if contact_name:
                     cn_lower = contact_name.lower()
                     items = [
                         i for i in items
                         if cn_lower in (i.get('contact_name') or '').lower()
                         or cn_lower in (i.get('contact', {}) or {}).get('name', '').lower()
+                        or cn_lower in (i.get('description') or '').lower()
                     ]
                 if amount is not None:
                     tolerance = abs(amount) * 0.05
@@ -220,7 +236,7 @@ class AkauntingConnector(AccountingConnector):
                         i for i in items
                         if abs(float(i.get('amount', 0) or 0) - amount) <= tolerance
                     ]
-                return items[:5]
+                return items[:10]
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return []
 

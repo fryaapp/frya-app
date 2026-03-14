@@ -149,22 +149,35 @@ def _determine_result(
     contact_name: str | None,
     date_from: str | None,
     date_to: str | None,
+    feed_total: int = 0,
 ) -> tuple[BankProbeResult, list[TransactionCandidate], str]:
     """Core matching logic. Returns (result_enum, candidates, note).
 
     Result logic:
-    - NO_TRANSACTIONS_AVAILABLE: feed returned 0 transactions (feed may be empty or staging)
+    - NO_TRANSACTIONS_AVAILABLE: feed itself has 0 transactions (feed_total == 0)
+    - NO_MATCH_FOUND:  feed has transactions but none matched the filters (feed_total > 0, transactions empty)
     - MATCH_FOUND:     exactly one candidate with HIGH confidence (score >= 60)
     - AMBIGUOUS_MATCH: two+ candidates with HIGH confidence
-    - CANDIDATE_FOUND: one+ candidates with MEDIUM confidence, no HIGH
-    - NO_MATCH_FOUND:  transactions exist but nothing scored > 0
+    - CANDIDATE_FOUND: one+ candidates with MEDIUM/LOW confidence, no HIGH
+
+    feed_total: total transactions in the feed before client-side filtering.
     """
     if not transactions:
-        return (
-            BankProbeResult.NO_TRANSACTIONS_AVAILABLE,
-            [],
-            'Kein Treffer: Feed erreichbar, aber keine Transaktionen im System vorhanden.',
-        )
+        if feed_total == 0:
+            return (
+                BankProbeResult.NO_TRANSACTIONS_AVAILABLE,
+                [],
+                'Kein Treffer: Feed erreichbar, aber keine Transaktionen im System vorhanden.',
+            )
+        else:
+            # Feed has transactions but client-side filter eliminated all
+            return (
+                BankProbeResult.NO_MATCH_FOUND,
+                [],
+                f'Keine passenden Banktransaktionen zu Referenz={reference}, '
+                f'Betrag={amount}, Kontakt={contact_name}. '
+                f'({feed_total} Transaktion(en) im System, aber keine passend.)',
+            )
 
     if not has_filters:
         # No filters: informational — show available transactions as LOW candidates
@@ -321,6 +334,7 @@ class BankTransactionService:
                 contact_name=contact_name,
                 date_from=date_from,
                 date_to=date_to,
+                feed_total=feed_status.transactions_total if feed_status else 0,
             )
 
         except Exception as exc:
@@ -385,6 +399,7 @@ class BankTransactionService:
         except Exception:
             pass
 
+        # For test probe, feed_total = len(test_transactions) — they are all "available"
         result_status, candidates, note = _determine_result(
             transactions=test_transactions,
             has_filters=has_filters,
@@ -393,6 +408,7 @@ class BankTransactionService:
             contact_name=contact_name,
             date_from=date_from,
             date_to=date_to,
+            feed_total=len(test_transactions),
         )
 
         note = f'[TESTDATEN] {note}'
