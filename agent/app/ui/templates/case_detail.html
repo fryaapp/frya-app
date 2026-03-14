@@ -362,16 +362,24 @@
   {% endif %}
 </section>
 
-<!-- Bank-Transaktion Probe Block -->
+<!-- Bank-Transaktion Probe Block (V1.1: Kandidaten mit Score/Reason) -->
 <section class="panel action-panel">
-  <h3>Bank-Transaktions-Probe <span class="en-hint">(Read-only)</span></h3>
+  <h3>Bank-Transaktions-Probe <span class="en-hint">(Read-only · V1.1)</span></h3>
   {% if bank_transaction_probe %}
   <div class="probe-result probe-{{ bank_transaction_probe.result|lower }}">
     <div class="summary-grid compact">
       <article class="summary-card">
         <p class="summary-label">Ergebnis</p>
-        <p class="summary-value {% if bank_transaction_probe.result == 'MATCH_FOUND' %}ok{% elif bank_transaction_probe.result == 'NO_MATCH_FOUND' %}warn{% else %}warn{% endif %}">{{ bank_transaction_probe.result }}</p>
-        <p class="summary-sub"><span class="badge">read-only</span> bank_write_executed={{ bank_transaction_probe.bank_write_executed }}</p>
+        <p class="summary-value
+          {% if bank_transaction_probe.result == 'MATCH_FOUND' %}ok
+          {% elif bank_transaction_probe.result == 'CANDIDATE_FOUND' %}warn
+          {% elif bank_transaction_probe.result == 'AMBIGUOUS_MATCH' %}warn
+          {% else %}warn{% endif %}">{{ bank_transaction_probe.result }}</p>
+        <p class="summary-sub">
+          <span class="badge">read-only</span>
+          bank_write_executed={{ bank_transaction_probe.bank_write_executed }}<br>
+          actor={{ bank_transaction_probe.actor }}
+        </p>
       </article>
       <article class="summary-card">
         <p class="summary-label">Gepruefte Felder</p>
@@ -384,22 +392,46 @@
         </p>
       </article>
       <article class="summary-card">
-        <p class="summary-label">Treffer (max 5)</p>
-        <p class="summary-sub">
-          {% if bank_transaction_probe.matches %}
-            {% for m in bank_transaction_probe.matches %}
-            id={{ m.get('id', '?') }}, Ref={{ m.get('reference') or '-' }}, Betrag={{ m.get('amount') or '-' }}, Datum={{ m.get('paid_at') or m.get('date') or '-' }}<br>
-            {% endfor %}
-          {% else %}
-          Keine Treffer
-          {% endif %}
-        </p>
-      </article>
-      <article class="summary-card">
         <p class="summary-label">Hinweis</p>
         <p class="summary-sub">{{ bank_transaction_probe.note }}</p>
       </article>
     </div>
+    {# V1.1: Strukturierte Kandidaten-Liste mit Scores #}
+    {% set candidates = bank_transaction_probe.get('candidates') if bank_transaction_probe is mapping else bank_transaction_probe.candidates %}
+    {% if candidates %}
+    <div class="mt-sm">
+      <p class="summary-label">Kandidaten ({{ candidates|length }}):</p>
+      <table style="width:100%;font-size:0.85em;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ccc;">ID</th>
+            <th style="text-align:right;padding:2px 6px;border-bottom:1px solid #ccc;">Betrag</th>
+            <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ccc;">Datum</th>
+            <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ccc;">Kontakt</th>
+            <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ccc;">Referenz</th>
+            <th style="text-align:center;padding:2px 6px;border-bottom:1px solid #ccc;">Score</th>
+            <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ccc;">Qualitaet</th>
+            <th style="text-align:left;padding:2px 6px;border-bottom:1px solid #ccc;">Gruende</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in candidates %}
+          {% set cdict = c if c is mapping else c.model_dump() %}
+          <tr style="background:{% if cdict.get('match_quality')=='HIGH' %}#e6f9e6{% elif cdict.get('match_quality')=='MEDIUM' %}#fffbe6{% else %}#fff{% endif %}">
+            <td style="padding:2px 6px;">{{ cdict.get('transaction_id') or '-' }}</td>
+            <td style="text-align:right;padding:2px 6px;">{{ cdict.get('amount') or '-' }} {{ cdict.get('currency') or '' }}</td>
+            <td style="padding:2px 6px;">{{ cdict.get('date') or '-' }}</td>
+            <td style="padding:2px 6px;">{{ cdict.get('contact_name') or '-' }}</td>
+            <td style="padding:2px 6px;">{{ cdict.get('reference') or '-' }}</td>
+            <td style="text-align:center;padding:2px 6px;font-weight:bold;">{{ cdict.get('confidence_score', 0) }}/100</td>
+            <td style="padding:2px 6px;">{{ cdict.get('match_quality') or '-' }}</td>
+            <td style="padding:2px 6px;font-size:0.8em;">{{ (cdict.get('reason_codes') or [])|join(', ') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
   </div>
   <details class="mt-sm">
     <summary class="btn-link">Erneut suchen</summary>
