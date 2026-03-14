@@ -84,3 +84,70 @@ class BankAccountSummary(BaseModel):
     number: str | None = None
     currency_code: str | None = None
     balance: float | None = None
+
+
+# ---------------------------------------------------------------------------
+# V1.3 — Operator Banking Reconciliation Review
+# ---------------------------------------------------------------------------
+
+class BankReconciliationDecision(str, Enum):
+    """Operator's decision on a bank transaction candidate.
+
+    CONFIRMED: candidate is accepted as matching the case (no Akaunting write).
+    REJECTED:  candidate is dismissed; follow-up clarification needed.
+    """
+    CONFIRMED = 'CONFIRMED'
+    REJECTED = 'REJECTED'
+
+
+class BankReconciliationReviewInput(BaseModel):
+    """Input payload for an operator banking review decision.
+
+    Conservative: contains a snapshot of the candidate that was reviewed,
+    plus the operator's decision. No financial system is written.
+    """
+    case_id: str
+    # Snapshot of the candidate under review (from a prior probe result)
+    transaction_id: str | int | None = None
+    candidate_amount: float | None = None
+    candidate_currency: str | None = None
+    candidate_date: str | None = None
+    candidate_reference: str | None = None
+    candidate_contact: str | None = None
+    candidate_description: str | None = None
+    confidence_score: int = 0
+    match_quality: str = 'LOW'
+    reason_codes: list[str] = []
+    # Probe result context
+    probe_result: str = ''           # BankProbeResult enum value
+    probe_note: str = ''
+    # Operator decision
+    decision: BankReconciliationDecision
+    decision_note: str = ''
+    decided_by: str = 'operator'
+    source: str = 'bank-reconciliation-review'
+
+
+class BankReconciliationReviewResult(BaseModel):
+    """Result returned after an operator banking review decision.
+
+    Safety invariants:
+    - bank_write_executed is always False
+    - no_financial_write is always True
+    """
+    review_id: str
+    case_id: str
+    transaction_id: str | int | None = None
+    decision: BankReconciliationDecision
+    outcome_status: str   # 'BANK_RECONCILIATION_CONFIRMED' | 'BANK_RECONCILIATION_REJECTED'
+    decision_note: str
+    decided_by: str
+    open_item_id: str | None = None
+    open_item_title: str | None = None
+    follow_up_open_item_id: str | None = None
+    follow_up_open_item_title: str | None = None
+    audit_event_id: str
+    summary: str
+    # Safety fields — always False / True
+    bank_write_executed: bool = False
+    no_financial_write: bool = True

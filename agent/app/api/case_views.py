@@ -25,13 +25,21 @@ from app.auth.csrf import require_csrf
 from app.auth.dependencies import require_admin, require_operator
 from app.auth.models import AuthUser
 from app.cases.urls import inspect_case_href
-from app.banking.models import BankTransactionProbeResult, FeedStatus
+from app.banking.models import (
+    BankReconciliationDecision,
+    BankReconciliationReviewInput,
+    BankReconciliationReviewResult,
+    BankTransactionProbeResult,
+    FeedStatus,
+)
+from app.banking.review_service import BankReconciliationReviewService
 from app.banking.service import BankTransactionService
 from app.dependencies import (
     get_accounting_operator_review_service,
     get_akaunting_reconciliation_service,
     get_approval_service,
     get_audit_service,
+    get_bank_reconciliation_review_service,
     get_bank_transaction_service,
     get_open_items_service,
     get_problem_case_service,
@@ -113,6 +121,17 @@ def _latest_accounting_review(events):
     for event in reversed(events):
         if event.action == 'ACCOUNTING_REVIEW_DRAFT_READY' and getattr(event, 'llm_output', None):
             return _normalize_payload(event.llm_output)
+    return None
+
+
+def _latest_bank_reconciliation_review(events):
+    """V1.3: latest BANK_RECONCILIATION_CONFIRMED or _REJECTED audit event."""
+    for event in reversed(events):
+        action = getattr(event, 'action', '') or ''
+        if action in {'BANK_RECONCILIATION_CONFIRMED', 'BANK_RECONCILIATION_REJECTED'}:
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
     return None
 
 
@@ -483,6 +502,80 @@ async def case_banking_feed_status(
     return feed.model_dump(mode='json')
 
 
+# ---------------------------------------------------------------------------
+# V1.3 — Operator Banking Reconciliation Review
+# ---------------------------------------------------------------------------
+
+class BankReconciliationReviewBody(BaseModel):
+    """Request body for POST /bank-reconciliation-review.
+
+    The caller passes a snapshot of the probe candidate plus the operator decision.
+    No financial system write occurs.
+    """
+    transaction_id: str | int | None = None
+    candidate_amount: float | None = None
+    candidate_currency: str | None = None
+    candidate_date: str | None = None
+    candidate_reference: str | None = None
+    candidate_contact: str | None = None
+    candidate_description: str | None = None
+    confidence_score: int = 0
+    match_quality: str = 'LOW'
+    reason_codes: list[str] = []
+    probe_result: str = ''
+    probe_note: str = ''
+    decision: BankReconciliationDecision
+    decision_note: str = ''
+    decided_by: str = 'operator'
+
+
+@router.post('/{case_id:path}/bank-reconciliation-review', dependencies=[Depends(require_csrf)])
+async def case_bank_reconciliation_review(
+    case_id: str,
+    body: BankReconciliationReviewBody,
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    _user: AuthUser = Depends(require_operator),
+) -> dict:
+    """V1.3 operator banking review step.
+
+    Records the operator's CONFIRM or REJECT decision on a probe candidate.
+    Creates audit event + follow-up open item. No Akaunting write. No payment.
+    bank_write_executed is always False.
+    """
+    payload = BankReconciliationReviewInput(
+        case_id=case_id,
+        transaction_id=body.transaction_id,
+        candidate_amount=body.candidate_amount,
+        candidate_currency=body.candidate_currency,
+        candidate_date=body.candidate_date,
+        candidate_reference=body.candidate_reference,
+        candidate_contact=body.candidate_contact,
+        candidate_description=body.candidate_description,
+        confidence_score=body.confidence_score,
+        match_quality=body.match_quality,
+        reason_codes=body.reason_codes,
+        probe_result=body.probe_result,
+        probe_note=body.probe_note,
+        decision=body.decision,
+        decision_note=body.decision_note,
+        decided_by=body.decided_by,
+    )
+    result: BankReconciliationReviewResult = await review_service.submit_review(payload)
+    assert result.bank_write_executed is False, 'Bank review safety invariant violated'
+    assert result.no_financial_write is True, 'Bank review financial safety violated'
+    return result.model_dump(mode='json')
+
+
+@router.get('/{case_id:path}/banking/review-status')
+async def case_banking_review_status(
+    case_id: str,
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+) -> dict:
+    """V1.3 read-only: return latest banking reconciliation review event for this case."""
+    latest = await review_service.get_latest_review(case_id)
+    return latest or {'status': 'NO_REVIEW_YET', 'case_id': case_id}
+
+
 @router.get('/{case_id:path}/json')
 async def case_view_json(
     case_id: str,
@@ -518,6 +611,7 @@ async def case_view_json(
         'accounting_review': _latest_accounting_review(chronology),
         'accounting_analysis': _latest_accounting_analysis(chronology),
         'accounting_operator_review': _latest_accounting_operator_review(chronology),
+        'bank_reconciliation_review': _latest_bank_reconciliation_review(chronology),
         'accounting_manual_handoff': _latest_accounting_manual_handoff(chronology),
         'accounting_manual_handoff_resolution': _latest_accounting_manual_handoff_resolution(chronology),
         'accounting_clarification_completion': _latest_accounting_clarification_completion(chronology),
@@ -588,6 +682,44 @@ async def case_view(
     if operator_review:
         operator_review_html = ('<h2>Accounting Operator Review</h2>' f"<pre>{operator_review}</pre>")
 
+    # V1.3 Banking Reconciliation Review
+    bank_review = _latest_bank_reconciliation_review(chronology)
+    bank_review_html = ''
+    if bank_review:
+        decision_val = bank_review.get('decision', '')
+        decision_color = '#2d862d' if decision_val == 'CONFIRMED' else '#cc0000'
+        tx_id = bank_review.get('transaction_id', '?')
+        score = bank_review.get('confidence_score', 0)
+        quality = bank_review.get('match_quality', '-')
+        reasons = ', '.join(bank_review.get('reason_codes', []))
+        note = bank_review.get('decision_note', '-')
+        decided_by = bank_review.get('decided_by', '-')
+        outcome = bank_review.get('outcome_status', '-')
+        follow_up = bank_review.get('follow_up_open_item_id', '-')
+        ts = bank_review.get('created_at', '-')
+        bank_review_html = (
+            '<h2>Banking Reconciliation Review (V1.3)</h2>'
+            '<table border="1" cellpadding="6">'
+            '<tr><th>Zeit</th><th>Entscheidung</th><th>TX-ID</th><th>Score</th><th>Qualitaet</th>'
+            '<th>Gruende</th><th>Notiz</th><th>Entscheider</th><th>Outcome</th><th>Follow-Up Open Item</th></tr>'
+            f'<tr>'
+            f'<td>{ts}</td>'
+            f'<td style="color:{decision_color};font-weight:bold">{decision_val}</td>'
+            f'<td>{tx_id}</td>'
+            f'<td>{score}/100</td>'
+            f'<td>{quality}</td>'
+            f'<td>{reasons}</td>'
+            f'<td>{note}</td>'
+            f'<td>{decided_by}</td>'
+            f'<td>{outcome}</td>'
+            f'<td>{follow_up}</td>'
+            f'</tr>'
+            '</table>'
+            '<p style="color:#666;font-size:0.9em">'
+            '[bank_write_executed=False | no_financial_write=True | read-only probe basis]'
+            '</p>'
+        )
+
     manual_handoff = _latest_accounting_manual_handoff(chronology)
     manual_handoff_html = ''
     if manual_handoff:
@@ -624,6 +756,7 @@ async def case_view(
         f"<h2>Accounting Refs</h2><pre>{acc_refs}</pre>"
         f'{latest_gate_html}'
         f'{operator_review_html}'
+        f'{bank_review_html}'
         f'{manual_handoff_html}'
         f'{manual_handoff_resolution_html}'
         f'{clarification_completion_html}'
