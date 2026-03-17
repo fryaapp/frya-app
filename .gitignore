@@ -17,6 +17,7 @@ local.properties
 # Secrets
 staging.env
 *.env
+Hetzner Zugang.txt
 
 # Temp probe/deploy scripts
 tmp_*.py

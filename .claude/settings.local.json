@@ -13,7 +13,8 @@
       "Read(//c/Program Files/**)",
       "Bash(\"/c/Users/lenovo/AppData/Local/Programs/Python/Python311/python.exe\" --version)",
       "Bash(cd:*)",
-      "Bash(ssh-copy-id:*)"
+      "Bash(ssh-copy-id:*)",
+      "Bash(sshpass:*)"
     ]
   }
 }
