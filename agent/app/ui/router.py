@@ -27,19 +27,36 @@ from app.audit.service import AuditService
 from app.auth.csrf import get_csrf_token, require_csrf
 from app.auth.dependencies import require_admin, require_operator
 from app.auth.models import AuthUser
+from app.banking.models import (
+    BankingClarificationCompletionInput,
+    ExternalBankingProcessCompletionInput,
+    BankingHandoffReadyInput,
+    BankingHandoffResolutionDecision,
+    BankingHandoffResolutionInput,
+    BankReconciliationReviewInput,
+)
+from app.banking.review_service import BankReconciliationReviewService
 from app.cases.urls import ui_case_href
 from app.config import get_settings
+from app.banking.reconciliation_context import ReconciliationContextService
 from app.banking.service import BankTransactionService
 from app.dependencies import (
     get_accounting_operator_review_service,
     get_akaunting_reconciliation_service,
     get_approval_service,
     get_audit_service,
+    get_bank_reconciliation_review_service,
+    get_reconciliation_context_service,
     get_bank_transaction_service,
     get_file_store,
     get_open_items_service,
     get_policy_access_layer,
     get_problem_case_service,
+    get_telegram_case_link_service,
+    get_telegram_clarification_service,
+    get_telegram_document_analyst_followup_service,
+    get_telegram_document_analyst_review_service,
+    get_telegram_document_analyst_start_service,
     get_rule_change_audit_service,
     get_rule_loader,
 )
@@ -50,6 +67,12 @@ from app.problems.service import ProblemCaseService
 from app.rules.audit_service import RuleChangeAuditService
 from app.rules.loader import RuleLoader
 from app.rules.policy_access import REQUIRED_POLICY_ROLES, PolicyAccessLayer
+from app.telegram.document_analyst_followup_service import TelegramDocumentAnalystFollowupService
+from app.telegram.document_analyst_review_service import TelegramDocumentAnalystReviewService
+from app.telegram.document_analyst_start_service import TelegramDocumentAnalystStartService
+from app.telegram.clarification_service import TelegramClarificationService
+from app.telegram.models import TelegramCaseLinkRecord, TelegramClarificationRecord, TelegramUserVisibleStatus
+from app.telegram.service import TelegramCaseLinkService
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / 'templates'))
 router = APIRouter(prefix='/ui', tags=['ui'], dependencies=[Depends(require_operator)])
@@ -130,6 +153,217 @@ def _normalize_payload(payload: Any) -> Any:
         except Exception:
             return payload
     return payload
+
+
+def _latest_telegram_received(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'TELEGRAM_WEBHOOK_RECEIVED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_input', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_route(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'TELEGRAM_ROUTED',
+            'TELEGRAM_AUTH_DENIED',
+            'TELEGRAM_SECRET_DENIED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_reply(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'TELEGRAM_REPLY_ATTEMPTED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_duplicate(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'TELEGRAM_DUPLICATE_IGNORED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _telegram_ingress(
+    events: list[Any],
+    case_link: TelegramCaseLinkRecord | None = None,
+    user_visible_status: TelegramUserVisibleStatus | None = None,
+) -> dict[str, Any] | None:
+    received = _latest_telegram_received(events)
+    route = _latest_telegram_route(events)
+    reply = _latest_telegram_reply(events)
+    duplicate = _latest_telegram_duplicate(events)
+    if not received and not route and not reply and not duplicate:
+        return None
+
+    reply_ok = reply.get('reply_ok') if isinstance(reply, dict) else None
+    reply_reason = reply.get('reply_reason') if isinstance(reply, dict) else None
+    if reply_ok is True:
+        reply_status = 'SENT'
+    elif reply_reason == 'telegram_bot_token_missing':
+        reply_status = 'SKIPPED_NO_TOKEN'
+    elif reply is not None:
+        reply_status = 'FAILED'
+    else:
+        reply_status = 'NOT_ATTEMPTED'
+
+    return {
+        'telegram_update_ref': (received or {}).get('telegram_update_ref'),
+        'telegram_message_ref': (received or {}).get('telegram_message_ref'),
+        'telegram_chat_ref': (received or {}).get('telegram_chat_ref'),
+        'telegram_thread_ref': case_link.telegram_thread_ref if case_link else None,
+        'chat_type': (received or {}).get('chat_type'),
+        'sender_id': (received or {}).get('sender_id'),
+        'sender_username': (received or {}).get('sender_username'),
+        'text_preview': (received or {}).get('text'),
+        'routing_status': (route or {}).get('routing_status') or (route or {}).get('result'),
+        'intent_name': (route or {}).get('intent_name'),
+        'authorization_status': (route or {}).get('authorization_status'),
+        'auth_reason': (route or {}).get('auth_reason'),
+        'open_item_id': (route or {}).get('open_item_id'),
+        'open_item_title': (route or {}).get('open_item_title'),
+        'next_manual_step': (route or {}).get('next_manual_step'),
+        'ack_template': (route or {}).get('ack_template'),
+        'duplicate_ignored': duplicate is not None,
+        'duplicate_at': (duplicate or {}).get('created_at'),
+        'reply_status': reply_status,
+        'reply_ok': reply_ok,
+        'reply_reason': reply_reason,
+        'received_at': (received or {}).get('created_at'),
+        'routed_at': (route or {}).get('created_at'),
+        'replied_at': (reply or {}).get('created_at'),
+        'linked_case_id': case_link.linked_case_id if case_link else None,
+        'track_for_status': case_link.track_for_status if case_link else False,
+        'user_visible_status': user_visible_status.model_dump(mode='json') if user_visible_status else None,
+    }
+
+
+def _telegram_clarification_payload(record: TelegramClarificationRecord | None) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return record.model_dump(mode='json')
+
+
+def _telegram_clarification_rounds_payload(records: list[TelegramClarificationRecord]) -> list[dict[str, Any]]:
+    return [record.model_dump(mode='json') for record in records]
+
+
+def _latest_telegram_media(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'TELEGRAM_MEDIA_STORED',
+            'TELEGRAM_MEDIA_QUEUED',
+            'TELEGRAM_MEDIA_REJECTED',
+            'TELEGRAM_MEDIA_DOWNLOAD_FAILED',
+            'TELEGRAM_DOCUMENT_STORED',
+            'TELEGRAM_DOCUMENT_QUEUED',
+            'TELEGRAM_DOCUMENT_REJECTED',
+            'TELEGRAM_DOCUMENT_DOWNLOAD_FAILED',
+            'DOCUMENT_INBOX_ACCEPTED',
+            'DOCUMENT_INTAKE_LINKED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_notification(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'TELEGRAM_NOTIFICATION_SENT',
+            'TELEGRAM_NOTIFICATION_SKIPPED',
+            'TELEGRAM_NOTIFICATION_FAILED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_context(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_CONTEXT_READY',
+            'DOCUMENT_ANALYST_CONTEXT_ATTACHED',
+            'DOCUMENT_ANALYST_PENDING',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_start(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_START_READY',
+            'DOCUMENT_ANALYST_START_REQUESTED',
+            'DOCUMENT_ANALYST_RUNTIME_STARTED',
+            'DOCUMENT_ANALYST_RUNTIME_FAILED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analysis(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'DOCUMENT_ANALYSIS_COMPLETED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_review(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_REVIEW_READY',
+            'DOCUMENT_ANALYST_REVIEW_COMPLETED',
+            'DOCUMENT_ANALYST_REVIEW_STILL_OPEN',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_followup(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_FOLLOWUP_REQUIRED',
+            'DOCUMENT_ANALYST_FOLLOWUP_DATA_REQUESTED',
+            'DOCUMENT_ANALYST_FOLLOWUP_INTERNAL_ONLY',
+            'DOCUMENT_ANALYST_FOLLOWUP_COMPLETED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
 
 
 def _latest_accounting_review(events: list[Any]) -> dict[str, Any] | None:
@@ -247,6 +481,138 @@ def _latest_bank_transaction(events: list[Any]) -> dict[str, Any] | None:
     return None
 
 
+def _latest_bank_reconciliation_review(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {'BANK_RECONCILIATION_CONFIRMED', 'BANK_RECONCILIATION_REJECTED'}:
+            continue
+        if not getattr(event, 'llm_output', None):
+            continue
+        payload = _normalize_payload(event.llm_output)
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _latest_bank_handoff_ready(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'BANKING_HANDOFF_READY':
+            continue
+        if not getattr(event, 'llm_output', None):
+            continue
+        payload = _normalize_payload(event.llm_output)
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _latest_bank_handoff_resolution(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {'BANKING_HANDOFF_COMPLETED', 'BANKING_HANDOFF_RETURNED'}:
+            continue
+        if not getattr(event, 'llm_output', None):
+            continue
+        payload = _normalize_payload(event.llm_output)
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _latest_bank_clarification(events: list[Any]) -> dict[str, Any] | None:
+    latest_completion: dict[str, Any] | None = None
+    latest_return: dict[str, Any] | None = None
+    for event in reversed(events):
+        action = getattr(event, 'action', None)
+        if latest_completion is None and action == 'BANKING_CLARIFICATION_COMPLETED' and getattr(event, 'llm_output', None):
+            payload = _normalize_payload(event.llm_output)
+            if isinstance(payload, dict):
+                latest_completion = payload
+        if latest_return is None and action == 'BANKING_HANDOFF_RETURNED' and getattr(event, 'llm_output', None):
+            payload = _normalize_payload(event.llm_output)
+            if isinstance(payload, dict):
+                latest_return = payload
+        if latest_completion is not None and latest_return is not None:
+            break
+    if latest_completion is not None:
+        return latest_completion
+    if latest_return is None:
+        return None
+    return {
+        'status': 'BANKING_CLARIFICATION_OPEN',
+        'clarification_state': latest_return.get('clarification_state') or 'OPEN',
+        'clarification_ref': latest_return.get('clarification_ref') or latest_return.get('resolution_id'),
+        'handoff_ref': latest_return.get('handoff_ref'),
+        'review_ref': latest_return.get('review_ref'),
+        'workbench_ref': latest_return.get('workbench_ref'),
+        'transaction_id': latest_return.get('transaction_id'),
+        'candidate_reference': latest_return.get('candidate_reference'),
+        'clarification_guidance': 'Rueckgabegrund manuell klaeren und den Klaerabschluss dokumentieren.',
+        'required_manual_evidence': 'Kurznotiz, welche Rueckfrage oder Pruefung den Banking-Ruecklauf klaert.',
+        'next_manual_step': 'Klaerung dokumentieren oder den Fall bewusst offen halten.',
+        'clarification_open_item_id': latest_return.get('follow_up_open_item_id'),
+        'clarification_open_item_title': latest_return.get('follow_up_open_item_title'),
+        'bank_write_executed': False,
+        'no_financial_write': True,
+    }
+
+
+def _latest_external_banking_process_resolution(events: list[Any]) -> dict[str, Any] | None:
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'EXTERNAL_BANKING_PROCESS_COMPLETED':
+            continue
+        if not getattr(event, 'llm_output', None):
+            continue
+        payload = _normalize_payload(event.llm_output)
+        if isinstance(payload, dict):
+            return payload
+    return None
+
+
+def _outside_agent_banking_process(
+    bank_handoff_resolution: dict[str, Any] | None,
+    bank_clarification: dict[str, Any] | None,
+    external_banking_process_resolution: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if external_banking_process_resolution:
+        return {
+            'status': external_banking_process_resolution.get('status'),
+            'suggested_next_step': external_banking_process_resolution.get('suggested_next_step'),
+            'outside_process_open_item_id': external_banking_process_resolution.get('outside_process_open_item_id'),
+            'outside_process_open_item_title': external_banking_process_resolution.get('outside_process_open_item_title'),
+            'source_status': external_banking_process_resolution.get('source_internal_status'),
+            'resolution_recorded': True,
+        }
+    if bank_clarification and bank_clarification.get('status') == 'BANKING_CLARIFICATION_COMPLETED':
+        return {
+            'status': 'OUTSIDE_AGENT_BANKING_PROCESS',
+            'suggested_next_step': 'EXTERNAL_BANKING_PROCESS_COMPLETION',
+            'outside_process_open_item_id': bank_clarification.get('outside_process_open_item_id'),
+            'outside_process_open_item_title': bank_clarification.get('outside_process_open_item_title') or '[Banking] Externen Banking-Abschluss dokumentieren',
+            'source_status': bank_clarification.get('status'),
+            'resolution_recorded': False,
+        }
+    if bank_handoff_resolution and bank_handoff_resolution.get('decision') == 'COMPLETED':
+        return {
+            'status': 'OUTSIDE_AGENT_BANKING_PROCESS',
+            'suggested_next_step': 'EXTERNAL_BANKING_PROCESS_COMPLETION',
+            'outside_process_open_item_id': bank_handoff_resolution.get('outside_process_open_item_id'),
+            'outside_process_open_item_title': bank_handoff_resolution.get('outside_process_open_item_title') or '[Banking] Externen Banking-Abschluss dokumentieren',
+            'source_status': bank_handoff_resolution.get('status'),
+            'resolution_recorded': False,
+        }
+    return None
+
+def _should_build_reconciliation_context(
+    events: list[Any],
+    document_refs: list[str],
+    accounting_refs: list[str],
+) -> bool:
+    actions = {getattr(event, 'action', '') or '' for event in events}
+    if any(action.startswith('BANK_') or action.startswith('AKAUNTING_') for action in actions):
+        return True
+    refs = [*document_refs, *accounting_refs]
+    return any(str(ref).upper().startswith(('INV-', 'OUT-', 'EXP-', 'REC-', 'BILL-')) for ref in refs)
+
+
 def _outside_agent_accounting_process(
     manual_handoff_resolution: dict[str, Any] | None,
     clarification_completion: dict[str, Any] | None,
@@ -334,6 +700,155 @@ def _can_complete_external_return_clarification(
     if not external_resolution:
         return False
     return external_resolution.get('decision') == 'RETURNED'
+
+
+def _can_submit_bank_review(reconciliation_context: Any | None) -> bool:
+    if not reconciliation_context:
+        return False
+    trail = getattr(reconciliation_context, 'review_trail', None)
+    if trail and any([trail.review_outcome, trail.handoff_status, trail.clarification_status]):
+        return False
+    return bool(getattr(reconciliation_context, 'best_candidate', None))
+
+
+def _can_request_telegram_clarification(
+    telegram_case_link: dict[str, Any] | None,
+    telegram_clarification: dict[str, Any] | None,
+) -> bool:
+    if not telegram_case_link:
+        return False
+    if not telegram_case_link.get('track_for_status'):
+        return False
+    if telegram_clarification and telegram_clarification.get('clarification_state') in {'OPEN', 'ANSWER_RECEIVED', 'UNDER_REVIEW', 'AMBIGUOUS'}:
+        return False
+    if telegram_clarification and telegram_clarification.get('clarification_state') == 'STILL_OPEN':
+        return bool(telegram_clarification.get('follow_up_allowed'))
+    return True
+
+
+def _can_mark_telegram_clarification_under_review(telegram_clarification: dict[str, Any] | None) -> bool:
+    if not telegram_clarification:
+        return False
+    return telegram_clarification.get('clarification_state') == 'ANSWER_RECEIVED'
+
+
+def _can_resolve_telegram_clarification(telegram_clarification: dict[str, Any] | None) -> bool:
+    if not telegram_clarification:
+        return False
+    return telegram_clarification.get('clarification_state') == 'UNDER_REVIEW'
+
+
+def _can_mark_telegram_internal_followup_under_review(telegram_clarification: dict[str, Any] | None) -> bool:
+    if not telegram_clarification:
+        return False
+    return (
+        telegram_clarification.get('clarification_state') == 'STILL_OPEN'
+        and bool(telegram_clarification.get('internal_followup_required'))
+        and telegram_clarification.get('internal_followup_state') == 'REQUIRED'
+    )
+
+
+def _can_complete_telegram_internal_followup(telegram_clarification: dict[str, Any] | None) -> bool:
+    if not telegram_clarification:
+        return False
+    return (
+        telegram_clarification.get('clarification_state') == 'STILL_OPEN'
+        and telegram_clarification.get('internal_followup_state') == 'UNDER_REVIEW'
+    )
+
+
+def _can_start_document_analyst(
+    document_analyst_context: dict[str, Any] | None,
+    document_analyst_start: dict[str, Any] | None,
+) -> bool:
+    if not document_analyst_context:
+        return False
+    if document_analyst_context.get('analyst_context_status') not in {
+        'DOCUMENT_ANALYST_PENDING',
+        'DOCUMENT_ANALYST_CONTEXT_ATTACHED',
+        'DOCUMENT_ANALYST_CONTEXT_READY',
+    }:
+        return False
+    if not document_analyst_start:
+        return True
+    return document_analyst_start.get('analysis_start_status') not in {
+        'DOCUMENT_ANALYST_START_REQUESTED',
+        'DOCUMENT_ANALYST_RUNTIME_STARTED',
+    }
+
+
+def _can_review_document_analyst(
+    document_analyst_start: dict[str, Any] | None,
+    document_analyst_review: dict[str, Any] | None,
+) -> bool:
+    if not document_analyst_start:
+        return False
+    if document_analyst_start.get('analysis_start_status') != 'DOCUMENT_ANALYST_RUNTIME_STARTED':
+        return False
+    if not document_analyst_review:
+        return True
+    return document_analyst_review.get('review_status') == 'DOCUMENT_ANALYST_REVIEW_READY'
+
+
+def _can_manage_document_analyst_followup(
+    document_analyst_review: dict[str, Any] | None,
+    document_analyst_followup: dict[str, Any] | None,
+) -> bool:
+    if not document_analyst_review:
+        return False
+    if document_analyst_review.get('review_status') != 'DOCUMENT_ANALYST_REVIEW_STILL_OPEN':
+        return False
+    if not document_analyst_followup:
+        return True
+    return document_analyst_followup.get('followup_status') in {
+        'DOCUMENT_ANALYST_FOLLOWUP_REQUIRED',
+        'DOCUMENT_ANALYST_FOLLOWUP_INTERNAL_ONLY',
+    }
+
+
+def _can_mark_bank_handoff_ready(
+    bank_review: dict[str, Any] | None,
+    bank_handoff_ready: dict[str, Any] | None,
+    bank_handoff_resolution: dict[str, Any] | None,
+) -> bool:
+    if not bank_review:
+        return False
+    if bank_review.get('decision') != 'CONFIRMED':
+        return False
+    if bank_handoff_resolution is not None:
+        return False
+    return bank_handoff_ready is None
+
+
+def _can_resolve_bank_handoff(
+    bank_handoff_ready: dict[str, Any] | None,
+    bank_handoff_resolution: dict[str, Any] | None,
+) -> bool:
+    return bank_handoff_ready is not None and bank_handoff_resolution is None
+
+
+def _can_complete_bank_clarification(
+    bank_handoff_resolution: dict[str, Any] | None,
+    bank_clarification: dict[str, Any] | None,
+) -> bool:
+    if not bank_handoff_resolution:
+        return False
+    if bank_handoff_resolution.get('decision') != 'RETURNED':
+        return False
+    if not bank_clarification:
+        return True
+    return bank_clarification.get('status') == 'BANKING_CLARIFICATION_OPEN'
+
+
+def _can_complete_external_banking_process(
+    outside_agent_banking_process: dict[str, Any] | None,
+    external_banking_process_resolution: dict[str, Any] | None,
+) -> bool:
+    if external_banking_process_resolution is not None:
+        return False
+    if not outside_agent_banking_process:
+        return False
+    return outside_agent_banking_process.get('resolution_recorded') is False
 
 @router.get('', include_in_schema=False)
 async def ui_root() -> RedirectResponse:
@@ -567,6 +1082,347 @@ async def ui_case_bank_transaction_probe(
     return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
 
 
+@router.post('/cases/{case_id:path}/bank-reconciliation-review', dependencies=[Depends(require_csrf)])
+async def ui_case_bank_reconciliation_review(
+    request: Request,
+    case_id: str,
+    decision: str = Form(...),
+    note: str = Form(default=''),
+    transaction_id: str | None = Form(default=None),
+    candidate_amount: str | None = Form(default=None),
+    candidate_currency: str | None = Form(default=None),
+    candidate_date: str | None = Form(default=None),
+    candidate_reference: str | None = Form(default=None),
+    candidate_contact: str | None = Form(default=None),
+    candidate_description: str | None = Form(default=None),
+    confidence_score: str = Form(default='0'),
+    match_quality: str = Form(default='LOW'),
+    reason_codes: str = Form(default=''),
+    tx_type: str | None = Form(default=None),
+    probe_result: str = Form(default=''),
+    probe_note: str = Form(default=''),
+    workbench_ref: str = Form(...),
+    workbench_signal: str = Form(default=''),
+    workbench_guidance: str = Form(default=''),
+    review_guidance: str = Form(default=''),
+    candidate_rank: str | None = Form(default=None),
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await review_service.submit_review(
+            BankReconciliationReviewInput(
+                case_id=case_id,
+                transaction_id=transaction_id,
+                candidate_amount=float(candidate_amount) if candidate_amount not in (None, '') else None,
+                candidate_currency=candidate_currency or None,
+                candidate_date=candidate_date or None,
+                candidate_reference=candidate_reference or None,
+                candidate_contact=candidate_contact or None,
+                candidate_description=candidate_description or None,
+                confidence_score=int(confidence_score or '0'),
+                match_quality=match_quality,
+                reason_codes=[code for code in reason_codes.split(',') if code],
+                tx_type=tx_type or None,
+                probe_result=probe_result,
+                probe_note=probe_note,
+                workbench_ref=workbench_ref,
+                workbench_signal=workbench_signal,
+                workbench_guidance=workbench_guidance,
+                review_guidance=review_guidance,
+                candidate_rank=int(candidate_rank) if candidate_rank not in (None, '') else None,
+                decision=decision,
+                decision_note=note or '',
+                decided_by=current_user.username,
+                source='ui_case_detail',
+            )
+        )
+        msg = f'Banking Review {result.decision} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/banking-handoff-ready', dependencies=[Depends(require_csrf)])
+async def ui_case_banking_handoff_ready(
+    request: Request,
+    case_id: str,
+    review_ref: str = Form(...),
+    workbench_ref: str = Form(...),
+    transaction_id: str | None = Form(default=None),
+    note: str = Form(default=''),
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await review_service.mark_handoff_ready(
+            BankingHandoffReadyInput(
+                case_id=case_id,
+                review_ref=review_ref,
+                workbench_ref=workbench_ref,
+                transaction_id=transaction_id,
+                handoff_note=note or '',
+                handed_off_by=current_user.username,
+                source='ui_case_detail',
+            )
+        )
+        msg = f'Banking Handoff {result.handoff_state} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/banking-handoff-resolution', dependencies=[Depends(require_csrf)])
+async def ui_case_banking_handoff_resolution(
+    request: Request,
+    case_id: str,
+    handoff_ref: str = Form(...),
+    decision: str = Form(...),
+    note: str = Form(default=''),
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await review_service.resolve_handoff(
+            BankingHandoffResolutionInput(
+                case_id=case_id,
+                handoff_ref=handoff_ref,
+                decision=BankingHandoffResolutionDecision(decision),
+                resolution_note=note or '',
+                resolved_by=current_user.username,
+                source='ui_case_detail',
+            )
+        )
+        msg = f'Banking Handoff {result.decision} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/banking-clarification-complete', dependencies=[Depends(require_csrf)])
+async def ui_case_banking_clarification_complete(
+    request: Request,
+    case_id: str,
+    clarification_ref: str = Form(...),
+    note: str = Form(default=''),
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await review_service.complete_banking_clarification(
+            BankingClarificationCompletionInput(
+                case_id=case_id,
+                clarification_ref=clarification_ref,
+                clarification_note=note or '',
+                clarified_by=current_user.username,
+                source='ui_case_detail',
+            )
+        )
+        msg = f'Banking Klaerabschluss {result.status} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/external-banking-process-complete', dependencies=[Depends(require_csrf)])
+async def ui_case_external_banking_process_complete(
+    request: Request,
+    case_id: str,
+    note: str = Form(default=''),
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await review_service.complete_external_banking_process(
+            ExternalBankingProcessCompletionInput(
+                case_id=case_id,
+                resolution_note=note or '',
+                resolved_by=current_user.username,
+                source='ui_case_detail',
+            )
+        )
+        msg = f'Externer Banking-Abschluss {result.status} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/telegram-clarification-request', dependencies=[Depends(require_csrf)])
+async def ui_case_telegram_clarification_request(
+    request: Request,
+    case_id: str,
+    question: str = Form(...),
+    telegram_case_link_service: TelegramCaseLinkService = Depends(get_telegram_case_link_service),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        link = await telegram_case_link_service.get_by_case(case_id)
+        if link is None or not link.track_for_status:
+            raise ValueError('Kein verknuepfter Telegram-Fall fuer Rueckfrage verfuegbar.')
+        result = await telegram_clarification_service.request_clarification(
+            linked_case_id=link.linked_case_id or case_id,
+            telegram_case_link=link,
+            question_text=question,
+            asked_by=current_user.username,
+            source='ui_case_detail',
+        )
+        msg = f'Telegram-Rueckfrage {result.clarification_state} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/telegram-clarification-under-review', dependencies=[Depends(require_csrf)])
+async def ui_case_telegram_clarification_under_review(
+    case_id: str,
+    note: str = Form(default=''),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await telegram_clarification_service.mark_under_review(
+            linked_case_id=case_id,
+            reviewed_by=current_user.username,
+            note=note,
+            source='ui_case_detail',
+        )
+        msg = f'Telegram-Klaerung {result.clarification_state} gesetzt.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/telegram-clarification-resolution', dependencies=[Depends(require_csrf)])
+async def ui_case_telegram_clarification_resolution(
+    case_id: str,
+    decision: str = Form(...),
+    note: str = Form(default=''),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await telegram_clarification_service.resolve_clarification(
+            linked_case_id=case_id,
+            decision=decision,
+            resolved_by=current_user.username,
+            note=note,
+            source='ui_case_detail',
+        )
+        msg = f'Telegram-Klaerung {result.clarification_state} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/telegram-internal-followup-under-review', dependencies=[Depends(require_csrf)])
+async def ui_case_telegram_internal_followup_under_review(
+    case_id: str,
+    note: str = Form(default=''),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await telegram_clarification_service.mark_internal_followup_under_review(
+            linked_case_id=case_id,
+            reviewed_by=current_user.username,
+            note=note,
+            source='ui_case_detail',
+        )
+        msg = f'Telegram-interne Nachbearbeitung {result.internal_followup_state} gesetzt.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/telegram-internal-followup-resolution', dependencies=[Depends(require_csrf)])
+async def ui_case_telegram_internal_followup_resolution(
+    case_id: str,
+    note: str = Form(default=''),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await telegram_clarification_service.complete_internal_followup(
+            linked_case_id=case_id,
+            resolved_by=current_user.username,
+            note=note,
+            source='ui_case_detail',
+        )
+        msg = f'Telegram-interne Nachbearbeitung {result.internal_followup_state} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/document-analyst-start', dependencies=[Depends(require_csrf)])
+async def ui_case_document_analyst_start(
+    request: Request,
+    case_id: str,
+    note: str = Form(default=''),
+    document_analyst_start_service: TelegramDocumentAnalystStartService = Depends(get_telegram_document_analyst_start_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await document_analyst_start_service.start_runtime(
+            case_id,
+            actor=current_user.username,
+            note=note,
+            trigger='ui_case_detail',
+            graph=request.app.state.graph,
+        )
+        msg = f'Document-Analyst-Start {result.analysis_start_status} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/document-analyst-review', dependencies=[Depends(require_csrf)])
+async def ui_case_document_analyst_review(
+    case_id: str,
+    decision: str = Form(...),
+    note: str = Form(default=''),
+    document_analyst_review_service: TelegramDocumentAnalystReviewService = Depends(get_telegram_document_analyst_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await document_analyst_review_service.resolve_review(
+            case_id,
+            decision=decision,
+            reviewed_by=current_user.username,
+            note=note,
+            source='ui_case_detail',
+        )
+        msg = f'Document-Analyst-Review {result.review_status} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
+@router.post('/cases/{case_id:path}/document-analyst-followup', dependencies=[Depends(require_csrf)])
+async def ui_case_document_analyst_followup(
+    case_id: str,
+    mode: str = Form(...),
+    note: str = Form(default=''),
+    question: str = Form(default=''),
+    document_analyst_followup_service: TelegramDocumentAnalystFollowupService = Depends(get_telegram_document_analyst_followup_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> RedirectResponse:
+    try:
+        result = await document_analyst_followup_service.execute_followup(
+            case_id,
+            mode=mode,
+            actor=current_user.username,
+            note=note,
+            source='ui_case_detail',
+            question_text=question,
+        )
+        msg = f'Document-Analyst-Follow-up {result.followup_status} gespeichert.'
+    except ValueError as exc:
+        msg = str(exc)
+    return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
+
+
 @router.get('/cases/{case_id:path}', response_class=HTMLResponse)
 async def ui_case_detail(
     request: Request,
@@ -575,6 +1431,9 @@ async def ui_case_detail(
     open_items_service: OpenItemsService = Depends(get_open_items_service),
     problem_service: ProblemCaseService = Depends(get_problem_case_service),
     approval_service: ApprovalService = Depends(get_approval_service),
+    reconciliation_context_service: ReconciliationContextService = Depends(get_reconciliation_context_service),
+    telegram_case_link_service: TelegramCaseLinkService = Depends(get_telegram_case_link_service),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
 ) -> HTMLResponse:
     chronology = await audit_service.by_case(case_id, limit=1000)
     open_items = await open_items_service.list_by_case(case_id)
@@ -606,6 +1465,45 @@ async def ui_case_detail(
     )
     akaunting_probe = _latest_akaunting_probe(chronology)
     bank_transaction_probe = _latest_bank_transaction(chronology)
+    bank_reconciliation_review = _latest_bank_reconciliation_review(chronology)
+    banking_handoff_ready = _latest_bank_handoff_ready(chronology)
+    banking_handoff_resolution = _latest_bank_handoff_resolution(chronology)
+    bank_clarification = _latest_bank_clarification(chronology)
+    external_banking_process_resolution = _latest_external_banking_process_resolution(chronology)
+    telegram_case_link = await telegram_case_link_service.get_by_case(case_id)
+    telegram_user_status = None
+    telegram_clarification = None
+    telegram_clarification_rounds: list[TelegramClarificationRecord] = []
+    if telegram_case_link is not None:
+        linked_case_id = telegram_case_link.linked_case_id or case_id
+        telegram_clarification = await telegram_clarification_service.latest_by_case(linked_case_id)
+        telegram_clarification_rounds = await telegram_clarification_service.list_by_case(linked_case_id)
+        linked_open_items = open_items if linked_case_id == case_id else await open_items_service.list_by_case(linked_case_id)
+        linked_problems = problems if linked_case_id == case_id else await problem_service.by_case(linked_case_id)
+        linked_chronology = chronology if linked_case_id == case_id else await audit_service.by_case(linked_case_id, limit=200)
+        telegram_user_status = await telegram_case_link_service.build_user_visible_status(
+            telegram_case_link,
+            linked_open_items,
+            linked_problems,
+            linked_chronology,
+            telegram_clarification,
+        )
+    telegram_ingress = _telegram_ingress(chronology, telegram_case_link, telegram_user_status)
+    telegram_media = _latest_telegram_media(chronology)
+    document_analyst_context = _latest_document_analyst_context(chronology)
+    document_analyst_start = _latest_document_analyst_start(chronology)
+    document_analysis = _latest_document_analysis(chronology)
+    document_analyst_review = _latest_document_analyst_review(chronology)
+    document_analyst_followup = _latest_document_analyst_followup(chronology)
+    telegram_notification = _latest_telegram_notification(chronology)
+    outside_agent_banking_process = _outside_agent_banking_process(
+        banking_handoff_resolution,
+        bank_clarification,
+        external_banking_process_resolution,
+    )
+    reconciliation_context = None
+    if _should_build_reconciliation_context(chronology, document_refs, accounting_refs):
+        reconciliation_context = await reconciliation_context_service.build(case_id=case_id)
 
     return TEMPLATES.TemplateResponse(
         request,
@@ -635,6 +1533,70 @@ async def ui_case_detail(
             external_return_clarification_completion=external_return_clarification_completion,
             akaunting_probe=akaunting_probe,
             bank_transaction_probe=bank_transaction_probe,
+            bank_reconciliation_review=bank_reconciliation_review,
+            banking_handoff_ready=banking_handoff_ready,
+            banking_handoff_resolution=banking_handoff_resolution,
+            bank_clarification=bank_clarification,
+            outside_agent_banking_process=outside_agent_banking_process,
+            external_banking_process_resolution=external_banking_process_resolution,
+            telegram_ingress=telegram_ingress,
+            telegram_media=telegram_media,
+            document_analyst_context=document_analyst_context,
+            document_analyst_start=document_analyst_start,
+            document_analysis=document_analysis,
+            document_analyst_review=document_analyst_review,
+            document_analyst_followup=document_analyst_followup,
+            telegram_notification=telegram_notification,
+            telegram_case_link=telegram_case_link.model_dump(mode='json') if telegram_case_link else None,
+            telegram_clarification=_telegram_clarification_payload(telegram_clarification),
+            telegram_clarification_rounds=_telegram_clarification_rounds_payload(telegram_clarification_rounds),
+            reconciliation_context=reconciliation_context,
+            can_request_telegram_clarification=_can_request_telegram_clarification(
+                telegram_case_link.model_dump(mode='json') if telegram_case_link else None,
+                _telegram_clarification_payload(telegram_clarification),
+            ),
+            can_mark_telegram_clarification_under_review=_can_mark_telegram_clarification_under_review(
+                _telegram_clarification_payload(telegram_clarification),
+            ),
+            can_resolve_telegram_clarification=_can_resolve_telegram_clarification(
+                _telegram_clarification_payload(telegram_clarification),
+            ),
+            can_mark_telegram_internal_followup_under_review=_can_mark_telegram_internal_followup_under_review(
+                _telegram_clarification_payload(telegram_clarification),
+            ),
+            can_complete_telegram_internal_followup=_can_complete_telegram_internal_followup(
+                _telegram_clarification_payload(telegram_clarification),
+            ),
+            can_start_document_analyst=_can_start_document_analyst(
+                document_analyst_context,
+                document_analyst_start,
+            ),
+            can_review_document_analyst=_can_review_document_analyst(
+                document_analyst_start,
+                document_analyst_review,
+            ),
+            can_manage_document_analyst_followup=_can_manage_document_analyst_followup(
+                document_analyst_review,
+                document_analyst_followup,
+            ),
+            can_submit_bank_review=_can_submit_bank_review(reconciliation_context),
+            can_mark_bank_handoff_ready=_can_mark_bank_handoff_ready(
+                bank_reconciliation_review,
+                banking_handoff_ready,
+                banking_handoff_resolution,
+            ),
+            can_resolve_bank_handoff=_can_resolve_bank_handoff(
+                banking_handoff_ready,
+                banking_handoff_resolution,
+            ),
+            can_complete_bank_clarification=_can_complete_bank_clarification(
+                banking_handoff_resolution,
+                bank_clarification,
+            ),
+            can_complete_external_banking_process=_can_complete_external_banking_process(
+                outside_agent_banking_process,
+                external_banking_process_resolution,
+            ),
             can_submit_accounting_review=_can_submit_accounting_review(accounting_analysis, accounting_operator_review),
             can_complete_accounting_clarification=_can_complete_accounting_clarification(accounting_manual_handoff_resolution, accounting_clarification_completion),
             can_resolve_external_accounting_process=_can_resolve_external_accounting_process(outside_agent_accounting_process, external_accounting_process_resolution),

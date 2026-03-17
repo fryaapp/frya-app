@@ -31,11 +31,15 @@ class Settings(BaseSettings):
     akaunting_password: str | None = None
 
     telegram_bot_token: str | None = None
+    telegram_webhook_secret: str | None = None
     telegram_default_chat_id: str | None = None
     telegram_allowed_chat_ids: str | None = None
     telegram_allowed_direct_chat_ids: str | None = None
     telegram_allowed_user_ids: str | None = None
     telegram_dedup_ttl_seconds: int = 86400
+    telegram_media_max_bytes: int = 10485760
+    telegram_media_allowed_mime_types: str = 'image/jpeg,image/png,application/pdf'
+    telegram_media_allowed_extensions: str = '.jpg,.jpeg,.png,.pdf'
 
     n8n_base_url: str
     n8n_token: str | None = None

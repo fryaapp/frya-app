@@ -16,7 +16,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.banking.models import BankReconciliationDecision, BankReconciliationReviewInput
+from app.banking.models import (
+    BankReconciliationDecision,
+    BankReconciliationReviewInput,
+    ReconciliationContext,
+    ReconciliationDecisionTrail,
+    ReconciliationSignal,
+    ReviewGuidanceLevel,
+    TransactionCandidate,
+)
 from app.banking.review_service import BankReconciliationReviewService
 from app.open_items.models import OpenItem
 
@@ -51,6 +59,7 @@ def _make_service(
     existing_items: list[OpenItem] | None = None,
     created_item: OpenItem | None = None,
     chronology: list | None = None,
+    reconciliation_context: ReconciliationContext | None = None,
 ) -> BankReconciliationReviewService:
     audit = AsyncMock()
     audit.log_event = AsyncMock(return_value=None)
@@ -61,7 +70,70 @@ def _make_service(
     oi.update_status = AsyncMock(return_value=None)
     oi.create_item = AsyncMock(return_value=created_item or _make_created_item())
 
-    return BankReconciliationReviewService(audit_service=audit, open_items_service=oi)
+    context_service = AsyncMock()
+    context_service.build = AsyncMock(return_value=reconciliation_context or _make_reconciliation_context())
+
+    return BankReconciliationReviewService(
+        audit_service=audit,
+        open_items_service=oi,
+        reconciliation_context_service=context_service,
+    )
+
+
+def _make_reconciliation_context(
+    *,
+    signal: ReconciliationSignal = ReconciliationSignal.PLAUSIBLE,
+    confirm_allowed: bool = True,
+    tx_id: int = 1,
+    tx_type: str = 'income',
+) -> ReconciliationContext:
+    candidate = TransactionCandidate(
+        transaction_id=tx_id,
+        amount=250.0,
+        currency='EUR',
+        date='2026-03-01',
+        reference='INV-2026-001',
+        contact_name='Muster GmbH',
+        tx_type=tx_type,
+        confidence_score=70,
+        match_quality='HIGH',
+        reason_codes=['AMOUNT_EXACT', 'REFERENCE_EXACT', 'TYPE_MATCH'],
+    )
+    secondary = TransactionCandidate(
+        transaction_id=2,
+        amount=75.5,
+        currency='EUR',
+        date='2026-03-05',
+        reference='OUT-2026-007',
+        contact_name='Other Corp',
+        tx_type='income',
+        confidence_score=25,
+        match_quality='LOW',
+        reason_codes=['AMOUNT_NEAR'],
+    )
+    return ReconciliationContext(
+        case_id='doc-1',
+        context_ref='doc-1:reconciliation-context-v1.6:abc123',
+        review_anchor_ref='doc-1:reconciliation-context-v1.6:abc123',
+        built_at='2026-03-14T10:00:00+00:00',
+        doc_reference='INV-2026-001',
+        doc_amount=250.0,
+        doc_currency='EUR',
+        doc_type='income',
+        bank_result='MATCH_FOUND',
+        bank_feed_reachable=True,
+        bank_feed_total=3,
+        best_candidate=candidate,
+        all_candidates=[candidate, secondary],
+        accounting_result='FOUND',
+        accounting_doc_id='101',
+        match_signal=signal,
+        review_guidance=ReviewGuidanceLevel.CONFIRMABLE if confirm_allowed else ReviewGuidanceLevel.NOT_CONFIRMABLE,
+        operator_guidance='Test guidance',
+        confirm_allowed=confirm_allowed,
+        candidate_count=1,
+        review_trail=ReconciliationDecisionTrail(current_stage='BANK_RECONCILIATION_REVIEW_PENDING'),
+    )
 
 
 def _confirm_payload(case_id: str = 'doc-1', tx_id: int = 1) -> BankReconciliationReviewInput:
@@ -76,8 +148,14 @@ def _confirm_payload(case_id: str = 'doc-1', tx_id: int = 1) -> BankReconciliati
         confidence_score=70,
         match_quality='HIGH',
         reason_codes=['AMOUNT_EXACT', 'REFERENCE_MATCH'],
+        tx_type='income',
         probe_result='MATCH_FOUND',
         probe_note='Eindeutiger Treffer.',
+        workbench_ref='doc-1:reconciliation-context-v1.6:abc123',
+        workbench_signal='PLAUSIBLE',
+        workbench_guidance='Test guidance',
+        review_guidance='CONFIRMABLE',
+        candidate_rank=1,
         decision=BankReconciliationDecision.CONFIRMED,
         decision_note='Passt zu Rechnung INV-2026-001.',
         decided_by='operator@frya.de',
@@ -95,8 +173,14 @@ def _reject_payload(case_id: str = 'doc-1', tx_id: int = 2) -> BankReconciliatio
         confidence_score=25,
         match_quality='LOW',
         reason_codes=['AMOUNT_NEAR'],
+        tx_type='income',
         probe_result='CANDIDATE_FOUND',
         probe_note='Schwacher Kandidat.',
+        workbench_ref='doc-1:reconciliation-context-v1.6:abc123',
+        workbench_signal='UNCLEAR',
+        workbench_guidance='Test guidance',
+        review_guidance='CLARIFICATION_NEEDED',
+        candidate_rank=1,
         decision=BankReconciliationDecision.REJECTED,
         decision_note='Betrag passt nicht zu erwarteter Rechnung.',
         decided_by='operator@frya.de',
@@ -139,7 +223,14 @@ async def test_confirm_audit_action_name():
     oi.update_status = AsyncMock(return_value=None)
     oi.create_item = AsyncMock(return_value=_make_created_item())
 
-    svc = BankReconciliationReviewService(audit_service=audit, open_items_service=oi)
+    context_service = AsyncMock()
+    context_service.build = AsyncMock(return_value=_make_reconciliation_context())
+
+    svc = BankReconciliationReviewService(
+        audit_service=audit,
+        open_items_service=oi,
+        reconciliation_context_service=context_service,
+    )
     await svc.submit_review(_confirm_payload())
 
     call_kwargs = audit.log_event.call_args[0][0]
@@ -175,7 +266,14 @@ async def test_reject_audit_action_name():
     oi.update_status = AsyncMock(return_value=None)
     oi.create_item = AsyncMock(return_value=_make_created_item())
 
-    svc = BankReconciliationReviewService(audit_service=audit, open_items_service=oi)
+    context_service = AsyncMock()
+    context_service.build = AsyncMock(return_value=_make_reconciliation_context())
+
+    svc = BankReconciliationReviewService(
+        audit_service=audit,
+        open_items_service=oi,
+        reconciliation_context_service=context_service,
+    )
     await svc.submit_review(_reject_payload())
 
     call_kwargs = audit.log_event.call_args[0][0]
@@ -238,7 +336,14 @@ async def test_audit_payload_contains_candidate_snapshot():
     oi.update_status = AsyncMock(return_value=None)
     oi.create_item = AsyncMock(return_value=_make_created_item())
 
-    svc = BankReconciliationReviewService(audit_service=audit, open_items_service=oi)
+    context_service = AsyncMock()
+    context_service.build = AsyncMock(return_value=_make_reconciliation_context())
+
+    svc = BankReconciliationReviewService(
+        audit_service=audit,
+        open_items_service=oi,
+        reconciliation_context_service=context_service,
+    )
     await svc.submit_review(_confirm_payload())
 
     output = captured.get('llm_output', {})
@@ -247,6 +352,7 @@ async def test_audit_payload_contains_candidate_snapshot():
     assert 'AMOUNT_EXACT' in output.get('reason_codes', [])
     assert output.get('candidate_amount') == 250.0
     assert output.get('candidate_reference') == 'INV-2026-001'
+    assert output.get('workbench_ref') == 'doc-1:reconciliation-context-v1.6:abc123'
     assert output.get('bank_write_executed') is False
     assert output.get('no_financial_write') is True
 
@@ -267,7 +373,14 @@ async def test_existing_review_item_completed_on_confirm():
     audit.log_event = AsyncMock(return_value=None)
     audit.by_case = AsyncMock(return_value=[])
 
-    svc = BankReconciliationReviewService(audit_service=audit, open_items_service=oi)
+    context_service = AsyncMock()
+    context_service.build = AsyncMock(return_value=_make_reconciliation_context())
+
+    svc = BankReconciliationReviewService(
+        audit_service=audit,
+        open_items_service=oi,
+        reconciliation_context_service=context_service,
+    )
     result = await svc.submit_review(_confirm_payload())
 
     # First call: complete the existing review item; second call: set follow-up to WAITING_DATA

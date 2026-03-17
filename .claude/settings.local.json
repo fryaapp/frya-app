@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where python3:*)",
+      "Bash(where py:*)",
+      "Read(//c/Users/lenovo/AppData/Local/Programs/**)",
+      "Bash(curl:*)",
+      "Bash(cmd.exe /c 'C:\\\\tmp\\\\python-3.11.9-amd64.exe /quiet InstallAllUsers=1 PrependPath=1 Include_test=0 TargetDir=\"C:\\\\Python311\"' 2>&1)",
+      "Read(//c/Python311/**)",
+      "Bash(/c/Python311/python.exe --version)",
+      "Bash(cmd.exe /c 'C:\\\\tmp\\\\python-3.11.9-amd64.exe /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 DefaultJustForMeTargetDir=\"C:\\\\Users\\\\lenovo\\\\Python311\"' 2>&1)",
+      "Bash(find /c/Python* -maxdepth 1 -name \"python.exe\")",
+      "Read(//c/Program Files/**)",
+      "Bash(\"/c/Users/lenovo/AppData/Local/Programs/Python/Python311/python.exe\" --version)",
+      "Bash(cd:*)",
+      "Bash(ssh-copy-id:*)"
+    ]
+  }
+}

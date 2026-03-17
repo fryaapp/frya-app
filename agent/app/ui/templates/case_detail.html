@@ -61,6 +61,575 @@
 </section>
 {% endif %}
 
+{% if telegram_ingress %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Telegram Ingress</p>
+      <p class="summary-value {% if telegram_ingress.authorization_status == 'AUTHORIZED' and telegram_ingress.routing_status in ['STATUS_REQUEST', 'HELP_REQUEST', 'ACCEPTED_TO_INBOX', 'MEDIA_ACCEPTED', 'DOCUMENT_ACCEPTED'] %}ok{% else %}warn{% endif %}">
+        {{ telegram_ingress.routing_status or 'RECEIVED' }}
+      </p>
+      <p class="summary-sub">Auth: {{ telegram_ingress.authorization_status or '-' }} | Reply: {{ telegram_ingress.reply_status }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Telegram Kontext</p>
+      <p class="summary-sub">
+        Chat: {{ telegram_ingress.telegram_chat_ref or '-' }}<br>
+        Thread: {{ telegram_ingress.telegram_thread_ref or '-' }}<br>
+        Sender: {{ telegram_ingress.sender_username or telegram_ingress.sender_id or '-' }}<br>
+        Intent: {{ telegram_ingress.intent_name or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Naechster Schritt</p>
+      <p class="summary-sub">
+        {{ telegram_ingress.next_manual_step or '-' }}<br>
+        Open Item: {{ telegram_ingress.open_item_title or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Telegram Statussicht</p>
+      <p class="summary-value {% if telegram_ingress.user_visible_status and telegram_ingress.user_visible_status.status_code in ['COMPLETED'] %}ok{% elif telegram_ingress.user_visible_status and telegram_ingress.user_visible_status.status_code in ['REPLY_RECEIVED', 'UNDER_REVIEW'] %}ok{% elif telegram_ingress.user_visible_status and telegram_ingress.user_visible_status.status_code in ['IN_QUEUE', 'IN_PROGRESS', 'WAITING_FOR_YOUR_REPLY', 'NEEDS_FURTHER_REPLY', 'UNDER_INTERNAL_REVIEW'] %}warn{% elif telegram_ingress.user_visible_status and telegram_ingress.user_visible_status.status_code == 'NOT_AVAILABLE' %}warn{% endif %}">
+        {{ telegram_ingress.user_visible_status.status_label if telegram_ingress.user_visible_status else '-' }}
+      </p>
+      <p class="summary-sub">
+        Ref: {{ telegram_ingress.linked_case_id or '-' }}<br>
+        Detail: {{ telegram_ingress.user_visible_status.status_detail if telegram_ingress.user_visible_status else '-' }}
+      </p>
+    </article>
+  </div>
+  <p class="summary-sub">Text: {{ telegram_ingress.text_preview or '-' }}</p>
+</section>
+{% endif %}
+
+{% if telegram_notification %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Telegram Notification</p>
+      <p class="summary-value {% if telegram_notification.action == 'TELEGRAM_NOTIFICATION_SENT' %}ok{% elif telegram_notification.action == 'TELEGRAM_NOTIFICATION_SKIPPED' %}warn{% else %}warn{% endif %}">{{ telegram_notification.state }}</p>
+      <p class="summary-sub">
+        Typ: {{ telegram_notification.notification_type }}<br>
+        Trigger: {{ telegram_notification.trigger_action }}<br>
+        Delivery: {{ telegram_notification.delivery_state }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Telegram Live Delivery</p>
+      <p class="summary-sub">
+        Chat: {{ telegram_notification.telegram_chat_ref or '-' }}<br>
+        Ref: {{ telegram_notification.telegram_case_ref or telegram_notification.linked_case_id or '-' }}<br>
+        Message-ID: {{ telegram_notification.sent_message_id or '-' }}
+      </p>
+    </article>
+  </div>
+  <p class="summary-sub">{{ telegram_notification.message_text }}</p>
+</section>
+{% endif %}
+
+{% if telegram_media %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Telegram Media</p>
+      <p class="summary-value {% if telegram_media.storage_status == 'STORED' %}ok{% else %}warn{% endif %}">{{ telegram_media.action }}</p>
+      <p class="summary-sub">
+        Domäne: {{ telegram_media.media_domain or '-' }}<br>
+        Typ: {{ telegram_media.media_kind or '-' }}<br>
+        Datei: {{ telegram_media.file_name or '-' }}<br>
+        MIME: {{ telegram_media.mime_type or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Speicherstatus</p>
+      <p class="summary-sub">
+        Download: {{ telegram_media.download_status or '-' }}<br>
+        Storage: {{ telegram_media.storage_status or '-' }}<br>
+        Pfad: {{ telegram_media.stored_relative_path or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Queue / Intake</p>
+      <p class="summary-sub">
+        Open Item: {{ telegram_media.open_item_title or '-' }}<br>
+        Ref: {{ telegram_media.media_ref or '-' }}<br>
+        Intake: {{ telegram_media.document_intake_status or '-' }}<br>
+        Intake-Ref: {{ telegram_media.document_intake_ref or '-' }}<br>
+        Kontext-Fall: {{ telegram_media.linked_context_case_id or '-' }}<br>
+        Caption: {{ telegram_media.caption_text or '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if document_analyst_context %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Document Analyst Context</p>
+      <p class="summary-value {% if document_analyst_context.analyst_context_status == 'DOCUMENT_ANALYST_CONTEXT_ATTACHED' %}ok{% else %}warn{% endif %}">
+        {{ document_analyst_context.analyst_context_status }}
+      </p>
+      <p class="summary-sub">
+        Ref: {{ document_analyst_context.analyst_context_ref }}<br>
+        Source Case: {{ document_analyst_context.source_case_id }}<br>
+        Target Case: {{ document_analyst_context.target_case_id }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Document Intake Bindung</p>
+      <p class="summary-sub">
+        Dokument-Ref: {{ document_analyst_context.telegram_document_ref or '-' }}<br>
+        Intake-Ref: {{ document_analyst_context.document_intake_ref or '-' }}<br>
+        Intake-Status: {{ document_analyst_context.document_intake_status or '-' }}<br>
+        Storage: {{ document_analyst_context.storage_path or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Kontextregel</p>
+      <p class="summary-sub">
+        Confidence: {{ document_analyst_context.document_context_link_confidence }}<br>
+        Grund: {{ document_analyst_context.document_context_link_reason or '-' }}<br>
+        Operator-Bestaetigung: {{ 'ja' if document_analyst_context.operator_confirmation_required else 'nein' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Analyst Follow-up</p>
+      <p class="summary-sub">
+        Open Item: {{ document_analyst_context.analyst_context_open_item_title or '-' }}<br>
+        Open Item Ref: {{ document_analyst_context.analyst_context_open_item_id or '-' }}<br>
+        Herkunft: via Telegram
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if document_analyst_start %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Document Analyst Start</p>
+      <p class="summary-value {% if document_analyst_start.analysis_start_status == 'DOCUMENT_ANALYST_RUNTIME_STARTED' %}ok{% else %}warn{% endif %}">
+        {{ document_analyst_start.analysis_start_status }}
+      </p>
+      <p class="summary-sub">
+        Ref: {{ document_analyst_start.start_ref }}<br>
+        Runtime Case: {{ document_analyst_start.runtime_case_id or document_analyst_start.target_case_id }}<br>
+        Trigger: {{ document_analyst_start.trigger or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Startregel</p>
+      <p class="summary-sub">
+        Confidence: {{ document_analyst_start.analysis_start_confidence }}<br>
+        Grund: {{ document_analyst_start.analysis_start_reason or '-' }}<br>
+        Operator noetig: {{ 'ja' if document_analyst_start.analysis_start_requires_operator else 'nein' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Runtime Ergebnis</p>
+      <p class="summary-sub">
+        Status: {{ document_analyst_start.runtime_output_status or '-' }}<br>
+        Open Item: {{ document_analyst_start.runtime_open_item_id or '-' }}<br>
+        Problem: {{ document_analyst_start.runtime_problem_id or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Startnotiz</p>
+      <p class="summary-sub">
+        Actor: {{ document_analyst_start.actor or '-' }}<br>
+        Note: {{ document_analyst_start.note or '-' }}<br>
+        Fehler: {{ document_analyst_start.runtime_error or '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if document_analysis %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Document Analysis Output</p>
+      <p class="summary-value {% if document_analysis.global_decision == 'ACCOUNTING_REVIEW' %}ok{% else %}warn{% endif %}">
+        {{ document_analysis.global_decision or '-' }}
+      </p>
+      <p class="summary-sub">
+        Typ: {{ document_analysis.document_type.value if document_analysis.document_type else '-' }}<br>
+        Next: {{ document_analysis.recommended_next_step or '-' }}<br>
+        Confidence: {{ document_analysis.overall_confidence or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Extraktion</p>
+      <p class="summary-sub">
+        Sender: {{ document_analysis.sender.value if document_analysis.sender else '-' }}<br>
+        Empfaenger: {{ document_analysis.recipient.value if document_analysis.recipient else '-' }}<br>
+        Referenzen: {{ document_analysis.references|join(', ') if document_analysis.references else '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Risiken</p>
+      <p class="summary-sub">
+        {% if document_analysis.risks %}
+        {% for risk in document_analysis.risks %}
+        {{ risk.code }} ({{ risk.severity }}){% if not loop.last %}<br>{% endif %}
+        {% endfor %}
+        {% else %}
+        -
+        {% endif %}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Pflichtfelder</p>
+      <p class="summary-sub">
+        {{ document_analysis.missing_fields|join(', ') if document_analysis.missing_fields else '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if document_analyst_review %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Document Analyst Review</p>
+      <p class="summary-value {% if document_analyst_review.review_status == 'DOCUMENT_ANALYST_REVIEW_COMPLETED' %}ok{% else %}warn{% endif %}">
+        {{ document_analyst_review.review_status }}
+      </p>
+      <p class="summary-sub">
+        Ref: {{ document_analyst_review.review_ref }}<br>
+        Outcome: {{ document_analyst_review.review_outcome or '-' }}<br>
+        Keine Telegram-Folge: {{ 'ja' if document_analyst_review.no_further_telegram_action else 'nein' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Runtime Bezug</p>
+      <p class="summary-sub">
+        Runtime Status: {{ document_analyst_review.runtime_output_status or '-' }}<br>
+        Decision: {{ document_analyst_review.runtime_decision or '-' }}<br>
+        Next Step: {{ document_analyst_review.runtime_next_step or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Review Guidance</p>
+      <p class="summary-sub">
+        {{ document_analyst_review.review_guidance or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Review Note</p>
+      <p class="summary-sub">
+        Actor: {{ document_analyst_review.actor or '-' }}<br>
+        Note: {{ document_analyst_review.note or '-' }}<br>
+        Problem Case: {{ document_analyst_review.runtime_problem_id or '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if document_analyst_followup %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Document Analyst Follow-up</p>
+      <p class="summary-value {% if document_analyst_followup.followup_status == 'DOCUMENT_ANALYST_FOLLOWUP_COMPLETED' %}ok{% else %}warn{% endif %}">
+        {{ document_analyst_followup.followup_status }}
+      </p>
+      <p class="summary-sub">
+        Ref: {{ document_analyst_followup.followup_ref }}<br>
+        Mode: {{ document_analyst_followup.followup_mode or '-' }}<br>
+        Telegram-Nachforderung erlaubt: {{ 'ja' if document_analyst_followup.telegram_data_request_allowed else 'nein' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Follow-up Grund</p>
+      <p class="summary-sub">
+        {{ document_analyst_followup.followup_reason or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Telegram Bezug</p>
+      <p class="summary-sub">
+        Rueckfrage-Ref: {{ document_analyst_followup.linked_clarification_ref or '-' }}<br>
+        Rueckfrage-Status: {{ document_analyst_followup.linked_clarification_state or '-' }}<br>
+        Frage: {{ document_analyst_followup.data_request_question or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Interner Abschluss</p>
+      <p class="summary-sub">
+        Runtime Open Item: {{ document_analyst_followup.runtime_open_item_id or '-' }}<br>
+        Problem Case: {{ document_analyst_followup.runtime_problem_id or '-' }}<br>
+        Keine weitere Telegram-Aktion: {{ 'ja' if document_analyst_followup.no_further_telegram_action else 'nein' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if telegram_clarification %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Telegram Rueckfrage</p>
+      <p class="summary-value {% if telegram_clarification.internal_followup_state == 'COMPLETED' or telegram_clarification.clarification_state in ['COMPLETED'] %}ok{% elif telegram_clarification.clarification_state in ['ANSWER_RECEIVED', 'UNDER_REVIEW'] %}ok{% else %}warn{% endif %}">
+        {% if telegram_clarification.internal_followup_state != 'NOT_REQUIRED' %}
+        TELEGRAM_INTERNAL_FOLLOWUP_{{ telegram_clarification.internal_followup_state }}
+        {% else %}
+        {{ telegram_clarification.clarification_state }}
+        {% endif %}
+      </p>
+      <p class="summary-sub">
+        Delivery: {{ telegram_clarification.delivery_state }}<br>
+        Erwartet: {{ telegram_clarification.expected_reply_state }}<br>
+        Outcome: {{ telegram_clarification.resolution_outcome or 'PENDING' }}<br>
+        Round: {{ telegram_clarification.clarification_round }} / {{ telegram_clarification.max_follow_up_allowed + 1 }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Letzte Frage</p>
+      <p class="summary-sub">
+        {{ telegram_clarification.question_text }}<br>
+        By: {{ telegram_clarification.asked_by }}<br>
+        Ref: {{ telegram_clarification.clarification_ref }}<br>
+        Parent: {{ telegram_clarification.parent_clarification_ref or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Antwortstatus</p>
+      <p class="summary-sub">
+        Antwort eingegangen: {{ 'ja' if telegram_clarification.answer_text else 'nein' }}<br>
+        Zuordnung: {{ telegram_clarification.answer_message_ref or '-' }}<br>
+        Open Item: {{ telegram_clarification.open_item_title or '-' }}<br>
+        Review by: {{ telegram_clarification.reviewed_by or '-' }}<br>
+        Follow-up erlaubt: {{ 'ja' if telegram_clarification.follow_up_allowed else 'nein' }}<br>
+        Telegram-Ende: {{ 'ja' if telegram_clarification.telegram_clarification_closed_for_user_input else 'nein' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Telegram Clarification Lifecycle</p>
+      <p class="summary-sub">
+        Frage gesendet: {{ telegram_clarification.created_at or '-' }}<br>
+        Antwort erhalten: {{ telegram_clarification.answer_received_at or '-' }}<br>
+        Under Review: {{ telegram_clarification.review_started_at or '-' }}<br>
+        Abschluss: {{ telegram_clarification.resolved_at or '-' }}<br>
+        Internal Follow-up: {{ telegram_clarification.internal_followup_state }}
+      </p>
+    </article>
+  </div>
+  <p class="summary-sub">
+    Frage: {{ telegram_clarification.question_text }}<br>
+    Antwort: {{ telegram_clarification.answer_text or '-' }}<br>
+    Review-Note: {{ telegram_clarification.review_note or '-' }}<br>
+    Resolution-Note: {{ telegram_clarification.resolution_note or '-' }}<br>
+    Follow-up-Grund: {{ telegram_clarification.follow_up_reason or '-' }}<br>
+    Follow-up-Block: {{ telegram_clarification.follow_up_block_reason or '-' }}<br>
+    Handoff-Grund: {{ telegram_clarification.handoff_reason or '-' }}<br>
+    Operator-Guidance: {{ telegram_clarification.operator_guidance or '-' }}<br>
+    Internal-Review-Note: {{ telegram_clarification.internal_followup_review_note or '-' }}<br>
+    Internal-Resolution-Note: {{ telegram_clarification.internal_followup_resolution_note or '-' }}<br>
+    Late-Reply-Policy: {{ telegram_clarification.late_reply_policy }}
+  </p>
+</section>
+{% endif %}
+
+{% if telegram_clarification_rounds %}
+<section class="action-panel">
+  <h2>Telegram Clarification Rounds</h2>
+  <table>
+    <tr><th>Round</th><th>Status</th><th>Frage</th><th>Antwort</th><th>Outcome</th><th>Follow-up</th></tr>
+    {% for round in telegram_clarification_rounds %}
+    <tr>
+      <td>{{ round.clarification_round }}</td>
+      <td>{{ round.clarification_state }}</td>
+      <td>{{ round.question_text }}</td>
+      <td>{{ round.answer_text or '-' }}</td>
+      <td>{{ round.resolution_outcome or 'PENDING' }}</td>
+      <td>{{ 'erlaubt' if round.follow_up_allowed else (round.follow_up_block_reason or '-') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+{% endif %}
+
+{% if telegram_clarification and (telegram_clarification.internal_followup_required or telegram_clarification.internal_followup_state in ['UNDER_REVIEW', 'COMPLETED']) %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Internal Follow-up Status</p>
+      <p class="summary-value {% if telegram_clarification.internal_followup_state == 'COMPLETED' %}ok{% else %}warn{% endif %}">{{ telegram_clarification.internal_followup_state }}</p>
+      <p class="summary-sub">
+        Telegram-Follow-up erschoepft: {{ 'ja' if telegram_clarification.telegram_followup_exhausted else 'nein' }}<br>
+        User-Input geschlossen: {{ 'ja' if telegram_clarification.telegram_clarification_closed_for_user_input else 'nein' }}<br>
+        Internal Input geschlossen: {{ 'ja' if telegram_clarification.internal_followup_closed_for_user_input else 'nein' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Interner Handoff</p>
+      <p class="summary-sub">
+        Grund: {{ telegram_clarification.handoff_reason or '-' }}<br>
+        Open Item: {{ telegram_clarification.open_item_title or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Operator Guidance</p>
+      <p class="summary-sub">
+        {{ telegram_clarification.operator_guidance or '-' }}<br>
+        Review by: {{ telegram_clarification.internal_followup_reviewed_by or '-' }}<br>
+        Resolution by: {{ telegram_clarification.internal_followup_resolved_by or '-' }}
+      </p>
+    </article>
+  </div>
+  <p class="summary-sub">
+    Review-Start: {{ telegram_clarification.internal_followup_review_started_at or '-' }}<br>
+    Review-Note: {{ telegram_clarification.internal_followup_review_note or '-' }}<br>
+    Resolution: {{ telegram_clarification.internal_followup_resolved_at or '-' }}<br>
+    Resolution-Note: {{ telegram_clarification.internal_followup_resolution_note or '-' }}
+  </p>
+</section>
+{% endif %}
+
+{% if can_request_telegram_clarification %}
+<section class="action-panel">
+  <h2>{% if telegram_clarification and telegram_clarification.clarification_state == 'STILL_OPEN' %}Telegram Follow-up senden{% else %}Telegram Rueckfrage senden{% endif %}</h2>
+  <form method="post" action="{{ case_href(case_id) }}/telegram-clarification-request" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Rueckfrage
+      <textarea name="question" rows="3" placeholder="{% if telegram_clarification and telegram_clarification.clarification_state == 'STILL_OPEN' %}Gezielte Folge-Rueckfrage fuer denselben Telegram-Fall.{% else %}Kurze Rueckfrage fuer diesen verknuepften Telegram-Fall.{% endif %}"></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">{% if telegram_clarification and telegram_clarification.clarification_state == 'STILL_OPEN' %}Follow-up senden{% else %}Rueckfrage senden{% endif %}</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if can_mark_telegram_clarification_under_review %}
+<section class="action-panel">
+  <h2>Telegram-Antwort sichten</h2>
+  <form method="post" action="{{ case_href(case_id) }}/telegram-clarification-under-review" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Review-Note
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, dass die Telegram-Antwort operatorisch gesichtet wird."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">In Review uebernehmen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if can_resolve_telegram_clarification %}
+<section class="action-panel">
+  <h2>Telegram-Klaerabschluss</h2>
+  <form method="post" action="{{ case_href(case_id) }}/telegram-clarification-resolution" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Abschlussnote
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, ob die Telegram-Antwort ausreicht oder warum weitere Klaerung noetig bleibt."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit" name="decision" value="COMPLETED">Als geklaert markieren</button>
+      <button type="submit" name="decision" value="STILL_OPEN">Als weiter offen markieren</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if can_mark_telegram_internal_followup_under_review %}
+<section class="action-panel">
+  <h2>Telegram interne Nachbearbeitung sichten</h2>
+  <form method="post" action="{{ case_href(case_id) }}/telegram-internal-followup-under-review" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Review-Note
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, dass der intern uebernommene Telegram-Fall jetzt operatorisch gesichtet wird."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Interne Nachbearbeitung starten</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if can_complete_telegram_internal_followup %}
+<section class="action-panel">
+  <h2>Telegram interne Nachbearbeitung abschliessen</h2>
+  <form method="post" action="{{ case_href(case_id) }}/telegram-internal-followup-resolution" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Abschlussnote
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, wie die interne Nachbearbeitung abgeschlossen wurde."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Intern abschliessen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if can_start_document_analyst %}
+<section class="action-panel">
+  <h2>Document Analyst Start</h2>
+  <form method="post" action="{{ case_href(case_id) }}/document-analyst-start" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Startnotiz
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, warum der Telegram-Dokumentkontext jetzt in die Analyse gestartet wird."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Analyse starten</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if can_review_document_analyst %}
+<section class="action-panel">
+  <h2>Document Analyst Review</h2>
+  <form method="post" action="{{ case_href(case_id) }}/document-analyst-review" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Review-Note
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, ob der aktuelle Runtime-Output fuer diesen Schritt ausreicht oder warum er offen bleibt."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit" name="decision" value="COMPLETED">Review konservativ abschliessen</button>
+      <button type="submit" name="decision" value="STILL_OPEN">Review offen halten</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
+{% if can_manage_document_analyst_followup %}
+<section class="action-panel">
+  <h2>Document Analyst Follow-up</h2>
+  <form method="post" action="{{ case_href(case_id) }}/document-analyst-followup" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Follow-up-Note
+      <textarea name="note" rows="3" placeholder="Kurz begruenden, warum Daten nachgefordert oder intern konservativ abgeschlossen wird."></textarea>
+    </label>
+    <label>
+      Rueckfrage an den Nutzer
+      <textarea name="question" rows="3" placeholder="Nur fuer REQUEST_DATA. Konkrete, enge Rueckfrage fuer bessere Aufnahme oder fehlende Daten."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit" name="mode" value="REQUEST_DATA">Daten per Telegram nachfordern</button>
+      <button type="submit" name="mode" value="INTERNAL_ONLY">Nur intern weiterfuehren</button>
+      <button type="submit" name="mode" value="CLOSE_CONSERVATIVELY">Konservativ intern abschliessen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
 {% if accounting_review %}
 <section class="action-panel">
   <div class="summary-grid compact">
@@ -493,6 +1062,456 @@
   </form>
   {% endif %}
 </section>
+
+{% if reconciliation_context %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Banking Lifecycle</p>
+      <p class="summary-value {% if reconciliation_context.review_trail.current_stage == 'EXTERNAL_BANKING_PROCESS_COMPLETED' %}ok{% elif reconciliation_context.review_trail.current_stage in ['OUTSIDE_AGENT_BANKING_PROCESS', 'BANKING_CLARIFICATION_OPEN', 'BANKING_HANDOFF_READY'] %}warn{% endif %}">
+        {{ reconciliation_context.review_trail.current_stage or 'BANK_RECONCILIATION_REVIEW_PENDING' }}
+      </p>
+      <p class="summary-sub">Next: {{ reconciliation_context.next_action }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Kette</p>
+      <p class="summary-sub">
+        Detection: {{ reconciliation_context.bank_result }}<br>
+        Review: {{ reconciliation_context.review_trail.review_outcome or '-' }}<br>
+        Handoff: {{ reconciliation_context.review_trail.handoff_resolution_status or reconciliation_context.review_trail.handoff_ready_status or '-' }}<br>
+        Klaerung: {{ reconciliation_context.review_trail.clarification_status or '-' }}<br>
+        Extern: {{ reconciliation_context.review_trail.external_status or '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+
+<section class="action-panel">
+  <h2>Banking Reconciliation Workbench</h2>
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Signal</p>
+      <p class="summary-value {% if reconciliation_context.match_signal == 'PLAUSIBLE' %}ok{% else %}warn{% endif %}">
+        {{ reconciliation_context.match_signal }}
+      </p>
+      <p class="summary-sub">Next: {{ reconciliation_context.next_action }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Dokument</p>
+      <p class="summary-sub">
+        Ref: {{ reconciliation_context.doc_reference or '-' }}<br>
+        Betrag: {{ reconciliation_context.doc_amount or '-' }} {{ reconciliation_context.doc_currency or '' }}<br>
+        Typ: {{ reconciliation_context.doc_type or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Accounting / Banking</p>
+      <p class="summary-sub">
+        Accounting: {{ reconciliation_context.accounting_result or '-' }}<br>
+        Banking: {{ reconciliation_context.bank_result }}<br>
+        Feed: {{ 'JA' if reconciliation_context.bank_feed_reachable else 'NEIN' }} / {{ reconciliation_context.bank_feed_total }} TX
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Review Guidance</p>
+      <p class="summary-value {% if reconciliation_context.confirm_allowed %}ok{% else %}warn{% endif %}">
+        {{ reconciliation_context.review_guidance }}
+      </p>
+      <p class="summary-sub">
+        {{ reconciliation_context.operator_guidance }}<br>
+        Anchor: {{ reconciliation_context.review_anchor_ref }}
+      </p>
+    </article>
+  </div>
+</section>
+
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Was spricht dafuer</p>
+      <p class="summary-sub">
+        {% if reconciliation_context.pro_match %}
+          {% for item in reconciliation_context.pro_match %}
+          {{ item }}<br>
+          {% endfor %}
+        {% else %}
+          -
+        {% endif %}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Was spricht dagegen</p>
+      <p class="summary-sub">
+        {% if reconciliation_context.contra_match %}
+          {% for item in reconciliation_context.contra_match %}
+          {{ item }}<br>
+          {% endfor %}
+        {% else %}
+          -
+        {% endif %}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Was fehlt</p>
+      <p class="summary-sub">
+        {% if reconciliation_context.missing_data %}
+          {% for item in reconciliation_context.missing_data %}
+          {{ item }}<br>
+          {% endfor %}
+        {% else %}
+          -
+        {% endif %}
+      </p>
+    </article>
+  </div>
+</section>
+
+<section class="action-panel">
+  <h3>Document vs Accounting vs Banking</h3>
+  <table>
+    <tr><th>Feld</th><th>Dokument</th><th>Accounting</th><th>Banking</th><th>Status</th><th>Hinweis</th></tr>
+    {% for row in reconciliation_context.comparison_rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td>{{ row.document_value or '-' }}</td>
+      <td>{{ row.accounting_value or '-' }}</td>
+      <td>{{ row.banking_value or '-' }}</td>
+      <td>
+        <span class="state-badge {% if row.status in ['MATCH', 'PLAUSIBLE'] %}state-ok{% else %}state-warn{% endif %}">{{ row.status }}</span>
+      </td>
+      <td>{{ row.note }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="action-panel">
+  <h3>Candidates</h3>
+  {% if reconciliation_context.all_candidates %}
+  <table>
+    <tr><th>ID</th><th>Betrag</th><th>Datum</th><th>Kontakt</th><th>Referenz</th><th>Typ</th><th>Score</th><th>Gruende</th></tr>
+    {% for c in reconciliation_context.all_candidates %}
+    <tr>
+      <td>{{ c.transaction_id or '-' }}</td>
+      <td>{{ c.amount or '-' }} {{ c.currency or '' }}</td>
+      <td>{{ c.date or '-' }}</td>
+      <td>{{ c.contact_name or '-' }}</td>
+      <td>{{ c.reference or '-' }}</td>
+      <td>{{ c.tx_type or '-' }}</td>
+      <td>{{ c.confidence_score }}/100 ({{ c.match_quality }})</td>
+      <td>{{ c.reason_codes|join(', ') if c.reason_codes else '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">Keine belastbaren Banking-Kandidaten vorhanden.</p>
+  {% endif %}
+</section>
+
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Statuspfad</p>
+      <p class="summary-sub">
+        Stage: {{ reconciliation_context.review_trail.current_stage if reconciliation_context.review_trail else '-' }}<br>
+        Review: {{ reconciliation_context.review_trail.review_outcome if reconciliation_context.review_trail else '-' }}<br>
+        Handoff Ready: {{ reconciliation_context.review_trail.handoff_ready_status if reconciliation_context.review_trail else '-' }}<br>
+        Handoff Result: {{ reconciliation_context.review_trail.handoff_resolution_status if reconciliation_context.review_trail else '-' }}<br>
+        Klaerung: {{ reconciliation_context.review_trail.clarification_status if reconciliation_context.review_trail else '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Operator Summary</p>
+      <p class="summary-sub">
+        {% for line in reconciliation_context.operator_summary %}
+        {{ line }}<br>
+        {% endfor %}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Offene Folgearbeit</p>
+      <p class="summary-sub">
+        {% if reconciliation_context.active_open_items %}
+          {% for item in reconciliation_context.active_open_items %}
+          {{ item.title }} ({{ item.status }})<br>
+          {% endfor %}
+        {% else %}
+          -
+        {% endif %}
+      </p>
+    </article>
+  </div>
+</section>
+
+{% if bank_reconciliation_review %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Banking Review</p>
+      <p class="summary-value {% if bank_reconciliation_review.decision == 'CONFIRMED' %}ok{% else %}warn{% endif %}">{{ bank_reconciliation_review.decision }}</p>
+      <p class="summary-sub">Outcome: {{ bank_reconciliation_review.outcome_status }} | TX: {{ bank_reconciliation_review.transaction_id }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Review-Kontext</p>
+      <p class="summary-sub">
+        Review-Ref: {{ bank_reconciliation_review.review_id }}<br>
+        Workbench: {{ bank_reconciliation_review.workbench_ref }}<br>
+        Referenz: {{ bank_reconciliation_review.candidate_reference or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Warum bestaetigt / abgelehnt</p>
+      <p class="summary-sub">
+        Guidance: {{ bank_reconciliation_review.review_guidance }}<br>
+        Gruende: {{ bank_reconciliation_review.reason_codes|join(', ') if bank_reconciliation_review.reason_codes else '-' }}<br>
+        Note: {{ bank_reconciliation_review.decision_note or '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if banking_handoff_ready %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Banking Handoff</p>
+      <p class="summary-value warn">{{ banking_handoff_ready.handoff_state }}</p>
+      <p class="summary-sub">Review: {{ banking_handoff_ready.review_ref }} | TX: {{ banking_handoff_ready.transaction_id }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Naechste manuelle Aktion</p>
+      <p class="summary-sub">
+        {{ banking_handoff_ready.next_manual_step }}<br>
+        Open Item: {{ banking_handoff_ready.handoff_open_item_title }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Guidance</p>
+      <p class="summary-sub">
+        {{ banking_handoff_ready.handoff_guidance }}<br>
+        Extern: {{ banking_handoff_ready.required_external_action }}<br>
+        By: {{ banking_handoff_ready.handed_off_by }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if banking_handoff_resolution %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Banking Handoff Abschluss</p>
+      <p class="summary-value {% if banking_handoff_resolution.decision == 'COMPLETED' %}ok{% else %}warn{% endif %}">{{ banking_handoff_resolution.status }}</p>
+      <p class="summary-sub">Next: {{ banking_handoff_resolution.suggested_next_step }} | TX: {{ banking_handoff_resolution.transaction_id }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Bindung</p>
+      <p class="summary-sub">
+        Handoff-Ref: {{ banking_handoff_resolution.handoff_ref }}<br>
+        Review-Ref: {{ banking_handoff_resolution.review_ref }}<br>
+        Workbench: {{ banking_handoff_resolution.workbench_ref }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Rueckmeldung</p>
+      <p class="summary-sub">
+        Note: {{ banking_handoff_resolution.resolution_note or '-' }}<br>
+        By: {{ banking_handoff_resolution.resolved_by }}<br>
+        Follow-up: {{ banking_handoff_resolution.follow_up_open_item_title or '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if bank_clarification %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Banking Klaerung</p>
+      <p class="summary-value {% if bank_clarification.status == 'BANKING_CLARIFICATION_COMPLETED' %}ok{% else %}warn{% endif %}">{{ bank_clarification.status }}</p>
+      <p class="summary-sub">Next: {{ bank_clarification.suggested_next_step or bank_clarification.next_manual_step or '-' }} | TX: {{ bank_clarification.transaction_id }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Bindung</p>
+      <p class="summary-sub">
+        Handoff-Ref: {{ bank_clarification.handoff_ref or '-' }}<br>
+        Review-Ref: {{ bank_clarification.review_ref or '-' }}<br>
+        Workbench: {{ bank_clarification.workbench_ref or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Klaerraum</p>
+      <p class="summary-sub">
+        Open Item: {{ bank_clarification.clarification_open_item_title or '-' }}<br>
+        Guidance: {{ bank_clarification.clarification_guidance or '-' }}<br>
+        Note: {{ bank_clarification.clarification_note or '-' }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+{% if outside_agent_banking_process %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Outside-Agent Banking</p>
+      <p class="summary-value {% if outside_agent_banking_process.resolution_recorded %}ok{% else %}warn{% endif %}">{{ outside_agent_banking_process.status }}</p>
+      <p class="summary-sub">Next: {{ outside_agent_banking_process.suggested_next_step }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Quelle</p>
+      <p class="summary-sub">
+        Source Status: {{ outside_agent_banking_process.source_status or '-' }}<br>
+        Open Item: {{ outside_agent_banking_process.outside_process_open_item_title or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Abgrenzung</p>
+      <p class="summary-sub">Nur externen manuellen Banking-Abschluss dokumentieren. Kein Bank-Write, kein Akaunting-Write, keine Zahlung.</p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if external_banking_process_resolution %}
+<section class="action-panel">
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Externer Banking-Abschluss</p>
+      <p class="summary-value ok">{{ external_banking_process_resolution.status }}</p>
+      <p class="summary-sub">Next: {{ external_banking_process_resolution.suggested_next_step }} | TX: {{ external_banking_process_resolution.transaction_id }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Bindung</p>
+      <p class="summary-sub">
+        Review-Ref: {{ external_banking_process_resolution.review_ref }}<br>
+        Workbench: {{ external_banking_process_resolution.workbench_ref }}<br>
+        Handoff: {{ external_banking_process_resolution.handoff_ref or '-' }}<br>
+        Klaerung: {{ external_banking_process_resolution.clarification_ref or '-' }}
+      </p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Rueckmeldung</p>
+      <p class="summary-sub">
+        Open Item: {{ external_banking_process_resolution.outside_process_open_item_title or '-' }}<br>
+        Note: {{ external_banking_process_resolution.resolution_note or '-' }}<br>
+        By: {{ external_banking_process_resolution.resolved_by }}
+      </p>
+    </article>
+  </div>
+</section>
+{% endif %}
+
+{% if can_submit_bank_review and reconciliation_context.best_candidate %}
+{% set best = reconciliation_context.best_candidate %}
+<section class="action-panel">
+  <h2>Banking Review aus Workbench</h2>
+  <p class="summary-sub">
+    Entscheidung ist an den aktuellen Workbench-Stand gebunden. Confirm nur, wenn der aktuelle Anchor-Ref und die Guidance passen.
+  </p>
+  <form method="post" action="{{ case_href(case_id) }}/bank-reconciliation-review" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="transaction_id" value="{{ best.transaction_id }}">
+    <input type="hidden" name="candidate_amount" value="{{ best.amount or '' }}">
+    <input type="hidden" name="candidate_currency" value="{{ best.currency or '' }}">
+    <input type="hidden" name="candidate_date" value="{{ best.date or '' }}">
+    <input type="hidden" name="candidate_reference" value="{{ best.reference or '' }}">
+    <input type="hidden" name="candidate_contact" value="{{ best.contact_name or '' }}">
+    <input type="hidden" name="candidate_description" value="{{ best.description or '' }}">
+    <input type="hidden" name="confidence_score" value="{{ best.confidence_score }}">
+    <input type="hidden" name="match_quality" value="{{ best.match_quality }}">
+    <input type="hidden" name="reason_codes" value="{{ best.reason_codes|join(',') }}">
+    <input type="hidden" name="tx_type" value="{{ best.tx_type or '' }}">
+    <input type="hidden" name="probe_result" value="{{ reconciliation_context.bank_result }}">
+    <input type="hidden" name="probe_note" value="{{ reconciliation_context.bank_note }}">
+    <input type="hidden" name="workbench_ref" value="{{ reconciliation_context.review_anchor_ref }}">
+    <input type="hidden" name="workbench_signal" value="{{ reconciliation_context.match_signal }}">
+    <input type="hidden" name="workbench_guidance" value="{{ reconciliation_context.operator_guidance }}">
+    <input type="hidden" name="review_guidance" value="{{ reconciliation_context.review_guidance }}">
+    <input type="hidden" name="candidate_rank" value="1">
+    <label>
+      Decision-Note
+      <textarea name="note" rows="3" placeholder="Kurz begruenden, warum der Workbench-Stand bestaetigt oder abgelehnt wird."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      {% if reconciliation_context.confirm_allowed %}
+      <button type="submit" name="decision" value="CONFIRMED">Confirm</button>
+      {% endif %}
+      <button type="submit" name="decision" value="REJECTED">Reject / Klaerung</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% if can_mark_bank_handoff_ready and bank_reconciliation_review %}
+<section class="action-panel">
+  <h2>Banking Handoff bereitstellen</h2>
+  <form method="post" action="{{ case_href(case_id) }}/banking-handoff-ready" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="review_ref" value="{{ bank_reconciliation_review.review_id }}">
+    <input type="hidden" name="workbench_ref" value="{{ bank_reconciliation_review.workbench_ref }}">
+    <input type="hidden" name="transaction_id" value="{{ bank_reconciliation_review.transaction_id }}">
+    <label>
+      Uebergabehinweis
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, wer den bestaetigten Kandidaten extern manuell uebernimmt."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Handoff bereitstellen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% if can_resolve_bank_handoff and banking_handoff_ready %}
+<section class="action-panel">
+  <h2>Banking Handoff aufloesen</h2>
+  <form method="post" action="{{ case_href(case_id) }}/banking-handoff-resolution" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="handoff_ref" value="{{ banking_handoff_ready.handoff_id }}">
+    <label>
+      Rueckmeldung
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, ob die externe manuelle Weitergabe geklappt hat oder warum sie zurueckgegeben wird."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit" name="decision" value="COMPLETED">Handoff abgeschlossen</button>
+      <button type="submit" name="decision" value="RETURNED">Handoff zurueckgeben</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% if can_complete_bank_clarification and bank_clarification %}
+<section class="action-panel">
+  <h2>Banking Klaerabschluss</h2>
+  <form method="post" action="{{ case_href(case_id) }}/banking-clarification-complete" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="clarification_ref" value="{{ bank_clarification.clarification_ref }}">
+    <label>
+      Klaernote
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, wie der Handoff-Ruecklauf manuell geklaert wurde."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Banking-Klaerung abschliessen</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% if can_complete_external_banking_process %}
+<section class="action-panel">
+  <h2>Externen Banking-Prozess dokumentieren</h2>
+  <form method="post" action="{{ case_href(case_id) }}/external-banking-process-complete" class="stack gap-sm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>
+      Abschlussnote
+      <textarea name="note" rows="3" placeholder="Kurz dokumentieren, dass der externe manuelle Banking-Prozess ausserhalb Frya abgeschlossen oder uebernommen wurde."></textarea>
+    </label>
+    <div class="cluster gap-sm">
+      <button type="submit">Externen Banking-Abschluss speichern</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+{% endif %}
 
 {% if can_complete_external_return_clarification %}
 <section class="action-panel">

@@ -1,0 +1,9 @@
+﻿Rechnung
+Absender: Nordlicht Buero GmbH
+Empfaenger: Frya GmbH
+Rechnungsnummer: RE-2026-3001
+Rechnungsdatum: 05.03.2026
+Gesamtbetrag: 1.190,00 EUR
+Netto: 1.000,00 EUR
+MwSt: 190,00 EUR
+Leistungszeitraum: Februar 2026

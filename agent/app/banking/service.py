@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from app.audit.service import AuditService
 from app.banking.models import (
@@ -10,6 +11,29 @@ from app.banking.models import (
     MatchQuality,
     TransactionCandidate,
 )
+
+# V1.5: reference prefixes used for doc_type inference
+_INCOME_PREFIXES = ('INV-', 'REC-', 'EIN-')
+_EXPENSE_PREFIXES = ('OUT-', 'EXP-', 'BILL-', 'AUS-')
+
+
+def infer_doc_type(reference: str | None, doc_type: str | None) -> str:
+    """Infer document type from reference prefix if not explicitly given.
+
+    Returns 'income', 'expense', or 'unknown'. Exported for use by
+    ReconciliationContextService without circular import.
+    """
+    if doc_type in ('income', 'expense'):
+        return doc_type
+    if reference:
+        ref_upper = reference.upper()
+        for pfx in _INCOME_PREFIXES:
+            if ref_upper.startswith(pfx):
+                return 'income'
+        for pfx in _EXPENSE_PREFIXES:
+            if ref_upper.startswith(pfx):
+                return 'expense'
+    return 'unknown'
 from app.connectors.accounting_akaunting import AkauntingConnector
 
 _PROBE_VERSION = 'bank-transaction-probe-v1.2'
@@ -19,6 +43,12 @@ _HIGH_CONFIDENCE_MIN = 60
 _MEDIUM_CONFIDENCE_MIN = 30
 
 
+def _token_overlap(needle: str, haystack: str) -> bool:
+    tokens = [token for token in needle.lower().replace('-', ' ').replace('/', ' ').split() if len(token) >= 4]
+    haystack_lower = haystack.lower()
+    return any(token in haystack_lower for token in tokens)
+
+
 def _score_transaction(
     tx: dict,
     reference: str | None,
@@ -26,6 +56,7 @@ def _score_transaction(
     contact_name: str | None,
     date_from: str | None,
     date_to: str | None,
+    doc_type: str | None = None,  # V1.5: 'income'|'expense'|'unknown'|None
 ) -> tuple[int, list[str]]:
     """Score a single transaction candidate against search criteria.
 
@@ -37,13 +68,18 @@ def _score_transaction(
       Reference: 30 pts (REFERENCE_MATCH: substring)
       Contact:   20 pts (CONTACT_MATCH: substring)
       Date:      10 pts (DATE_IN_RANGE)
+
+    V1.5 informational flags (do not change score):
+      TYPE_MISMATCH: tx.type contradicts doc_type (e.g. income doc vs expense tx)
     """
     score = 0
     reasons: list[str] = []
 
+    tx_amount = None
+    tx_date_str = None
+
     # Amount match: highest weight (40 pts)
     if amount is not None:
-        tx_amount = None
         for key in ('amount', 'total', 'price'):
             raw = tx.get(key)
             if raw is not None:
@@ -59,6 +95,10 @@ def _score_transaction(
             elif abs(amount) > 0 and abs(tx_amount - amount) / abs(amount) < 0.05:
                 score += 25
                 reasons.append('AMOUNT_NEAR')
+            else:
+                reasons.append('AMOUNT_MISMATCH')
+        else:
+            reasons.append('AMOUNT_MISSING')
 
     # Reference match (30 pts)
     if reference:
@@ -72,6 +112,14 @@ def _score_transaction(
         if reference.lower() in haystack:
             score += 30
             reasons.append('REFERENCE_MATCH')
+            reasons.append('REFERENCE_EXACT')
+        elif haystack and _token_overlap(reference, haystack):
+            score += 15
+            reasons.append('REFERENCE_WEAK')
+        elif haystack:
+            reasons.append('REFERENCE_NONE')
+        else:
+            reasons.append('REFERENCE_MISSING')
 
     # Contact match (20 pts)
     if contact_name:
@@ -83,6 +131,14 @@ def _score_transaction(
         if contact_name.lower() in haystack:
             score += 20
             reasons.append('CONTACT_MATCH')
+            reasons.append('CONTACT_EXACT')
+        elif haystack and _token_overlap(contact_name, haystack):
+            score += 10
+            reasons.append('CONTACT_WEAK')
+        elif haystack:
+            reasons.append('CONTACT_NONE')
+        else:
+            reasons.append('CONTACT_MISSING')
 
     # Date range (10 pts)
     if date_from or date_to:
@@ -100,6 +156,32 @@ def _score_transaction(
             if in_range:
                 score += 10
                 reasons.append('DATE_IN_RANGE')
+                reasons.append('DATE_NEAR')
+            else:
+                near = False
+                try:
+                    tx_dt = datetime.fromisoformat(tx_date_str)
+                    if date_from:
+                        near = abs((tx_dt.date() - datetime.fromisoformat(date_from[:10]).date()).days) <= 7
+                    if not near and date_to:
+                        near = abs((tx_dt.date() - datetime.fromisoformat(date_to[:10]).date()).days) <= 7
+                except ValueError:
+                    near = False
+                if near:
+                    score += 5
+                    reasons.append('DATE_NEAR')
+                else:
+                    reasons.append('DATE_STALE')
+        else:
+            reasons.append('DATE_UNKNOWN')
+
+    # V1.5: TYPE_MISMATCH — informational, does not affect score
+    if doc_type and doc_type not in ('unknown', ''):
+        tx_type_raw = (tx.get('type') or '').lower()
+        if tx_type_raw and tx_type_raw != doc_type.lower():
+            reasons.append('TYPE_MISMATCH')
+        elif tx_type_raw == doc_type.lower():
+            reasons.append('TYPE_MATCH')
 
     return score, reasons
 
@@ -135,6 +217,7 @@ def _build_candidate(tx: dict, score: int, reasons: list[str]) -> TransactionCan
         contact_name=contact_name_val,
         account_name=account_name_val,
         description=tx.get('description') or tx.get('notes'),
+        tx_type=tx.get('type') or None,   # V1.5: 'income' | 'expense' | None
         confidence_score=score,
         match_quality=quality,
         reason_codes=reasons,
@@ -150,6 +233,7 @@ def _determine_result(
     date_from: str | None,
     date_to: str | None,
     feed_total: int = 0,
+    doc_type: str | None = None,  # V1.5
 ) -> tuple[BankProbeResult, list[TransactionCandidate], str]:
     """Core matching logic. Returns (result_enum, candidates, note).
 
@@ -198,7 +282,7 @@ def _determine_result(
     # Score each transaction
     scored: list[tuple[int, list[str], dict]] = []
     for tx in transactions:
-        score, reasons = _score_transaction(tx, reference, amount, contact_name, date_from, date_to)
+        score, reasons = _score_transaction(tx, reference, amount, contact_name, date_from, date_to, doc_type=doc_type)
         if score > 0:
             scored.append((score, reasons, tx))
 
@@ -292,10 +376,12 @@ class BankTransactionService:
         contact_name: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        doc_type: str | None = None,  # V1.5: 'income'|'expense'|'unknown' for TYPE_MISMATCH
     ) -> BankTransactionProbeResult:
         """Read-only probe: search Akaunting banking transactions. Never writes.
 
         V1.2: also fetches FeedStatus so operators can see feed health inline.
+        V1.5: doc_type enables TYPE_MISMATCH detection in reason_codes.
         """
         has_filters = any(v is not None for v in [reference, amount, contact_name, date_from, date_to])
         probe_fields = {
@@ -304,6 +390,7 @@ class BankTransactionService:
             'contact_name': contact_name,
             'date_from': date_from,
             'date_to': date_to,
+            'doc_type': doc_type,
         }
 
         result_status = BankProbeResult.NO_MATCH_FOUND
@@ -335,6 +422,7 @@ class BankTransactionService:
                 date_from=date_from,
                 date_to=date_to,
                 feed_total=feed_status.transactions_total if feed_status else 0,
+                doc_type=doc_type,
             )
 
         except Exception as exc:

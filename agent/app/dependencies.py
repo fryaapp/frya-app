@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from app.accounting_analysis.akaunting_reconciliation_service import AkauntingReconciliationService
+from app.banking.reconciliation_context import ReconciliationContextService
 from app.banking.review_service import BankReconciliationReviewService
 from app.banking.service import BankTransactionService
 from app.accounting_analysis.review_service import AccountingOperatorReviewService
@@ -24,6 +25,18 @@ from app.rules.audit_repository import RuleChangeAuditRepository
 from app.rules.audit_service import RuleChangeAuditService
 from app.rules.loader import RuleLoader
 from app.rules.policy_access import PolicyAccessLayer
+from app.telegram.clarification_repository import TelegramClarificationRepository
+from app.telegram.clarification_service import TelegramClarificationService
+from app.telegram.communicator.memory.conversation_store import ConversationMemoryStore
+from app.telegram.communicator.memory.user_store import UserMemoryStore
+from app.telegram.communicator.service import TelegramCommunicatorService
+from app.telegram.document_analyst_followup_service import TelegramDocumentAnalystFollowupService
+from app.telegram.document_analyst_review_service import TelegramDocumentAnalystReviewService
+from app.telegram.document_analyst_start_service import TelegramDocumentAnalystStartService
+from app.telegram.media_service import TelegramMediaIngressService
+from app.telegram.notification_service import TelegramNotificationService
+from app.telegram.repository import TelegramCaseLinkRepository
+from app.telegram.service import TelegramCaseLinkService
 from app.telegram.dedup import TelegramUpdateDeduplicator
 
 
@@ -107,6 +120,105 @@ def get_telegram_deduplicator() -> TelegramUpdateDeduplicator:
 
 
 @lru_cache
+def get_telegram_case_link_repository() -> TelegramCaseLinkRepository:
+    settings = get_settings()
+    return TelegramCaseLinkRepository(settings.database_url)
+
+
+@lru_cache
+def get_telegram_case_link_service() -> TelegramCaseLinkService:
+    return TelegramCaseLinkService(get_telegram_case_link_repository())
+
+
+@lru_cache
+def get_telegram_clarification_repository() -> TelegramClarificationRepository:
+    settings = get_settings()
+    return TelegramClarificationRepository(settings.database_url)
+
+
+@lru_cache
+def get_telegram_clarification_service() -> TelegramClarificationService:
+    return TelegramClarificationService(
+        get_telegram_clarification_repository(),
+        get_audit_service(),
+        get_open_items_service(),
+        get_telegram_connector(),
+        get_telegram_notification_service(),
+    )
+
+
+@lru_cache
+def get_telegram_notification_service() -> TelegramNotificationService:
+    return TelegramNotificationService(
+        get_audit_service(),
+        get_telegram_case_link_service(),
+        get_telegram_connector(),
+    )
+
+
+@lru_cache
+def get_telegram_media_ingress_service() -> TelegramMediaIngressService:
+    settings = get_settings()
+    allowed_mime_types = {item.strip() for item in settings.telegram_media_allowed_mime_types.split(',') if item.strip()}
+    allowed_extensions = {item.strip().lower() for item in settings.telegram_media_allowed_extensions.split(',') if item.strip()}
+    return TelegramMediaIngressService(
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+        telegram_connector=get_telegram_connector(),
+        telegram_case_link_service=get_telegram_case_link_service(),
+        file_store=get_file_store(),
+        max_bytes=settings.telegram_media_max_bytes,
+        allowed_mime_types=allowed_mime_types,
+        allowed_extensions=allowed_extensions,
+    )
+
+
+@lru_cache
+def get_telegram_document_analyst_followup_service() -> TelegramDocumentAnalystFollowupService:
+    return TelegramDocumentAnalystFollowupService(
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+        telegram_case_link_service=get_telegram_case_link_service(),
+        telegram_clarification_service=get_telegram_clarification_service(),
+    )
+
+
+@lru_cache
+def get_telegram_document_analyst_review_service() -> TelegramDocumentAnalystReviewService:
+    return TelegramDocumentAnalystReviewService(
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+        followup_service=get_telegram_document_analyst_followup_service(),
+    )
+
+
+def get_telegram_communicator_service() -> TelegramCommunicatorService:
+    """Stateless — no lru_cache needed."""
+    return TelegramCommunicatorService()
+
+
+@lru_cache
+def get_communicator_conversation_store() -> ConversationMemoryStore:
+    settings = get_settings()
+    return ConversationMemoryStore(settings.redis_url)
+
+
+@lru_cache
+def get_communicator_user_store() -> UserMemoryStore:
+    settings = get_settings()
+    return UserMemoryStore(settings.database_url)
+
+
+@lru_cache
+def get_telegram_document_analyst_start_service() -> TelegramDocumentAnalystStartService:
+    return TelegramDocumentAnalystStartService(
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+        review_service=get_telegram_document_analyst_review_service(),
+    )
+
+
+@lru_cache
 def get_open_items_service() -> OpenItemsService:
     settings = get_settings()
     return OpenItemsService(get_open_items_repository(), settings.redis_url, workflow_connector=get_n8n_connector())
@@ -160,10 +272,21 @@ def get_bank_transaction_service() -> BankTransactionService:
 
 
 @lru_cache
+def get_reconciliation_context_service() -> ReconciliationContextService:
+    return ReconciliationContextService(
+        bank_service=get_bank_transaction_service(),
+        akaunting_connector=get_akaunting_connector(),
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+    )
+
+
+@lru_cache
 def get_bank_reconciliation_review_service() -> BankReconciliationReviewService:
     return BankReconciliationReviewService(
         audit_service=get_audit_service(),
         open_items_service=get_open_items_service(),
+        reconciliation_context_service=get_reconciliation_context_service(),
     )
 
 

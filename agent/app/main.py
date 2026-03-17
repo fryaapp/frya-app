@@ -38,6 +38,8 @@ from app.dependencies import (
     get_policy_access_layer,
     get_problem_case_service,
     get_rule_change_audit_service,
+    get_telegram_case_link_service,
+    get_telegram_clarification_service,
 )
 from app.open_items.service import OpenItemsService
 from app.orchestration.graph import build_graph
@@ -56,12 +58,16 @@ async def lifespan(app: FastAPI):
     problem_service: ProblemCaseService = get_problem_case_service()
     rule_change_service: RuleChangeAuditService = get_rule_change_audit_service()
     approval_service: ApprovalService = get_approval_service()
+    telegram_case_link_service = get_telegram_case_link_service()
+    telegram_clarification_service = get_telegram_clarification_service()
 
     await audit_service.initialize()
     await open_items_service.initialize()
     await problem_service.initialize()
     await rule_change_service.initialize()
     await approval_service.initialize()
+    await telegram_case_link_service.initialize()
+    await telegram_clarification_service.initialize()
 
     app.state.graph = build_graph()
 

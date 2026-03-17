@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+from app.telegram.communicator.models import CommunicatorIntentCode
+
+# ── Risky substrings (override all other intents) ─────────────────────────────
+# Checked case-insensitively against lowercased text.
+_RISKY_SUBSTRINGS: tuple[str, ...] = (
+    # Finance / execution
+    'freigabe',
+    'freigeben',
+    'genehmige',
+    'bestaetige',
+    'zahlung',
+    'zahle',
+    'bezahl',
+    'buche ',  # trailing space avoids "buchen" false positive in phrases
+    'ueberweise',
+    'loesche',
+    'starte ocr',
+    'mach die zahlung',
+    'approve',
+    'delete',
+    # Cross-case navigation
+    'alle faelle',
+    'alle vorgaenge',
+    'alle akten',
+    'zeig mir alle',
+    'liste all',  # matches "liste alle" and "liste aller"
+    # File-send
+    'schick mir das dokument',
+    'schick mir die datei',
+    'schick mir das bild',
+    'schick mir das pdf',
+    'lade das dokument',
+    'send me the',
+    'forward the document',
+)
+
+# ── Greeting ──────────────────────────────────────────────────────────────────
+_GREETING_TOKENS: frozenset[str] = frozenset({
+    'hallo', 'hi', 'hey', 'servus', 'moin',
+})
+_GREETING_PHRASES: tuple[str, ...] = (
+    'guten morgen',
+    'guten tag',
+    'guten abend',
+    'hi frya',
+    'hallo frya',
+    'hey frya',
+)
+
+# ── Status Overview ───────────────────────────────────────────────────────────
+_STATUS_TOKENS: frozenset[str] = frozenset({'status'})
+_STATUS_PHRASES: tuple[str, ...] = (
+    'aktueller stand',
+    'wie ist der stand',
+    'was ist der stand',
+    'wie laeuft',
+    'was ist mit meinem fall',
+    'mein letzter eingang',
+    'update bitte',
+    'neuigkeiten',
+    'was passiert',
+    'wie geht es meinem',
+)
+
+# ── Needs from User ───────────────────────────────────────────────────────────
+_NEEDS_PHRASES: tuple[str, ...] = (
+    'was brauchst du noch',
+    'was fehlt noch',
+    'was fehlt',
+    'was braucht ihr noch',
+    'was erwartet ihr noch',
+    'was ist der naechste schritt',
+    'was ist der naechste',
+    'naechster schritt',
+    'was kommt als naechstes',
+)
+
+# ── Document Arrival Check ────────────────────────────────────────────────────
+_DOC_ARRIVAL_PHRASES: tuple[str, ...] = (
+    'ist das dokument angekommen',
+    'ist mein dokument angekommen',
+    'ist das bild da',
+    'hat das geklappt',
+    'ist das angekommen',
+    'ist mein dokument da',
+    'kam meine nachricht an',
+    'ist es angekommen',
+)
+
+# ── Last Case Explanation ─────────────────────────────────────────────────────
+_CASE_EXPLANATION_PHRASES: tuple[str, ...] = (
+    'worum geht es bei meinem fall',
+    'erklaer mir das',
+    'was ist mein fall',
+    'was ist mein vorgang',
+    'was wird bei mir bearbeitet',
+    'was bearbeitest du fuer mich',
+)
+
+# ── General Safe Help ─────────────────────────────────────────────────────────
+_SAFE_HELP_PHRASES: tuple[str, ...] = (
+    'was kannst du',
+    'was macht frya',
+    'wie funktioniert das',
+    'kannst du mir helfen',
+    'was kann frya',
+    'wie kann ich',
+)
+
+
+def classify_intent(text: str) -> CommunicatorIntentCode | None:
+    """Classify text into a communicator intent.
+
+    Returns None for unrecognized text (fall-through to operator inbox).
+    UNSUPPORTED_OR_RISKY overrides all other patterns.
+    """
+    t = text.strip().lower()
+    if not t:
+        return None
+
+    # 1. Risky check — overrides everything
+    for sub in _RISKY_SUBSTRINGS:
+        if sub in t:
+            return 'UNSUPPORTED_OR_RISKY'
+
+    # 2. GREETING (single token or phrase) — use word-level match to avoid
+    #    false positives like 'hi' in 'hier'.
+    words = set(t.split())
+    for token in _GREETING_TOKENS:
+        if token in words:
+            return 'GREETING'
+    for phrase in _GREETING_PHRASES:
+        if phrase in t:
+            return 'GREETING'
+
+    # 3. STATUS_OVERVIEW
+    if t in _STATUS_TOKENS:
+        return 'STATUS_OVERVIEW'
+    for phrase in _STATUS_PHRASES:
+        if phrase in t:
+            return 'STATUS_OVERVIEW'
+
+    # 4. NEEDS_FROM_USER
+    for phrase in _NEEDS_PHRASES:
+        if phrase in t:
+            return 'NEEDS_FROM_USER'
+
+    # 5. DOCUMENT_ARRIVAL_CHECK
+    for phrase in _DOC_ARRIVAL_PHRASES:
+        if phrase in t:
+            return 'DOCUMENT_ARRIVAL_CHECK'
+
+    # 6. LAST_CASE_EXPLANATION
+    for phrase in _CASE_EXPLANATION_PHRASES:
+        if phrase in t:
+            return 'LAST_CASE_EXPLANATION'
+
+    # 7. GENERAL_SAFE_HELP
+    for phrase in _SAFE_HELP_PHRASES:
+        if phrase in t:
+            return 'GENERAL_SAFE_HELP'
+
+    return None

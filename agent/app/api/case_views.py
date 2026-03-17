@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -27,14 +27,19 @@ from app.auth.models import AuthUser
 from app.cases.urls import inspect_case_href
 from app.banking.models import (
     BankClarificationInput,
-    BankManualHandoffDecision,
-    BankManualHandoffInput,
+    BankingClarificationCompletionInput,
+    ExternalBankingProcessCompletionInput,
+    BankingHandoffReadyInput,
+    BankingHandoffResolutionDecision,
+    BankingHandoffResolutionInput,
     BankReconciliationDecision,
     BankReconciliationReviewInput,
     BankReconciliationReviewResult,
     BankTransactionProbeResult,
     FeedStatus,
+    ReconciliationSignal,
 )
+from app.banking.reconciliation_context import ReconciliationContextService
 from app.banking.review_service import BankReconciliationReviewService
 from app.banking.service import BankTransactionService
 from app.dependencies import (
@@ -43,12 +48,28 @@ from app.dependencies import (
     get_approval_service,
     get_audit_service,
     get_bank_reconciliation_review_service,
+    get_reconciliation_context_service,
     get_bank_transaction_service,
     get_open_items_service,
     get_problem_case_service,
+    get_telegram_case_link_service,
+    get_telegram_clarification_service,
+    get_telegram_document_analyst_followup_service,
+    get_telegram_document_analyst_review_service,
+    get_telegram_document_analyst_start_service,
 )
 from app.open_items.service import OpenItemsService
 from app.problems.service import ProblemCaseService
+from app.telegram.document_analyst_followup_service import TelegramDocumentAnalystFollowupService
+from app.telegram.document_analyst_review_service import TelegramDocumentAnalystReviewService
+from app.telegram.document_analyst_start_service import TelegramDocumentAnalystStartService
+from app.telegram.models import (
+    TelegramCaseLinkRecord,
+    TelegramClarificationRecord,
+    TelegramUserVisibleStatus,
+)
+from app.telegram.clarification_service import TelegramClarificationService
+from app.telegram.service import TelegramCaseLinkService
 
 router = APIRouter(prefix='/inspect/cases', tags=['inspect'], dependencies=[Depends(require_operator)])
 
@@ -86,6 +107,294 @@ class AkauntingReconciliationLookupBody(BaseModel):
     note: str | None = None
 
 
+class TelegramClarificationRequestBody(BaseModel):
+    question: str
+
+
+class TelegramClarificationReviewBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramClarificationResolutionBody(BaseModel):
+    decision: Literal['COMPLETED', 'STILL_OPEN']
+    note: str | None = None
+
+
+class TelegramInternalFollowupReviewBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramInternalFollowupResolutionBody(BaseModel):
+    decision: Literal['COMPLETED']
+    note: str | None = None
+
+
+class TelegramDocumentAnalystStartBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramDocumentAnalystReviewBody(BaseModel):
+    decision: Literal['COMPLETED', 'STILL_OPEN']
+    note: str | None = None
+
+
+class TelegramDocumentAnalystFollowupBody(BaseModel):
+    mode: Literal['REQUEST_DATA', 'INTERNAL_ONLY', 'CLOSE_CONSERVATIVELY']
+    note: str | None = None
+    question: str | None = None
+
+
+class TelegramDocumentAnalystFollowupWithdrawBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramDocumentAnalystFollowupInternalTakeoverBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramDocumentAnalystFollowupInternalCompleteBody(BaseModel):
+    note: str | None = None
+
+
+@router.post('/{case_id:path}/telegram-clarification-request', dependencies=[Depends(require_csrf)])
+async def case_telegram_clarification_request(
+    case_id: str,
+    body: TelegramClarificationRequestBody,
+    telegram_case_link_service: TelegramCaseLinkService = Depends(get_telegram_case_link_service),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    link = await telegram_case_link_service.get_by_case(case_id)
+    if link is None or not link.track_for_status:
+        raise HTTPException(status_code=409, detail='Kein verknuepfter Telegram-Fall fuer Rueckfrage verfuegbar')
+    try:
+        result = await telegram_clarification_service.request_clarification(
+            linked_case_id=link.linked_case_id or case_id,
+            telegram_case_link=link,
+            question_text=body.question,
+            asked_by=current_user.username,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/telegram-clarification-under-review', dependencies=[Depends(require_csrf)])
+async def case_telegram_clarification_under_review(
+    case_id: str,
+    body: TelegramClarificationReviewBody,
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    try:
+        result = await telegram_clarification_service.mark_under_review(
+            linked_case_id=case_id,
+            reviewed_by=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/telegram-clarification-resolution', dependencies=[Depends(require_csrf)])
+async def case_telegram_clarification_resolution(
+    case_id: str,
+    body: TelegramClarificationResolutionBody,
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    try:
+        result = await telegram_clarification_service.resolve_clarification(
+            linked_case_id=case_id,
+            decision=body.decision,
+            resolved_by=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/telegram-internal-followup-under-review', dependencies=[Depends(require_csrf)])
+async def case_telegram_internal_followup_under_review(
+    case_id: str,
+    body: TelegramInternalFollowupReviewBody,
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    try:
+        result = await telegram_clarification_service.mark_internal_followup_under_review(
+            linked_case_id=case_id,
+            reviewed_by=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/telegram-internal-followup-resolution', dependencies=[Depends(require_csrf)])
+async def case_telegram_internal_followup_resolution(
+    case_id: str,
+    body: TelegramInternalFollowupResolutionBody,
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    try:
+        result = await telegram_clarification_service.complete_internal_followup(
+            linked_case_id=case_id,
+            resolved_by=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-start', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_start(
+    case_id: str,
+    body: TelegramDocumentAnalystStartBody,
+    request: Request,
+    document_analyst_start_service: TelegramDocumentAnalystStartService = Depends(get_telegram_document_analyst_start_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    try:
+        result = await document_analyst_start_service.start_runtime(
+            case_id,
+            actor=current_user.username,
+            note=body.note,
+            trigger='inspect_case_view',
+            graph=request.app.state.graph,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-review', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_review(
+    case_id: str,
+    body: TelegramDocumentAnalystReviewBody,
+    document_analyst_review_service: TelegramDocumentAnalystReviewService = Depends(get_telegram_document_analyst_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    try:
+        result = await document_analyst_review_service.resolve_review(
+            case_id,
+            decision=body.decision,
+            reviewed_by=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-followup', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_followup(
+    case_id: str,
+    body: TelegramDocumentAnalystFollowupBody,
+    document_analyst_followup_service: TelegramDocumentAnalystFollowupService = Depends(get_telegram_document_analyst_followup_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    try:
+        result = await document_analyst_followup_service.execute_followup(
+            case_id,
+            mode=body.mode,
+            actor=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+            question_text=body.question,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-followup-withdraw', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_followup_withdraw(
+    case_id: str,
+    body: TelegramDocumentAnalystFollowupWithdrawBody,
+    document_analyst_followup_service: TelegramDocumentAnalystFollowupService = Depends(get_telegram_document_analyst_followup_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    """Withdraw an open Telegram data request (DATA_REQUESTED -> WITHDRAWN).
+
+    Operator action: pull back the Telegram clarification without waiting for user reply.
+    The case continues internally. User status switches to UNDER_INTERNAL_REVIEW.
+    Late user replies will be rejected as CLARIFICATION_NOT_OPEN.
+    """
+    try:
+        result = await document_analyst_followup_service.withdraw_data_request(
+            case_id,
+            actor=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-followup-internal-takeover', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_followup_internal_takeover(
+    case_id: str,
+    body: TelegramDocumentAnalystFollowupInternalTakeoverBody,
+    document_analyst_followup_service: TelegramDocumentAnalystFollowupService = Depends(get_telegram_document_analyst_followup_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    """Activate internal takeover after withdraw (WITHDRAWN -> INTERNAL_ONLY).
+
+    Operator signals that the internal team is actively handling the case.
+    No Telegram message sent. User status remains UNDER_INTERNAL_REVIEW.
+    """
+    try:
+        result = await document_analyst_followup_service.activate_internal_takeover(
+            case_id,
+            actor=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-followup-internal-complete', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_followup_internal_complete(
+    case_id: str,
+    body: TelegramDocumentAnalystFollowupInternalCompleteBody,
+    document_analyst_followup_service: TelegramDocumentAnalystFollowupService = Depends(get_telegram_document_analyst_followup_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    """Conservative internal completion after INTERNAL_ONLY takeover (INTERNAL_ONLY -> COMPLETED).
+
+    Operator signals that the internal follow-up path is done.
+    Open item: -> COMPLETED.
+    Clarification internal_followup_state: -> COMPLETED.
+    User-visible status: UNDER_INTERNAL_REVIEW -> COMPLETED (Intern abgeschlossen).
+    No Telegram messages sent.
+    """
+    try:
+        result = await document_analyst_followup_service.complete_internal(
+            case_id,
+            actor=current_user.username,
+            note=body.note,
+            source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
 def _collect_refs(events, problems, open_items):
     doc_refs = {e.document_ref for e in events if e.document_ref}
     doc_refs.update({p.document_ref for p in problems if p.document_ref})
@@ -120,6 +429,228 @@ def _normalize_payload(payload):
     return payload
 
 
+def _latest_telegram_received(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'TELEGRAM_WEBHOOK_RECEIVED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_input', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_route(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'TELEGRAM_ROUTED',
+            'TELEGRAM_AUTH_DENIED',
+            'TELEGRAM_SECRET_DENIED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_reply(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'TELEGRAM_REPLY_ATTEMPTED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_duplicate(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'TELEGRAM_DUPLICATE_IGNORED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _telegram_ingress(
+    events,
+    case_link: TelegramCaseLinkRecord | None = None,
+    user_visible_status: TelegramUserVisibleStatus | None = None,
+):
+    received = _latest_telegram_received(events)
+    route = _latest_telegram_route(events)
+    reply = _latest_telegram_reply(events)
+    duplicate = _latest_telegram_duplicate(events)
+    if not received and not route and not reply and not duplicate:
+        return None
+
+    reply_ok = reply.get('reply_ok') if isinstance(reply, dict) else None
+    reply_reason = reply.get('reply_reason') if isinstance(reply, dict) else None
+    if reply_ok is True:
+        reply_status = 'SENT'
+    elif reply_reason == 'telegram_bot_token_missing':
+        reply_status = 'SKIPPED_NO_TOKEN'
+    elif reply is not None:
+        reply_status = 'FAILED'
+    else:
+        reply_status = 'NOT_ATTEMPTED'
+
+    return {
+        'telegram_update_ref': (received or {}).get('telegram_update_ref'),
+        'telegram_message_ref': (received or {}).get('telegram_message_ref'),
+        'telegram_chat_ref': (received or {}).get('telegram_chat_ref'),
+        'telegram_thread_ref': case_link.telegram_thread_ref if case_link else None,
+        'chat_type': (received or {}).get('chat_type'),
+        'sender_id': (received or {}).get('sender_id'),
+        'sender_username': (received or {}).get('sender_username'),
+        'text_preview': (received or {}).get('text'),
+        'routing_status': (route or {}).get('routing_status') or (route or {}).get('result'),
+        'intent_name': (route or {}).get('intent_name'),
+        'authorization_status': (route or {}).get('authorization_status'),
+        'auth_reason': (route or {}).get('auth_reason'),
+        'open_item_id': (route or {}).get('open_item_id'),
+        'open_item_title': (route or {}).get('open_item_title'),
+        'next_manual_step': (route or {}).get('next_manual_step'),
+        'ack_template': (route or {}).get('ack_template'),
+        'duplicate_ignored': duplicate is not None,
+        'duplicate_at': (duplicate or {}).get('created_at'),
+        'reply_status': reply_status,
+        'reply_ok': reply_ok,
+        'reply_reason': reply_reason,
+        'received_at': (received or {}).get('created_at'),
+        'routed_at': (route or {}).get('created_at'),
+        'replied_at': (reply or {}).get('created_at'),
+        'linked_case_id': case_link.linked_case_id if case_link else None,
+        'track_for_status': case_link.track_for_status if case_link else False,
+        'user_visible_status': user_visible_status.model_dump(mode='json') if user_visible_status else None,
+    }
+
+
+def _telegram_clarification_payload(record: TelegramClarificationRecord | None):
+    if record is None:
+        return None
+    return record.model_dump(mode='json')
+
+
+def _telegram_clarification_rounds_payload(records: list[TelegramClarificationRecord]) -> list[dict]:
+    return [record.model_dump(mode='json') for record in records]
+
+
+def _latest_telegram_media(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'TELEGRAM_MEDIA_STORED',
+            'TELEGRAM_MEDIA_QUEUED',
+            'TELEGRAM_MEDIA_REJECTED',
+            'TELEGRAM_MEDIA_DOWNLOAD_FAILED',
+            'TELEGRAM_DOCUMENT_STORED',
+            'TELEGRAM_DOCUMENT_QUEUED',
+            'TELEGRAM_DOCUMENT_REJECTED',
+            'TELEGRAM_DOCUMENT_DOWNLOAD_FAILED',
+            'DOCUMENT_INBOX_ACCEPTED',
+            'DOCUMENT_INTAKE_LINKED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_telegram_notification(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'TELEGRAM_NOTIFICATION_SENT',
+            'TELEGRAM_NOTIFICATION_SKIPPED',
+            'TELEGRAM_NOTIFICATION_FAILED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_context(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_CONTEXT_READY',
+            'DOCUMENT_ANALYST_CONTEXT_ATTACHED',
+            'DOCUMENT_ANALYST_PENDING',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_start(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_START_READY',
+            'DOCUMENT_ANALYST_START_REQUESTED',
+            'DOCUMENT_ANALYST_RUNTIME_STARTED',
+            'DOCUMENT_ANALYST_RUNTIME_FAILED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analysis(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) != 'DOCUMENT_ANALYSIS_COMPLETED':
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_review(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_REVIEW_READY',
+            'DOCUMENT_ANALYST_REVIEW_COMPLETED',
+            'DOCUMENT_ANALYST_REVIEW_STILL_OPEN',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_followup(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_FOLLOWUP_REQUIRED',
+            'DOCUMENT_ANALYST_FOLLOWUP_DATA_REQUESTED',
+            'DOCUMENT_ANALYST_FOLLOWUP_WITHDRAWN',
+            'DOCUMENT_ANALYST_FOLLOWUP_INTERNAL_ONLY',
+            'DOCUMENT_ANALYST_FOLLOWUP_COMPLETED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_communicator_turn(events):
+    """Latest COMMUNICATOR_TURN_PROCESSED event — exposes truth_basis, memory_used, intent."""
+    for event in reversed(events):
+        if getattr(event, 'action', None) == 'COMMUNICATOR_TURN_PROCESSED':
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                return payload
+    return None
+
+
 def _latest_accounting_review(events):
     for event in reversed(events):
         if event.action == 'ACCOUNTING_REVIEW_DRAFT_READY' and getattr(event, 'llm_output', None):
@@ -138,11 +669,22 @@ def _latest_bank_reconciliation_review(events):
     return None
 
 
-def _latest_bank_manual_handoff(events):
-    """V1.4: latest BANK_MANUAL_HANDOFF_COMPLETED or _RETURNED audit event."""
+def _latest_bank_handoff_ready(events):
+    """Latest BANKING_HANDOFF_READY audit event."""
     for event in reversed(events):
         action = getattr(event, 'action', '') or ''
-        if action in {'BANK_MANUAL_HANDOFF_COMPLETED', 'BANK_MANUAL_HANDOFF_RETURNED'}:
+        if action == 'BANKING_HANDOFF_READY':
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_bank_handoff_resolution(events):
+    """Latest BANKING_HANDOFF_COMPLETED or BANKING_HANDOFF_RETURNED audit event."""
+    for event in reversed(events):
+        action = getattr(event, 'action', '') or ''
+        if action in {'BANKING_HANDOFF_COMPLETED', 'BANKING_HANDOFF_RETURNED'}:
             payload = _normalize_payload(getattr(event, 'llm_output', None))
             if isinstance(payload, dict):
                 return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
@@ -150,10 +692,103 @@ def _latest_bank_manual_handoff(events):
 
 
 def _latest_bank_clarification(events):
-    """V1.4: latest BANK_CLARIFICATION_COMPLETED audit event."""
+    latest_completion = None
+    latest_return = None
     for event in reversed(events):
         action = getattr(event, 'action', '') or ''
-        if action == 'BANK_CLARIFICATION_COMPLETED':
+        if latest_completion is None and action == 'BANKING_CLARIFICATION_COMPLETED':
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                latest_completion = {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+        if latest_return is None and action == 'BANKING_HANDOFF_RETURNED':
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                latest_return = {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+        if latest_completion is not None and latest_return is not None:
+            break
+    if latest_completion:
+        return latest_completion
+    if latest_return:
+        return {
+            'action': 'BANKING_CLARIFICATION_OPEN',
+            'created_at': latest_return.get('created_at'),
+            'status': 'BANKING_CLARIFICATION_OPEN',
+            'clarification_state': latest_return.get('clarification_state') or 'OPEN',
+            'clarification_ref': latest_return.get('clarification_ref') or latest_return.get('resolution_id'),
+            'handoff_ref': latest_return.get('handoff_ref'),
+            'review_ref': latest_return.get('review_ref'),
+            'workbench_ref': latest_return.get('workbench_ref'),
+            'transaction_id': latest_return.get('transaction_id'),
+            'candidate_reference': latest_return.get('candidate_reference'),
+            'clarification_guidance': 'Rueckgabegrund manuell klaeren und den Abschluss dokumentieren.',
+            'required_manual_evidence': 'Kurznotiz, welche Rueckfrage oder Pruefung den Banking-Ruecklauf klaert.',
+            'next_manual_step': 'Klaerung dokumentieren oder den Fall bewusst offen halten.',
+            'clarification_open_item_id': latest_return.get('follow_up_open_item_id'),
+            'clarification_open_item_title': latest_return.get('follow_up_open_item_title'),
+            'bank_write_executed': False,
+            'no_financial_write': True,
+        }
+    return None
+
+
+def _latest_external_banking_process_resolution(events):
+    for event in reversed(events):
+        action = getattr(event, 'action', '') or ''
+        if action == 'EXTERNAL_BANKING_PROCESS_COMPLETED':
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _outside_agent_banking_process(events):
+    resolution = _latest_external_banking_process_resolution(events)
+    if resolution:
+        return {
+            'status': resolution.get('status'),
+            'suggested_next_step': resolution.get('suggested_next_step'),
+            'outside_process_open_item_id': resolution.get('outside_process_open_item_id'),
+            'outside_process_open_item_title': resolution.get('outside_process_open_item_title'),
+            'source_status': resolution.get('source_internal_status') or resolution.get('status'),
+            'resolution_recorded': True,
+        }
+    clarification = _latest_bank_clarification(events)
+    if clarification and clarification.get('status') == 'BANKING_CLARIFICATION_COMPLETED':
+        return {
+            'status': 'OUTSIDE_AGENT_BANKING_PROCESS',
+            'suggested_next_step': 'EXTERNAL_BANKING_PROCESS_COMPLETION',
+            'outside_process_open_item_id': clarification.get('outside_process_open_item_id'),
+            'outside_process_open_item_title': clarification.get('outside_process_open_item_title') or '[Banking] Externen Banking-Abschluss dokumentieren',
+            'source_status': clarification.get('status'),
+            'resolution_recorded': False,
+        }
+    handoff_resolution = _latest_bank_handoff_resolution(events)
+    if handoff_resolution and handoff_resolution.get('decision') == 'COMPLETED':
+        return {
+            'status': 'OUTSIDE_AGENT_BANKING_PROCESS',
+            'suggested_next_step': 'EXTERNAL_BANKING_PROCESS_COMPLETION',
+            'outside_process_open_item_id': handoff_resolution.get('outside_process_open_item_id'),
+            'outside_process_open_item_title': handoff_resolution.get('outside_process_open_item_title') or '[Banking] Externen Banking-Abschluss dokumentieren',
+            'source_status': handoff_resolution.get('status'),
+            'resolution_recorded': False,
+        }
+    return None
+
+
+def _latest_akaunting_probe(events):
+    for event in reversed(events):
+        action = getattr(event, 'action', '') or ''
+        if action == 'AKAUNTING_PROBE_EXECUTED':
+            payload = _normalize_payload(getattr(event, 'llm_output', None))
+            if isinstance(payload, dict):
+                return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_bank_transaction_probe(events):
+    for event in reversed(events):
+        action = getattr(event, 'action', '') or ''
+        if action in {'BANK_TRANSACTION_PROBE_EXECUTED', 'BANK_TEST_PROBE_EXECUTED'}:
             payload = _normalize_payload(getattr(event, 'llm_output', None))
             if isinstance(payload, dict):
                 return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
@@ -165,6 +800,14 @@ def _latest_accounting_analysis(events):
         if event.action == 'ACCOUNTING_ANALYSIS_COMPLETED' and getattr(event, 'llm_output', None):
             return _normalize_payload(event.llm_output)
     return None
+
+
+def _should_build_reconciliation_context(events, doc_refs, acc_refs):
+    actions = {getattr(event, 'action', '') or '' for event in events}
+    if any(action.startswith('BANK_') or action.startswith('AKAUNTING_') for action in actions):
+        return True
+    refs = [*doc_refs, *acc_refs]
+    return any(str(ref).upper().startswith(('INV-', 'OUT-', 'EXP-', 'REC-', 'BILL-')) for ref in refs)
 
 
 def _latest_accounting_operator_review(events):
@@ -547,11 +1190,16 @@ class BankReconciliationReviewBody(BaseModel):
     confidence_score: int = 0
     match_quality: str = 'LOW'
     reason_codes: list[str] = []
+    tx_type: str | None = None
     probe_result: str = ''
     probe_note: str = ''
+    workbench_ref: str
+    workbench_signal: str = ''
+    workbench_guidance: str = ''
+    review_guidance: str = ''
+    candidate_rank: int | None = None
     decision: BankReconciliationDecision
     decision_note: str = ''
-    decided_by: str = 'operator'
 
 
 @router.post('/{case_id:path}/bank-reconciliation-review', dependencies=[Depends(require_csrf)])
@@ -559,7 +1207,7 @@ async def case_bank_reconciliation_review(
     case_id: str,
     body: BankReconciliationReviewBody,
     review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
-    _user: AuthUser = Depends(require_operator),
+    current_user: AuthUser = Depends(require_operator),
 ) -> dict:
     """V1.3 operator banking review step.
 
@@ -579,11 +1227,17 @@ async def case_bank_reconciliation_review(
         confidence_score=body.confidence_score,
         match_quality=body.match_quality,
         reason_codes=body.reason_codes,
+        tx_type=body.tx_type,
         probe_result=body.probe_result,
         probe_note=body.probe_note,
+        workbench_ref=body.workbench_ref,
+        workbench_signal=body.workbench_signal,
+        workbench_guidance=body.workbench_guidance,
+        review_guidance=body.review_guidance,
+        candidate_rank=body.candidate_rank,
         decision=body.decision,
         decision_note=body.decision_note,
-        decided_by=body.decided_by,
+        decided_by=current_user.username,
     )
     result: BankReconciliationReviewResult = await review_service.submit_review(payload)
     assert result.bank_write_executed is False, 'Bank review safety invariant violated'
@@ -605,39 +1259,59 @@ async def case_banking_review_status(
 # V1.4 — Banking Manual Handoff
 # ---------------------------------------------------------------------------
 
-class BankManualHandoffBody(BaseModel):
-    """Request body for POST /bank-manual-handoff.
-
-    Records outcome of a manual banking reconciliation attempt.
-    No financial system write occurs.
-    """
+class BankingHandoffReadyBody(BaseModel):
+    review_ref: str
+    workbench_ref: str
     transaction_id: str | int | None = None
-    decision: BankManualHandoffDecision
     note: str = ''
-    decided_by: str = 'operator'
 
 
-@router.post('/{case_id:path}/bank-manual-handoff', dependencies=[Depends(require_csrf)])
-async def case_bank_manual_handoff(
+class BankingHandoffResolutionBody(BaseModel):
+    handoff_ref: str
+    decision: BankingHandoffResolutionDecision
+    note: str = ''
+
+
+@router.post('/{case_id:path}/banking/handoff-ready', dependencies=[Depends(require_csrf)])
+async def case_bank_handoff_ready(
     case_id: str,
-    body: BankManualHandoffBody,
+    body: BankingHandoffReadyBody,
     review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
-    _user: AuthUser = Depends(require_operator),
+    current_user: AuthUser = Depends(require_operator),
 ) -> dict:
-    """V1.4 operator banking manual handoff step.
-
-    COMPLETED: handoff done, case resolved.
-    RETURNED: handoff returned; clarification open item created.
-    No Akaunting write. No payment. bank_write_executed is always False.
-    """
-    payload = BankManualHandoffInput(
-        case_id=case_id,
-        transaction_id=body.transaction_id,
-        decision=body.decision,
-        note=body.note,
-        decided_by=body.decided_by,
+    result = await review_service.mark_handoff_ready(
+        BankingHandoffReadyInput(
+            case_id=case_id,
+            review_ref=body.review_ref,
+            workbench_ref=body.workbench_ref,
+            transaction_id=body.transaction_id,
+            handoff_note=body.note,
+            handed_off_by=current_user.username,
+            source='inspect_case_view',
+        )
     )
-    result = await review_service.complete_manual_handoff(payload)
+    assert result.bank_write_executed is False, 'Bank handoff safety invariant violated'
+    assert result.no_financial_write is True, 'Bank handoff financial safety violated'
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/banking/handoff-resolution', dependencies=[Depends(require_csrf)])
+async def case_bank_handoff_resolution(
+    case_id: str,
+    body: BankingHandoffResolutionBody,
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    result = await review_service.resolve_handoff(
+        BankingHandoffResolutionInput(
+            case_id=case_id,
+            handoff_ref=body.handoff_ref,
+            decision=body.decision,
+            resolution_note=body.note,
+            resolved_by=current_user.username,
+            source='inspect_case_view',
+        )
+    )
     assert result.bank_write_executed is False, 'Bank handoff safety invariant violated'
     assert result.no_financial_write is True, 'Bank handoff financial safety violated'
     return result.model_dump(mode='json')
@@ -648,10 +1322,22 @@ async def case_banking_handoff_status(
     case_id: str,
     audit_service: AuditService = Depends(get_audit_service),
 ) -> dict:
-    """V1.4 read-only: return latest banking handoff event for this case."""
+    """Read-only: return current banking handoff state for this case."""
     chronology = await audit_service.by_case(case_id, limit=500)
-    latest = _latest_bank_manual_handoff(list(chronology))
-    return latest or {'status': 'NO_HANDOFF_YET', 'case_id': case_id}
+    ready = _latest_bank_handoff_ready(list(chronology))
+    resolution = _latest_bank_handoff_resolution(list(chronology))
+    return {
+        'ready': ready,
+        'resolution': resolution,
+        'status': (
+            resolution.get('status')
+            if resolution else
+            ready.get('outcome_status')
+            if ready else
+            'NO_HANDOFF_YET'
+        ),
+        'case_id': case_id,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -659,14 +1345,12 @@ async def case_banking_handoff_status(
 # ---------------------------------------------------------------------------
 
 class BankClarificationBody(BaseModel):
-    """Request body for POST /bank-clarification-complete.
+    clarification_ref: str
+    note: str = ''
 
-    Records resolution of a banking clarification item.
-    No financial system write occurs.
-    """
-    transaction_id: str | int | None = None
-    resolution_note: str = ''
-    decided_by: str = 'operator'
+
+class ExternalBankingProcessCompletionBody(BaseModel):
+    note: str = ''
 
 
 @router.post('/{case_id:path}/bank-clarification-complete', dependencies=[Depends(require_csrf)])
@@ -674,23 +1358,50 @@ async def case_bank_clarification_complete(
     case_id: str,
     body: BankClarificationBody,
     review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
-    _user: AuthUser = Depends(require_operator),
+    current_user: AuthUser = Depends(require_operator),
 ) -> dict:
-    """V1.4 operator banking clarification completion.
-
-    Closes the open clarification item (after REJECTED or RETURNED handoff).
-    No Akaunting write. No payment. bank_write_executed is always False.
-    """
-    payload = BankClarificationInput(
+    payload = BankingClarificationCompletionInput(
         case_id=case_id,
-        transaction_id=body.transaction_id,
-        resolution_note=body.resolution_note,
-        decided_by=body.decided_by,
+        clarification_ref=body.clarification_ref,
+        clarification_note=body.note,
+        clarified_by=current_user.username,
+        source='inspect_case_view',
     )
-    result = await review_service.complete_clarification(payload)
+    result = await review_service.complete_banking_clarification(payload)
     assert result.bank_write_executed is False, 'Bank clarification safety invariant violated'
     assert result.no_financial_write is True, 'Bank clarification financial safety violated'
     return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/external-banking-process-complete', dependencies=[Depends(require_csrf)])
+async def case_external_banking_process_complete(
+    case_id: str,
+    body: ExternalBankingProcessCompletionBody,
+    review_service: BankReconciliationReviewService = Depends(get_bank_reconciliation_review_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    result = await review_service.complete_external_banking_process(
+        ExternalBankingProcessCompletionInput(
+            case_id=case_id,
+            resolution_note=body.note,
+            resolved_by=current_user.username,
+            source='inspect_case_view',
+        )
+    )
+    assert result.bank_write_executed is False, 'External banking completion safety invariant violated'
+    assert result.no_financial_write is True, 'External banking completion financial safety violated'
+    return result.model_dump(mode='json')
+
+
+@router.get('/{case_id:path}/banking/reconciliation-context')
+async def case_banking_reconciliation_context(
+    case_id: str,
+    reconciliation_context_service: ReconciliationContextService = Depends(get_reconciliation_context_service),
+) -> dict:
+    context = await reconciliation_context_service.build(case_id=case_id)
+    assert context.bank_write_executed is False, 'Bank reconciliation context safety invariant violated'
+    assert context.no_financial_write is True, 'Bank reconciliation context financial safety violated'
+    return context.model_dump(mode='json')
 
 
 @router.get('/{case_id:path}/json')
@@ -700,6 +1411,9 @@ async def case_view_json(
     open_items_service: OpenItemsService = Depends(get_open_items_service),
     problem_service: ProblemCaseService = Depends(get_problem_case_service),
     approval_service: ApprovalService = Depends(get_approval_service),
+    reconciliation_context_service: ReconciliationContextService = Depends(get_reconciliation_context_service),
+    telegram_case_link_service: TelegramCaseLinkService = Depends(get_telegram_case_link_service),
+    telegram_clarification_service: TelegramClarificationService = Depends(get_telegram_clarification_service),
 ) -> dict:
     chronology = await audit_service.by_case(case_id, limit=1000)
     open_items = await open_items_service.list_by_case(case_id)
@@ -710,6 +1424,27 @@ async def case_view_json(
         raise HTTPException(status_code=404, detail='Case nicht gefunden')
 
     doc_refs, acc_refs = _collect_refs(chronology, problems, open_items)
+    reconciliation_context = None
+    if _should_build_reconciliation_context(chronology, doc_refs, acc_refs):
+        reconciliation_context = await reconciliation_context_service.build(case_id=case_id)
+    telegram_case_link = await telegram_case_link_service.get_by_case(case_id)
+    telegram_user_status = None
+    telegram_clarification = None
+    telegram_clarification_rounds: list[TelegramClarificationRecord] = []
+    if telegram_case_link is not None:
+        linked_case_id = telegram_case_link.linked_case_id or case_id
+        telegram_clarification = await telegram_clarification_service.latest_by_case(linked_case_id)
+        telegram_clarification_rounds = await telegram_clarification_service.list_by_case(linked_case_id)
+        linked_open_items = open_items if linked_case_id == case_id else await open_items_service.list_by_case(linked_case_id)
+        linked_problems = problems if linked_case_id == case_id else await problem_service.by_case(linked_case_id)
+        linked_chronology = chronology if linked_case_id == case_id else await audit_service.by_case(linked_case_id, limit=200)
+        telegram_user_status = await telegram_case_link_service.build_user_visible_status(
+            telegram_case_link,
+            linked_open_items,
+            linked_problems,
+            linked_chronology,
+            telegram_clarification,
+        )
     approvals_from_audit = [e for e in chronology if e.approval_status in {'APPROVED', 'REJECTED', 'PENDING', 'CANCELLED', 'EXPIRED', 'REVOKED'}]
     decisions = [e for e in chronology if e.action not in {'SYSTEM_STARTUP'}]
 
@@ -727,10 +1462,30 @@ async def case_view_json(
         'latest_gate_summary': latest_gate_summary(chronology),
         'accounting_review': _latest_accounting_review(chronology),
         'accounting_analysis': _latest_accounting_analysis(chronology),
+        'akaunting_probe': _latest_akaunting_probe(chronology),
+        'bank_transaction_probe': _latest_bank_transaction_probe(chronology),
+        'banking_reconciliation_context': (
+            reconciliation_context.model_dump(mode='json') if reconciliation_context else None
+        ),
         'accounting_operator_review': _latest_accounting_operator_review(chronology),
         'bank_reconciliation_review': _latest_bank_reconciliation_review(chronology),
-        'bank_manual_handoff': _latest_bank_manual_handoff(chronology),
+        'banking_handoff_ready': _latest_bank_handoff_ready(chronology),
+        'banking_handoff_resolution': _latest_bank_handoff_resolution(chronology),
         'bank_clarification': _latest_bank_clarification(chronology),
+        'outside_agent_banking_process': _outside_agent_banking_process(chronology),
+        'external_banking_process_resolution': _latest_external_banking_process_resolution(chronology),
+        'communicator_turn': _latest_communicator_turn(chronology),
+        'telegram_ingress': _telegram_ingress(chronology, telegram_case_link, telegram_user_status),
+        'telegram_case_link': telegram_case_link.model_dump(mode='json') if telegram_case_link else None,
+        'telegram_clarification': _telegram_clarification_payload(telegram_clarification),
+        'telegram_clarification_rounds': _telegram_clarification_rounds_payload(telegram_clarification_rounds),
+        'telegram_media': _latest_telegram_media(chronology),
+        'document_analyst_context': _latest_document_analyst_context(chronology),
+        'document_analyst_start': _latest_document_analyst_start(chronology),
+        'document_analysis': _latest_document_analysis(chronology),
+        'document_analyst_review': _latest_document_analyst_review(chronology),
+        'document_analyst_followup': _latest_document_analyst_followup(chronology),
+        'telegram_notification': _latest_telegram_notification(chronology),
         'accounting_manual_handoff': _latest_accounting_manual_handoff(chronology),
         'accounting_manual_handoff_resolution': _latest_accounting_manual_handoff_resolution(chronology),
         'accounting_clarification_completion': _latest_accounting_clarification_completion(chronology),
@@ -747,6 +1502,7 @@ async def case_view(
     open_items_service: OpenItemsService = Depends(get_open_items_service),
     problem_service: ProblemCaseService = Depends(get_problem_case_service),
     approval_service: ApprovalService = Depends(get_approval_service),
+    reconciliation_context_service: ReconciliationContextService = Depends(get_reconciliation_context_service),
 ) -> str:
     chronology = await audit_service.by_case(case_id, limit=1000)
     open_items = await open_items_service.list_by_case(case_id)
@@ -757,6 +1513,9 @@ async def case_view(
         raise HTTPException(status_code=404, detail='Case nicht gefunden')
 
     doc_refs, acc_refs = _collect_refs(chronology, problems, open_items)
+    reconciliation_context = None
+    if _should_build_reconciliation_context(chronology, doc_refs, acc_refs):
+        reconciliation_context = await reconciliation_context_service.build(case_id=case_id)
     approvals_from_audit = [e for e in chronology if e.approval_status in {'APPROVED', 'REJECTED', 'PENDING', 'CANCELLED', 'EXPIRED', 'REVOKED'}]
     decisions = [e for e in chronology if e.action not in {'SYSTEM_STARTUP'}]
     policy_refs = _collect_policy_refs(chronology)
@@ -840,22 +1599,45 @@ async def case_view(
         )
 
     # V1.4 Banking Manual Handoff
-    bank_handoff = _latest_bank_manual_handoff(chronology)
-    bank_handoff_html = ''
-    if bank_handoff:
-        h_action = bank_handoff.get('action', '')
-        h_color = '#2d862d' if h_action == 'BANK_MANUAL_HANDOFF_COMPLETED' else '#cc7700'
-        bank_handoff_html = (
-            '<h2>Banking Manual Handoff (V1.4)</h2>'
+    bank_handoff_ready = _latest_bank_handoff_ready(chronology)
+    bank_handoff_ready_html = ''
+    if bank_handoff_ready:
+        bank_handoff_ready_html = (
+            '<h2>Banking Handoff Ready (V1.0)</h2>'
             '<table border="1" cellpadding="6">'
-            '<tr><th>Zeit</th><th>Entscheidung</th><th>TX-ID</th><th>Notiz</th><th>Entscheider</th><th>Outcome</th></tr>'
+            '<tr><th>Zeit</th><th>Review</th><th>Workbench</th><th>TX-ID</th><th>Referenz</th><th>Next Manual Step</th><th>Open Item</th></tr>'
             f'<tr>'
-            f'<td>{bank_handoff.get("created_at", "-")}</td>'
-            f'<td style="color:{h_color};font-weight:bold">{bank_handoff.get("decision", "-")}</td>'
-            f'<td>{bank_handoff.get("transaction_id", "-")}</td>'
-            f'<td>{bank_handoff.get("note", "-")}</td>'
-            f'<td>{bank_handoff.get("decided_by", "-")}</td>'
-            f'<td>{bank_handoff.get("outcome_status", "-")}</td>'
+            f'<td>{bank_handoff_ready.get("created_at", "-")}</td>'
+            f'<td>{bank_handoff_ready.get("review_ref", "-")}</td>'
+            f'<td>{bank_handoff_ready.get("workbench_ref", "-")}</td>'
+            f'<td>{bank_handoff_ready.get("transaction_id", "-")}</td>'
+            f'<td>{bank_handoff_ready.get("candidate_reference", "-")}</td>'
+            f'<td>{bank_handoff_ready.get("next_manual_step", "-")}</td>'
+            f'<td>{bank_handoff_ready.get("handoff_open_item_title", "-")}</td>'
+            f'</tr></table>'
+            '<p style="color:#666;font-size:0.9em">'
+            '[bank_write_executed=False | no_financial_write=True]'
+            '</p>'
+        )
+
+    bank_handoff_resolution = _latest_bank_handoff_resolution(chronology)
+    bank_handoff_resolution_html = ''
+    if bank_handoff_resolution:
+        h_action = bank_handoff_resolution.get('action', '')
+        h_color = '#2d862d' if h_action == 'BANKING_HANDOFF_COMPLETED' else '#cc7700'
+        bank_handoff_resolution_html = (
+            '<h2>Banking Handoff Resolution (V1.0)</h2>'
+            '<table border="1" cellpadding="6">'
+            '<tr><th>Zeit</th><th>Entscheidung</th><th>Review</th><th>TX-ID</th><th>Notiz</th><th>By</th><th>Status</th><th>Follow-up</th></tr>'
+            f'<tr>'
+            f'<td>{bank_handoff_resolution.get("created_at", "-")}</td>'
+            f'<td style="color:{h_color};font-weight:bold">{bank_handoff_resolution.get("decision", "-")}</td>'
+            f'<td>{bank_handoff_resolution.get("review_ref", "-")}</td>'
+            f'<td>{bank_handoff_resolution.get("transaction_id", "-")}</td>'
+            f'<td>{bank_handoff_resolution.get("resolution_note", "-")}</td>'
+            f'<td>{bank_handoff_resolution.get("resolved_by", "-")}</td>'
+            f'<td>{bank_handoff_resolution.get("status", "-")}</td>'
+            f'<td>{bank_handoff_resolution.get("follow_up_open_item_title", "-")}</td>'
             f'</tr></table>'
             '<p style="color:#666;font-size:0.9em">'
             '[bank_write_executed=False | no_financial_write=True]'
@@ -869,18 +1651,29 @@ async def case_view(
         bank_clarif_html = (
             '<h2>Banking Clarification (V1.4)</h2>'
             '<table border="1" cellpadding="6">'
-            '<tr><th>Zeit</th><th>TX-ID</th><th>Auflösungshinweis</th><th>Entscheider</th><th>Outcome</th></tr>'
+            '<tr><th>Zeit</th><th>TX-ID</th><th>Notiz</th><th>By</th><th>Status</th><th>Open Item</th></tr>'
             f'<tr>'
             f'<td>{bank_clarif.get("created_at", "-")}</td>'
             f'<td>{bank_clarif.get("transaction_id", "-")}</td>'
-            f'<td>{bank_clarif.get("resolution_note", "-")}</td>'
-            f'<td>{bank_clarif.get("decided_by", "-")}</td>'
-            f'<td style="color:#2d862d;font-weight:bold">{bank_clarif.get("outcome_status", "-")}</td>'
+            f'<td>{bank_clarif.get("clarification_note", "-")}</td>'
+            f'<td>{bank_clarif.get("clarified_by", "-")}</td>'
+            f'<td style="color:#2d862d;font-weight:bold">{bank_clarif.get("status", "-")}</td>'
+            f'<td>{bank_clarif.get("clarification_open_item_title", "-")}</td>'
             f'</tr></table>'
             '<p style="color:#666;font-size:0.9em">'
             '[bank_write_executed=False | no_financial_write=True]'
             '</p>'
         )
+
+    outside_bank = _outside_agent_banking_process(chronology)
+    outside_bank_html = ''
+    if outside_bank:
+        outside_bank_html = ('<h2>Outside-Agent Banking Process</h2>' f"<pre>{outside_bank}</pre>")
+
+    external_bank = _latest_external_banking_process_resolution(chronology)
+    external_bank_html = ''
+    if external_bank:
+        external_bank_html = ('<h2>External Banking Process Resolution</h2>' f"<pre>{external_bank}</pre>")
 
     manual_handoff = _latest_accounting_manual_handoff(chronology)
     manual_handoff_html = ''
@@ -912,6 +1705,13 @@ async def case_view(
     if external_return_clarification:
         external_return_clarification_html = ('<h2>External Return Clarification Completion</h2>' f"<pre>{external_return_clarification}</pre>")
 
+    reconciliation_context_html = ''
+    if reconciliation_context:
+        reconciliation_context_html = (
+            '<h2>Banking Reconciliation Context</h2>'
+            f"<pre>{reconciliation_context.model_dump(mode='json')}</pre>"
+        )
+
     return (
         f'<h1>Case View: {case_id}</h1>'
         f"<h2>Document Refs</h2><pre>{doc_refs}</pre>"
@@ -919,14 +1719,18 @@ async def case_view(
         f'{latest_gate_html}'
         f'{operator_review_html}'
         f'{bank_review_html}'
-        f'{bank_handoff_html}'
+        f'{bank_handoff_ready_html}'
+        f'{bank_handoff_resolution_html}'
         f'{bank_clarif_html}'
+        f'{outside_bank_html}'
+        f'{external_bank_html}'
         f'{manual_handoff_html}'
         f'{manual_handoff_resolution_html}'
         f'{clarification_completion_html}'
         f'{outside_agent_process_html}'
         f'{external_resolution_html}'
         f'{external_return_clarification_html}'
+        f'{reconciliation_context_html}'
         '<h2>Chronology</h2>'
         '<table border="1" cellpadding="6"><tr><th>Zeit</th><th>Source</th><th>Action</th><th>Result</th></tr>'
         f'{chronology_rows}</table>'
