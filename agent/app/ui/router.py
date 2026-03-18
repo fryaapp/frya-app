@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -48,7 +49,10 @@ from app.dependencies import (
     get_bank_reconciliation_review_service,
     get_reconciliation_context_service,
     get_bank_transaction_service,
+    get_case_repository,
+    get_email_intake_repository,
     get_file_store,
+    get_llm_config_repository,
     get_open_items_service,
     get_policy_access_layer,
     get_problem_case_service,
@@ -73,6 +77,7 @@ from app.telegram.document_analyst_start_service import TelegramDocumentAnalystS
 from app.telegram.clarification_service import TelegramClarificationService
 from app.telegram.models import TelegramCaseLinkRecord, TelegramClarificationRecord, TelegramUserVisibleStatus
 from app.telegram.service import TelegramCaseLinkService
+from app.case_engine.status import StatusTransitionError, allowed_transitions
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / 'templates'))
 router = APIRouter(prefix='/ui', tags=['ui'], dependencies=[Depends(require_operator)])
@@ -1904,9 +1909,538 @@ async def ui_system(
     )
 
 
+@router.get('/email-intake', response_class=HTMLResponse)
+async def email_intake_list(request: Request):
+    repo = get_email_intake_repository()
+    intakes = await repo.list_recent(limit=50)
+    csrf_token = get_csrf_token(request)
+    return TEMPLATES.TemplateResponse(
+        request,
+        'email_intake_list.html',
+        {
+            'request': request,
+            'auth_user': getattr(request.state, 'auth_user', None),
+            'csrf_token': csrf_token,
+            'intakes': [i.model_dump(mode='json') for i in intakes],
+            'title': 'E-Mail-Eingänge',
+        },
+    )
 
 
+@router.get('/email-intake/{email_intake_id}', response_class=HTMLResponse)
+async def email_intake_detail(request: Request, email_intake_id: str):
+    repo = get_email_intake_repository()
+    intake = await repo.get_by_id(email_intake_id)
+    if intake is None:
+        raise HTTPException(status_code=404, detail='Nicht gefunden.')
+    attachments = await repo.get_attachments(email_intake_id)
+    csrf_token = get_csrf_token(request)
+    return TEMPLATES.TemplateResponse(
+        request,
+        'email_intake_detail.html',
+        {
+            'request': request,
+            'auth_user': getattr(request.state, 'auth_user', None),
+            'csrf_token': csrf_token,
+            'intake': intake.model_dump(mode='json'),
+            'attachments': [a.model_dump(mode='json') for a in attachments],
+            'title': f'E-Mail {email_intake_id}',
+        },
+    )
 
+
+# ── CaseEngine UI (/ui/vorgaenge) ─────────────────────────────────────────────
+
+_ALL_CASE_TYPES: list[str] = [
+    'incoming_invoice', 'outgoing_invoice', 'contract', 'notice',
+    'tax_document', 'correspondence', 'receipt', 'bank_statement',
+    'dunning', 'insurance', 'salary', 'other',
+]
+_ALL_CASE_STATUSES: list[str] = ['DRAFT', 'OPEN', 'OVERDUE', 'PAID', 'CLOSED', 'DISCARDED', 'MERGED']
+
+
+@router.get('/vorgaenge', response_class=HTMLResponse)
+async def vorgaenge_list(
+    request: Request,
+    tenant_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    case_type: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+):
+    repo = get_case_repository()
+    rows: list[dict] = []
+
+    if tenant_id:
+        try:
+            tid = uuid.UUID(tenant_id)
+        except ValueError:
+            tid = None
+        if tid:
+            cases = await repo.list_cases(
+                tid,
+                status=status or None,
+                offset=0,
+                limit=200,
+            )
+            if q:
+                q_lower = q.lower()
+                cases = [
+                    c for c in cases
+                    if q_lower in (c.vendor_name or '').lower()
+                    or q_lower in (c.case_number or '').lower()
+                ]
+            if case_type:
+                cases = [c for c in cases if c.case_type == case_type]
+
+            for c in cases:
+                docs = await repo.get_case_documents(c.id)
+                conflicts = await repo.get_conflicts(c.id)
+                rows.append({
+                    'case': c.model_dump(mode='json'),
+                    'doc_count': len(docs),
+                    'conflict_count': len(conflicts),
+                })
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'vorgaenge_list.html',
+        _ctx(
+            request,
+            title='Vorgaenge',
+            rows=rows,
+            tenant_id=tenant_id or '',
+            all_statuses=_ALL_CASE_STATUSES,
+            all_types=_ALL_CASE_TYPES,
+            selected_status=status or '',
+            selected_type=case_type or '',
+            query=q or '',
+        ),
+    )
+
+
+@router.post('/vorgaenge', response_class=HTMLResponse)
+async def vorgaenge_create(
+    request: Request,
+    _csrf: None = Depends(require_csrf),
+    tenant_id: str = Form(...),
+    case_type: str = Form(...),
+    title: str | None = Form(default=None),
+    vendor_name: str | None = Form(default=None),
+    total_amount: str | None = Form(default=None),
+    due_date: str | None = Form(default=None),
+):
+    from decimal import Decimal
+    from datetime import date as _date
+    repo = get_case_repository()
+    tid = uuid.UUID(tenant_id)
+    amount = Decimal(total_amount) if total_amount else None
+    due = _date.fromisoformat(due_date) if due_date else None
+
+    case = await repo.create_case(
+        tenant_id=tid,
+        case_type=case_type,
+        title=title or None,
+        vendor_name=vendor_name or None,
+        total_amount=amount,
+        due_date=due,
+    )
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case.id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.get('/vorgaenge/{case_id}', response_class=HTMLResponse)
+async def vorgang_detail(
+    request: Request,
+    case_id: str,
+    tenant_id: str | None = Query(default=None),
+    msg: str | None = Query(default=None),
+):
+    repo = get_case_repository()
+    settings = get_settings()
+    try:
+        cid = uuid.UUID(case_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail='Ungueltige Vorgang-ID.')
+    case = await repo.get_case(cid)
+    if case is None:
+        raise HTTPException(status_code=404, detail='Vorgang nicht gefunden.')
+
+    docs = await repo.get_case_documents(cid)
+    refs = await repo.get_case_references(cid)
+    conflicts = await repo.get_conflicts(cid)
+
+    allowed_next = sorted(allowed_transitions(case.status))
+
+    timeline: list[dict] = []
+    if case.created_at:
+        timeline.append({
+            'ts': case.created_at.isoformat(),
+            'label': 'Vorgang erstellt',
+            'detail': f'Status: {case.status}',
+        })
+    for doc in sorted(docs, key=lambda d: d.assigned_at or datetime.min):
+        timeline.append({
+            'ts': doc.assigned_at.isoformat() if doc.assigned_at else None,
+            'label': f'Dokument zugeordnet ({doc.document_source})',
+            'detail': doc.filename or doc.document_source_id,
+        })
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'vorgang_detail.html',
+        _ctx(
+            request,
+            title=f'Vorgang {case.case_number or case_id[:8]}',
+            case_data=case.model_dump(mode='json'),
+            documents=[d.model_dump(mode='json') for d in docs],
+            references=[r.model_dump(mode='json') for r in refs],
+            conflicts=[c.model_dump(mode='json') for c in conflicts],
+            allowed_next=allowed_next,
+            timeline=timeline,
+            tenant_id=tenant_id or '',
+            paperless_url=settings.paperless_base_url.rstrip('/') if settings.paperless_base_url else '',
+            msg=msg or '',
+        ),
+    )
+
+
+@router.post('/vorgaenge/{case_id}/status', response_class=HTMLResponse)
+async def vorgang_update_status(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    new_status: str = Form(...),
+    tenant_id: str = Form(default=''),
+):
+    repo = get_case_repository()
+    cid = uuid.UUID(case_id)
+    try:
+        await repo.update_case_status(cid, new_status, operator=True)
+    except (StatusTransitionError, ValueError) as exc:
+        msg = str(exc)
+        return RedirectResponse(
+            url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}&msg={quote(msg, safe="")}',
+            status_code=HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post('/vorgaenge/{case_id}/document', response_class=HTMLResponse)
+async def vorgang_add_document(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    document_source: str = Form(...),
+    document_source_id: str = Form(...),
+    filename: str | None = Form(default=None),
+    tenant_id: str = Form(default=''),
+):
+    repo = get_case_repository()
+    cid = uuid.UUID(case_id)
+    operator_name = getattr(getattr(request.state, 'auth_user', None), 'username', 'operator')
+    await repo.add_document_to_case(
+        case_id=cid,
+        document_source=document_source,
+        document_source_id=document_source_id,
+        assignment_confidence='MEDIUM',
+        assignment_method='manual',
+        filename=filename or None,
+        assigned_by=operator_name,
+    )
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post('/vorgaenge/{case_id}/reference', response_class=HTMLResponse)
+async def vorgang_add_reference(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    reference_type: str = Form(...),
+    reference_value: str = Form(...),
+    tenant_id: str = Form(default=''),
+):
+    repo = get_case_repository()
+    cid = uuid.UUID(case_id)
+    await repo.add_reference(
+        case_id=cid,
+        reference_type=reference_type,
+        reference_value=reference_value,
+    )
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post('/vorgaenge/{case_id}/conflict/{conflict_id}/resolve', response_class=HTMLResponse)
+async def vorgang_resolve_conflict(
+    request: Request,
+    case_id: str,
+    conflict_id: str,
+    _csrf: None = Depends(require_csrf),
+    resolution: str = Form(...),
+    tenant_id: str = Form(default=''),
+):
+    repo = get_case_repository()
+    cfid = uuid.UUID(conflict_id)
+    resolved_by = getattr(getattr(request.state, 'auth_user', None), 'username', 'operator')
+    await repo.resolve_conflict(cfid, resolution, resolved_by=resolved_by)
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post('/vorgaenge/{case_id}/merge', response_class=HTMLResponse)
+async def vorgang_merge(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    target_case_id: str = Form(...),
+    tenant_id: str = Form(default=''),
+):
+    repo = get_case_repository()
+    cid = uuid.UUID(case_id)
+    tid = uuid.UUID(target_case_id)
+    try:
+        await repo.merge_cases(cid, tid, operator=True)
+    except (StatusTransitionError, ValueError) as exc:
+        msg = str(exc)
+        return RedirectResponse(
+            url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}&msg={quote(msg, safe="")}',
+            status_code=HTTP_303_SEE_OTHER,
+        )
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{target_case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post('/vorgaenge/{case_id}/analyze-booking', response_class=HTMLResponse)
+async def vorgang_analyze_booking(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    tenant_id: str = Form(default=''),
+):
+    from app.accounting_analyst.schemas import CaseAnalysisInput
+    from app.accounting_analyst.service import build_accounting_analyst_service
+
+    repo = get_case_repository()
+    cid = uuid.UUID(case_id)
+    case = await repo.get_case(cid)
+    if case is None:
+        raise HTTPException(status_code=404, detail='Vorgang nicht gefunden.')
+
+    llm_repo = get_llm_config_repository()
+    config = await llm_repo.get_config('accounting_analyst')
+    svc = build_accounting_analyst_service(llm_repo, config)
+
+    doc_type: str | None = None
+    if isinstance(case.metadata.get('document_analysis'), dict):
+        doc_type = case.metadata['document_analysis'].get('document_type')
+
+    case_input = CaseAnalysisInput(
+        case_id=str(case.id),
+        case_type=case.case_type,
+        vendor_name=case.vendor_name,
+        total_amount=case.total_amount,
+        currency=case.currency,
+        due_date=case.due_date,
+        title=case.title,
+        document_type=doc_type,
+        metadata=case.metadata,
+    )
+    proposal = await svc.analyze(case_input)
+    await repo.update_metadata(cid, {'booking_proposal': proposal.model_dump(mode='json')})
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post('/vorgaenge/{case_id}/booking-proposal/confirm', response_class=HTMLResponse)
+async def vorgang_confirm_booking(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    tenant_id: str = Form(default=''),
+):
+    await _vorgang_set_proposal_status(case_id, 'CONFIRMED')
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+@router.post('/vorgaenge/{case_id}/booking-proposal/reject', response_class=HTMLResponse)
+async def vorgang_reject_booking(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    tenant_id: str = Form(default=''),
+):
+    await _vorgang_set_proposal_status(case_id, 'REJECTED')
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
+async def _vorgang_set_proposal_status(case_id: str, status: str) -> None:
+    repo = get_case_repository()
+    cid = uuid.UUID(case_id)
+    case = await repo.get_case(cid)
+    if case is None:
+        raise HTTPException(status_code=404, detail='Vorgang nicht gefunden.')
+    proposal = case.metadata.get('booking_proposal')
+    if not proposal:
+        raise HTTPException(status_code=404, detail='Kein Buchungsvorschlag vorhanden.')
+    proposal['status'] = status
+    await repo.update_metadata(cid, {'booking_proposal': proposal})
+
+
+# ── API-Keys overview ─────────────────────────────────────────────────────────
+
+def _mask(value: str | None) -> str | None:
+    """Return ****last4 for non-empty values, None otherwise."""
+    if not value:
+        return None
+    if len(value) <= 4:
+        return '****'
+    return f'****{value[-4:]}'
+
+
+@router.get('/api-keys', response_class=HTMLResponse)
+async def api_keys_page(
+    request: Request,
+    auth_user: AuthUser = Depends(require_admin),
+):
+    settings = get_settings()
+    repo = get_llm_config_repository()
+
+    # Collect active-agent API keys from DB
+    all_configs = await repo.get_all_configs()
+    active_agents_with_key = [
+        c for c in all_configs
+        if c.get('agent_status', 'active') == 'active' and c.get('api_key_encrypted')
+    ]
+    ionos_set_count = len(active_agents_with_key)
+    ionos_active_count = sum(
+        1 for c in all_configs if c.get('agent_status', 'active') == 'active'
+    )
+    ionos_masked = (
+        f'{ionos_set_count}/{ionos_active_count} Agenten'
+        if ionos_set_count > 0
+        else None
+    )
+
+    api_keys = [
+        {
+            'service': 'IONOS AI Hub',
+            'sub_label': 'Active agents',
+            'variable': 'DB: frya_agent_llm_config.api_key_encrypted',
+            'masked': ionos_masked,
+            'is_set': ionos_set_count > 0,
+            'source': 'db',
+            'edit_url': '/agent-config',
+            'tooltip': 'IONOS Cloud Console \u2192 AI Model Hub \u2192 API Keys',
+        },
+        {
+            'service': 'Brevo',
+            'sub_label': None,
+            'variable': 'FRYA_BREVO_API_KEY',
+            'masked': _mask(settings.brevo_api_key),
+            'is_set': bool(settings.brevo_api_key),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 'brevo.com \u2192 Settings \u2192 SMTP & API \u2192 API Keys',
+        },
+        {
+            'service': 'Telegram Bot',
+            'sub_label': None,
+            'variable': 'FRYA_TELEGRAM_BOT_TOKEN',
+            'masked': _mask(settings.telegram_bot_token),
+            'is_set': bool(settings.telegram_bot_token),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 't.me/BotFather \u2192 /mybots \u2192 API Token',
+        },
+        {
+            'service': 'Hetzner S3',
+            'sub_label': 'Access Key',
+            'variable': 'FRYA_S3_ACCESS_KEY',
+            'masked': _mask(os.environ.get('FRYA_S3_ACCESS_KEY')),
+            'is_set': bool(os.environ.get('FRYA_S3_ACCESS_KEY')),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 'Hetzner Console \u2192 Object Storage \u2192 S3 Credentials',
+        },
+        {
+            'service': 'Hetzner S3',
+            'sub_label': 'Secret Key',
+            'variable': 'FRYA_S3_SECRET_KEY',
+            'masked': _mask(os.environ.get('FRYA_S3_SECRET_KEY')),
+            'is_set': bool(os.environ.get('FRYA_S3_SECRET_KEY')),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 'Hetzner Console \u2192 Object Storage \u2192 S3 Credentials',
+        },
+        {
+            'service': 'Paperless',
+            'sub_label': None,
+            'variable': 'FRYA_PAPERLESS_TOKEN',
+            'masked': _mask(settings.paperless_token),
+            'is_set': bool(settings.paperless_token),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 'Paperless Admin \u2192 API Token',
+        },
+        {
+            'service': 'OpenAI (Fallback)',
+            'sub_label': None,
+            'variable': 'FRYA_OPENAI_API_KEY',
+            'masked': _mask(settings.openai_api_key),
+            'is_set': bool(settings.openai_api_key),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 'platform.openai.com \u2192 API Keys',
+        },
+        {
+            'service': 'n8n',
+            'sub_label': None,
+            'variable': 'FRYA_N8N_TOKEN',
+            'masked': _mask(settings.n8n_token),
+            'is_set': bool(settings.n8n_token),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 'n8n Settings \u2192 API \u2192 Create API Key',
+        },
+        {
+            'service': 'age Backup',
+            'sub_label': None,
+            'variable': 'FRYA_AGE_PUBLIC_KEY',
+            'masked': _mask(os.environ.get('FRYA_AGE_PUBLIC_KEY')),
+            'is_set': bool(os.environ.get('FRYA_AGE_PUBLIC_KEY')),
+            'source': 'env',
+            'edit_url': None,
+            'tooltip': 'Terminal: age-keygen \u2192 Public Key (age1...)',
+        },
+    ]
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'api_keys.html',
+        {**_ctx(request, auth_user=auth_user), 'title': 'API-Keys', 'api_keys': api_keys},
+    )
 
 
 
