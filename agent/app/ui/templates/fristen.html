@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="section-head">
+  <h1>Fristen-Dashboard <span class="en-hint">(Deadline Analyst)</span></h1>
+</div>
+
+{% if msg %}
+<div class="flash-msg">{{ msg }}</div>
+{% endif %}
+
+<!-- ── Zusammenfassung ───────────────────────────────────────────── -->
+<section>
+  <div class="summary-grid compact">
+    <article class="summary-card" style="border-left:4px solid #ef4444">
+      <p class="summary-label">Ueberfaellig</p>
+      <p class="summary-value" style="color:#dc2626;font-size:1.5rem">{{ report.overdue | length }}</p>
+      {% if report.total_overdue_amount %}
+      <p class="summary-label">{{ report.total_overdue_amount }} EUR</p>
+      {% endif %}
+    </article>
+    <article class="summary-card" style="border-left:4px solid #f97316">
+      <p class="summary-label">Heute faellig</p>
+      <p class="summary-value" style="color:#ea580c;font-size:1.5rem">{{ report.due_today | length }}</p>
+    </article>
+    <article class="summary-card" style="border-left:4px solid #eab308">
+      <p class="summary-label">Diese Woche</p>
+      <p class="summary-value" style="color:#ca8a04;font-size:1.5rem">{{ report.due_soon | length }}</p>
+    </article>
+    <article class="summary-card" style="border-left:4px solid #3b82f6">
+      <p class="summary-label">Skonto laeuft ab</p>
+      <p class="summary-value" style="color:#2563eb;font-size:1.5rem">{{ report.skonto_expiring | length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Geprueft</p>
+      <p class="summary-value">{{ report.checked_at[:19] if report.checked_at else '—' }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Vorgaenge geprueft</p>
+      <p class="summary-value">{{ report.total_cases_checked }}</p>
+    </article>
+  </div>
+  {% if report.summary_text %}
+  <p style="margin:.75rem 0;font-style:italic;color:#475569">{{ report.summary_text }}</p>
+  {% endif %}
+
+  <form method="post" action="/ui/fristen/check-now" style="margin-top:.5rem">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+    <input type="hidden" name="tenant_id" value="{{ tenant_id or '' }}" />
+    <button type="submit">Jetzt pruefen</button>
+  </form>
+</section>
+
+<!-- ── Ueberfaellig ─────────────────────────────────────────────── -->
+{% if report.overdue %}
+<section>
+  <div class="section-head"><h2 style="color:#dc2626">Ueberfaellig <span class="en-hint">({{ report.overdue | length }})</span></h2></div>
+  {{ _render_table(report.overdue, tenant_id) }}
+</section>
+{% endif %}
+
+<!-- ── Heute faellig ────────────────────────────────────────────── -->
+{% if report.due_today %}
+<section>
+  <div class="section-head"><h2 style="color:#ea580c">Heute faellig <span class="en-hint">({{ report.due_today | length }})</span></h2></div>
+  {{ _render_table(report.due_today, tenant_id) }}
+</section>
+{% endif %}
+
+<!-- ── Diese Woche ──────────────────────────────────────────────── -->
+{% if report.due_soon %}
+<section>
+  <div class="section-head"><h2 style="color:#ca8a04">Diese Woche faellig <span class="en-hint">({{ report.due_soon | length }})</span></h2></div>
+  {{ _render_table(report.due_soon, tenant_id) }}
+</section>
+{% endif %}
+
+<!-- ── Skonto laeuft ab ──────────────────────────────────────────── -->
+{% if report.skonto_expiring %}
+<section>
+  <div class="section-head"><h2 style="color:#2563eb">Skonto laeuft ab <span class="en-hint">({{ report.skonto_expiring | length }})</span></h2></div>
+  {{ _render_skonto_table(report.skonto_expiring, tenant_id) }}
+</section>
+{% endif %}
+
+{% if not report.overdue and not report.due_today and not report.due_soon and not report.skonto_expiring %}
+<section>
+  <p class="empty" style="font-size:1.1rem;padding:2rem 0">Alle Fristen im gruenen Bereich.</p>
+</section>
+{% endif %}
+
+{% macro _render_table(checks, tid) %}
+<table>
+  <thead>
+    <tr>
+      <th>Vorgang</th><th>Vendor</th><th>Betrag</th><th>Faellig</th><th>Tage</th><th>Prioritaet</th><th>Status</th><th>Aktion</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in checks %}
+  <tr>
+    <td>{{ c.case_number or c.case_id[:8] }}</td>
+    <td>{{ c.vendor_name or '—' }}</td>
+    <td>{% if c.amount %}{{ c.amount }} {{ c.currency }}{% else %}—{% endif %}</td>
+    <td>{{ c.due_date }}</td>
+    <td>
+      {% if c.days_until_due < 0 %}
+      <span class="hint-badge" style="background:#fecaca;color:#7f1d1d">{{ c.days_until_due }} Tage</span>
+      {% elif c.days_until_due == 0 %}
+      <span class="hint-badge" style="background:#fed7aa;color:#9a3412">Heute</span>
+      {% else %}
+      <span class="hint-badge" style="background:#fef9c3;color:#713f12">{{ c.days_until_due }} Tage</span>
+      {% endif %}
+    </td>
+    <td>
+      {% if c.priority == 'CRITICAL' %}<span class="hint-badge" style="background:#fecaca;color:#7f1d1d">CRITICAL</span>
+      {% elif c.priority == 'HIGH' %}<span class="hint-badge" style="background:#fed7aa;color:#9a3412">HIGH</span>
+      {% elif c.priority == 'MEDIUM' %}<span class="hint-badge" style="background:#fef9c3;color:#713f12">MEDIUM</span>
+      {% else %}<span class="hint-badge">LOW</span>{% endif %}
+    </td>
+    <td><code>{{ c.status }}</code></td>
+    <td><a class="inline-link" href="/ui/vorgaenge/{{ c.case_id }}{% if tid %}?tenant_id={{ tid }}{% endif %}">Details →</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% macro _render_skonto_table(checks, tid) %}
+<table>
+  <thead>
+    <tr>
+      <th>Vorgang</th><th>Vendor</th><th>Betrag</th><th>Skonto bis</th><th>Tage</th><th>Skonto-Rate</th><th>Ersparnis</th><th>Aktion</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for c in checks %}
+  <tr>
+    <td>{{ c.case_number or c.case_id[:8] }}</td>
+    <td>{{ c.vendor_name or '—' }}</td>
+    <td>{% if c.amount %}{{ c.amount }} {{ c.currency }}{% else %}—{% endif %}</td>
+    <td>{% if c.skonto_info %}{{ c.skonto_info.skonto_date }}{% else %}—{% endif %}</td>
+    <td>
+      {% if c.skonto_info %}
+      <span class="hint-badge" style="background:#dbeafe;color:#1e40af">{{ c.skonto_info.days_until_expiry }} Tage</span>
+      {% else %}—{% endif %}
+    </td>
+    <td>{% if c.skonto_info %}{{ c.skonto_info.skonto_rate }} %{% else %}—{% endif %}</td>
+    <td>{% if c.skonto_info and c.skonto_info.skonto_amount %}{{ c.skonto_info.skonto_amount }} EUR{% else %}—{% endif %}</td>
+    <td><a class="inline-link" href="/ui/vorgaenge/{{ c.case_id }}{% if tid %}?tenant_id={{ tid }}{% endif %}">Details →</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% endblock %}

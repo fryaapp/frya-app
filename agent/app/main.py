@@ -13,6 +13,12 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
+from app.api.agent_config import router as agent_config_router
+from app.api.cases import router as case_engine_router
+from app.api.deadlines import router as deadlines_router
+from app.api.email_intake_views import router as email_intake_router
+from app.api.user_views import router as user_router
+from app.api.tenant_views import router as tenant_router
 from app.api.approval_views import router as approval_router
 from app.api.audit_views import router as audit_router
 from app.api.case_views import router as case_router
@@ -34,12 +40,17 @@ from app.config import get_settings
 from app.dependencies import (
     get_approval_service,
     get_audit_service,
+    get_case_repository,
+    get_email_intake_repository,
+    get_llm_config_repository,
     get_open_items_service,
     get_policy_access_layer,
     get_problem_case_service,
     get_rule_change_audit_service,
     get_telegram_case_link_service,
     get_telegram_clarification_service,
+    get_user_repository,
+    get_tenant_repository,
 )
 from app.open_items.service import OpenItemsService
 from app.orchestration.graph import build_graph
@@ -68,6 +79,21 @@ async def lifespan(app: FastAPI):
     await approval_service.initialize()
     await telegram_case_link_service.initialize()
     await telegram_clarification_service.initialize()
+
+    email_intake_repo = get_email_intake_repository()
+    await email_intake_repo.initialize()
+
+    case_repo = get_case_repository()
+    await case_repo.initialize()
+
+    user_repo = get_user_repository()
+    await user_repo.initialize()
+
+    tenant_repo = get_tenant_repository()
+    await tenant_repo.initialize()
+
+    llm_config_repo = get_llm_config_repository()
+    await llm_config_repo.setup()
 
     app.state.graph = build_graph()
 
@@ -161,6 +187,12 @@ app.include_router(proposal_router)
 app.include_router(rules_router)
 app.include_router(approval_router)
 app.include_router(verfahrensdoku_router)
+app.include_router(agent_config_router)
+app.include_router(case_engine_router)
+app.include_router(deadlines_router)
+app.include_router(email_intake_router)
+app.include_router(user_router)
+app.include_router(tenant_router)
 app.include_router(ui_router)
 
 
@@ -202,6 +234,7 @@ async def run_agent_case(
     state = {
         'case_id': case_id,
         'source': payload.get('source', 'api'),
+        'tenant_id': payload.get('tenant_id') or None,
         'message': payload.get('message', payload.get('ocr_text', '')),
         'document_ref': payload.get('document_ref'),
         'paperless_metadata': payload.get('paperless_metadata') or {},

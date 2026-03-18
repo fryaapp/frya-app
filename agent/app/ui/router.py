@@ -2308,6 +2308,89 @@ async def _vorgang_set_proposal_status(case_id: str, status: str) -> None:
     await repo.update_metadata(cid, {'booking_proposal': proposal})
 
 
+# ── Fristen-Dashboard ─────────────────────────────────────────────────────────
+
+@router.get('/fristen', response_class=HTMLResponse)
+async def fristen_dashboard(
+    request: Request,
+    tenant_id: str | None = Query(default=None),
+    msg: str | None = Query(default=None),
+):
+    from app.deadline_analyst.service import build_deadline_analyst_service
+    settings = get_settings()
+    tid_str = tenant_id or settings.default_tenant_id or ''
+
+    empty_report = {
+        'tenant_id': tid_str,
+        'checked_at': '',
+        'total_cases_checked': 0,
+        'overdue': [],
+        'due_today': [],
+        'due_soon': [],
+        'skonto_expiring': [],
+        'summary_text': '',
+        'total_overdue_amount': None,
+        'analyst_version': 'deadline-analyst-v1',
+    }
+
+    if not tid_str:
+        return TEMPLATES.TemplateResponse(
+            request,
+            'fristen.html',
+            _ctx(request, title='Fristen', report=empty_report, tenant_id='', msg=msg or ''),
+        )
+
+    try:
+        tid = uuid.UUID(tid_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail='Ungueltige Tenant-ID.')
+
+    repo = get_case_repository()
+    llm_repo = get_llm_config_repository()
+    config = await llm_repo.get_config('deadline_analyst')
+    svc = build_deadline_analyst_service(repo, llm_repo, config)
+    report = await svc.check_all_deadlines(tid)
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'fristen.html',
+        _ctx(
+            request,
+            title='Fristen-Dashboard',
+            report=report.model_dump(mode='json'),
+            tenant_id=tid_str,
+            msg=msg or '',
+        ),
+    )
+
+
+@router.post('/fristen/check-now', response_class=HTMLResponse)
+async def fristen_check_now(
+    request: Request,
+    _csrf: None = Depends(require_csrf),
+    tenant_id: str = Form(default=''),
+):
+    from app.deadline_analyst.service import build_deadline_analyst_service
+    if not tenant_id:
+        return RedirectResponse(url='/ui/fristen', status_code=HTTP_303_SEE_OTHER)
+
+    try:
+        tid = uuid.UUID(tenant_id)
+    except ValueError:
+        return RedirectResponse(url='/ui/fristen', status_code=HTTP_303_SEE_OTHER)
+
+    repo = get_case_repository()
+    llm_repo = get_llm_config_repository()
+    config = await llm_repo.get_config('deadline_analyst')
+    svc = build_deadline_analyst_service(repo, llm_repo, config)
+    await svc.check_all_deadlines(tid)
+
+    return RedirectResponse(
+        url=f'/ui/fristen?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
 # ── API-Keys overview ─────────────────────────────────────────────────────────
 
 def _mask(value: str | None) -> str | None:

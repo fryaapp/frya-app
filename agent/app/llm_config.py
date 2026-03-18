@@ -67,8 +67,8 @@ AGENT_CATALOG: dict[str, dict] = {
         'provider': 'ionos',
         'target_model': 'mistralai/Mistral-Small-24B-Instruct',
         'base_url': IONOS_BASE_URL,
-        'agent_status': 'planned',
-        'note': 'IONOS DE — Mistral-Small-24B',
+        'agent_status': 'active',
+        'note': 'IONOS DE — Mistral-Small-24B (Fristueberwachung, Skonto-Warnung)',
     },
     'risk_consistency': {
         'label': 'Risk & Konsistenzprüfer',
