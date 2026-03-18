@@ -313,7 +313,7 @@ def test_planned_agent_cannot_be_saved(monkeypatch, tmp_path):
     page = client.get('/agent-config')
     csrf = _extract_csrf_token(page.text)
 
-    for planned_agent in ['risk_consistency', 'memory_curator']:
+    for planned_agent in ['memory_curator']:
         resp = client.post(
             f'/api/agent-config/{planned_agent}',
             json={'provider': 'ionos', 'model': 'mistralai/Mistral-Small-24B-Instruct'},
@@ -331,7 +331,7 @@ def test_planned_agent_cannot_be_health_checked(monkeypatch, tmp_path):
     csrf = _extract_csrf_token(page.text)
 
     resp = client.post(
-        '/api/agent-config/risk_consistency/check',
+        '/api/agent-config/memory_curator/check',
         headers={'X-Frya-Csrf-Token': csrf},
     )
     assert resp.status_code == 400
@@ -360,13 +360,13 @@ def test_all_8_agents_seeded_after_setup():
 
     by_id = {c['agent_id']: c for c in configs}
 
-    # Planned agents (deadline_analyst ist jetzt active — Paket 22 Deadline Analyst)
-    for planned in ('risk_consistency', 'memory_curator'):
+    # Planned agents (only memory_curator remains planned after Paket 22)
+    for planned in ('memory_curator',):
         assert by_id[planned]['agent_status'] == 'planned', f'{planned} sollte planned sein'
 
     # Active agents
     for active in ('orchestrator', 'communicator', 'document_analyst', 'document_analyst_semantic',
-                   'accounting_analyst', 'deadline_analyst'):
+                   'accounting_analyst', 'deadline_analyst', 'risk_consistency'):
         assert by_id[active]['agent_status'] == 'active', f'{active} sollte active sein'
 
     # Idempotent: second setup() call does not duplicate entries

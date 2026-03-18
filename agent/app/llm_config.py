@@ -71,12 +71,12 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'IONOS DE — Mistral-Small-24B (Fristueberwachung, Skonto-Warnung)',
     },
     'risk_consistency': {
-        'label': 'Risk & Konsistenzprüfer',
+        'label': 'Risk & Konsistenzpruefer',
         'provider': 'ionos',
         'target_model': 'openai/gpt-oss-120b',
         'base_url': IONOS_BASE_URL,
-        'agent_status': 'planned',
-        'note': 'IONOS DE — GPT-OSS 120B',
+        'agent_status': 'active',
+        'note': 'IONOS DE — GPT-OSS 120B (Risikoanalyse, Konsistenzpruefung)',
     },
     'memory_curator': {
         'label': 'Memory Curator',

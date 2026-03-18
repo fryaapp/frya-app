@@ -282,6 +282,76 @@
   </form>
 </section>
 
+<!-- ── Risikoprüfung ──────────────────────────────────────────────── -->
+<section>
+  <div class="section-head"><h2>Risikopruefung <span class="en-hint">(Risk Check)</span></h2></div>
+
+  {% set rr = case.metadata.risk_report if case.metadata else None %}
+  {% if rr %}
+    {% set risk = rr.overall_risk %}
+    {% if risk == 'HIGH' %}
+      {% set risk_bg = '#fecaca' %}{% set risk_fg = '#7f1d1d' %}
+    {% elif risk == 'MEDIUM' %}
+      {% set risk_bg = '#fed7aa' %}{% set risk_fg = '#7c2d12' %}
+    {% elif risk == 'LOW' %}
+      {% set risk_bg = '#fde68a' %}{% set risk_fg = '#78350f' %}
+    {% else %}
+      {% set risk_bg = '#bbf7d0' %}{% set risk_fg = '#14532d' %}
+    {% endif %}
+
+    <p style="margin:.5rem 0">
+      <span class="hint-badge" style="background:{{ risk_bg }};color:{{ risk_fg }}">
+        Gesamtrisiko: {{ risk }}
+      </span>
+      &nbsp;<span class="en-hint">{{ rr.analyst_version or '' }} — {{ (rr.checked_at or '')[:19] }}</span>
+    </p>
+    {% if rr.summary %}<p class="empty" style="font-style:italic">{{ rr.summary }}</p>{% endif %}
+
+    {% if rr.checks %}
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem;margin-top:.5rem">
+      <thead>
+        <tr style="border-bottom:1px solid #e5e7eb">
+          <th style="text-align:left;padding:.25rem .5rem">Pruefung</th>
+          <th style="text-align:left;padding:.25rem .5rem">Schwere</th>
+          <th style="text-align:left;padding:.25rem .5rem">Befund</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for chk in rr.checks %}
+        {% if chk.severity == 'HIGH' or chk.severity == 'CRITICAL' %}
+          {% set row_bg = '#fef2f2' %}{% set sev_bg = '#fecaca' %}{% set sev_fg = '#7f1d1d' %}
+        {% elif chk.severity == 'MEDIUM' %}
+          {% set row_bg = '#fffbeb' %}{% set sev_bg = '#fed7aa' %}{% set sev_fg = '#7c2d12' %}
+        {% elif chk.severity == 'LOW' %}
+          {% set row_bg = '#fefce8' %}{% set sev_bg = '#fde68a' %}{% set sev_fg = '#78350f' %}
+        {% else %}
+          {% set row_bg = '' %}{% set sev_bg = '#bbf7d0' %}{% set sev_fg = '#14532d' %}
+        {% endif %}
+        <tr style="border-bottom:1px solid #f3f4f6{% if row_bg %};background:{{ row_bg }}{% endif %}">
+          <td style="padding:.25rem .5rem"><code>{{ chk.check_type }}</code></td>
+          <td style="padding:.25rem .5rem">
+            <span class="hint-badge" style="background:{{ sev_bg }};color:{{ sev_fg }}">{{ chk.severity }}</span>
+          </td>
+          <td style="padding:.25rem .5rem">
+            {{ chk.finding }}
+            {% if chk.recommendation %}<br/><span class="en-hint">{{ chk.recommendation }}</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  {% else %}
+  <p class="empty">Noch kein Risikobericht vorhanden.</p>
+  {% endif %}
+
+  <form method="post" action="/ui/vorgaenge/{{ case.id }}/risk-check" style="margin-top:.75rem">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+    <input type="hidden" name="tenant_id" value="{{ tenant_id or '' }}" />
+    <button type="submit">{% if rr %}Erneut pruefen{% else %}Risikopruefung starten{% endif %}</button>
+  </form>
+</section>
+
 <!-- ── Timeline ─────────────────────────────────────────────────────── -->
 <section>
   <div class="section-head"><h2>Timeline</h2></div>

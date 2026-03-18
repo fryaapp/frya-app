@@ -2308,6 +2308,31 @@ async def _vorgang_set_proposal_status(case_id: str, status: str) -> None:
     await repo.update_metadata(cid, {'booking_proposal': proposal})
 
 
+@router.post('/vorgaenge/{case_id}/risk-check', response_class=HTMLResponse)
+async def vorgang_risk_check(
+    request: Request,
+    case_id: str,
+    _csrf: None = Depends(require_csrf),
+    tenant_id: str = Form(default=''),
+):
+    from app.risk_analyst.service import build_risk_analyst_service
+
+    repo = get_case_repository()
+    cid = uuid.UUID(case_id)
+    case = await repo.get_case(cid)
+    if case is None:
+        raise HTTPException(status_code=404, detail='Vorgang nicht gefunden.')
+
+    llm_repo = get_llm_config_repository()
+    config = await llm_repo.get_config('risk_consistency')
+    svc = build_risk_analyst_service(repo, llm_repo, config)
+    await svc.analyze_case(cid)
+    return RedirectResponse(
+        url=f'/ui/vorgaenge/{case_id}?tenant_id={tenant_id}',
+        status_code=HTTP_303_SEE_OTHER,
+    )
+
+
 # ── Fristen-Dashboard ─────────────────────────────────────────────────────────
 
 @router.get('/fristen', response_class=HTMLResponse)

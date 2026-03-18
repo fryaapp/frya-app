@@ -16,6 +16,7 @@ from starlette.status import HTTP_303_SEE_OTHER
 from app.api.agent_config import router as agent_config_router
 from app.api.cases import router as case_engine_router
 from app.api.deadlines import router as deadlines_router
+from app.api.risks import router as risks_router
 from app.api.email_intake_views import router as email_intake_router
 from app.api.user_views import router as user_router
 from app.api.tenant_views import router as tenant_router
@@ -190,6 +191,7 @@ app.include_router(verfahrensdoku_router)
 app.include_router(agent_config_router)
 app.include_router(case_engine_router)
 app.include_router(deadlines_router)
+app.include_router(risks_router)
 app.include_router(email_intake_router)
 app.include_router(user_router)
 app.include_router(tenant_router)
