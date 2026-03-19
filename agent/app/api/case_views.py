@@ -55,12 +55,16 @@ from app.dependencies import (
     get_telegram_case_link_service,
     get_telegram_clarification_service,
     get_telegram_document_analyst_followup_service,
+    get_telegram_document_analyst_merge_service,
+    get_telegram_document_analyst_ocr_recheck_service,
     get_telegram_document_analyst_review_service,
     get_telegram_document_analyst_start_service,
 )
 from app.open_items.service import OpenItemsService
 from app.problems.service import ProblemCaseService
 from app.telegram.document_analyst_followup_service import TelegramDocumentAnalystFollowupService
+from app.telegram.document_analyst_merge_service import TelegramDocumentAnalystMergeService
+from app.telegram.document_analyst_ocr_recheck_service import TelegramDocumentAnalystOcrRecheckService
 from app.telegram.document_analyst_review_service import TelegramDocumentAnalystReviewService
 from app.telegram.document_analyst_start_service import TelegramDocumentAnalystStartService
 from app.telegram.models import (
@@ -153,6 +157,18 @@ class TelegramDocumentAnalystFollowupInternalTakeoverBody(BaseModel):
 
 
 class TelegramDocumentAnalystFollowupInternalCompleteBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramDocumentAnalystOcrRecheckBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramDocumentAnalystMergeConfirmBody(BaseModel):
+    note: str | None = None
+
+
+class TelegramDocumentAnalystMergeRejectBody(BaseModel):
     note: str | None = None
 
 
@@ -389,6 +405,72 @@ async def case_document_analyst_followup_internal_complete(
             actor=current_user.username,
             note=body.note,
             source='inspect_case_view',
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-ocr-recheck', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_ocr_recheck(
+    case_id: str,
+    body: TelegramDocumentAnalystOcrRecheckBody,
+    request: Request,
+    document_analyst_ocr_recheck_service: TelegramDocumentAnalystOcrRecheckService = Depends(get_telegram_document_analyst_ocr_recheck_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    """OCR-Recheck: re-run document analyst with force_ocr=True.
+
+    Guard: only from REVIEW_STILL_OPEN with review_outcome=OUTPUT_INCOMPLETE.
+    Doppelstart-Sperre: 409 if already requested or running.
+    """
+    try:
+        result = await document_analyst_ocr_recheck_service.request_recheck(
+            case_id,
+            actor=current_user.username,
+            note=body.note,
+            graph=request.app.state.graph,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-merge-confirm', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_merge_confirm(
+    case_id: str,
+    body: TelegramDocumentAnalystMergeConfirmBody,
+    document_analyst_merge_service: TelegramDocumentAnalystMergeService = Depends(get_telegram_document_analyst_merge_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    """Confirm merge of this case with the suggested candidate case.
+
+    Guard: only from MERGE_CANDIDATE_FOUND. Requires operator confirmation — no auto-merge.
+    """
+    try:
+        result = await document_analyst_merge_service.confirm_merge(
+            case_id,
+            actor=current_user.username,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return result.model_dump(mode='json')
+
+
+@router.post('/{case_id:path}/document-analyst-merge-reject', dependencies=[Depends(require_csrf)])
+async def case_document_analyst_merge_reject(
+    case_id: str,
+    body: TelegramDocumentAnalystMergeRejectBody,
+    document_analyst_merge_service: TelegramDocumentAnalystMergeService = Depends(get_telegram_document_analyst_merge_service),
+    current_user: AuthUser = Depends(require_operator),
+) -> dict:
+    """Reject the suggested merge candidate; case remains standalone."""
+    try:
+        result = await document_analyst_merge_service.reject_merge(
+            case_id,
+            actor=current_user.username,
+            note=body.note,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -633,6 +715,49 @@ def _latest_document_analyst_followup(events):
             'DOCUMENT_ANALYST_FOLLOWUP_WITHDRAWN',
             'DOCUMENT_ANALYST_FOLLOWUP_INTERNAL_ONLY',
             'DOCUMENT_ANALYST_FOLLOWUP_COMPLETED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_ocr_recheck(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_OCR_RECHECK_REQUESTED',
+            'DOCUMENT_ANALYST_OCR_RECHECK_RUNNING',
+            'DOCUMENT_ANALYST_OCR_RECHECK_COMPLETED',
+            'DOCUMENT_ANALYST_OCR_RECHECK_FAILED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_deep_path(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_DEEP_PATH_READY',
+            'DOCUMENT_ANALYST_DEEP_PATH_TRIGGERED',
+            'DOCUMENT_ANALYST_DEEP_PATH_COMPLETED',
+        }:
+            continue
+        payload = _normalize_payload(getattr(event, 'llm_output', None))
+        if isinstance(payload, dict):
+            return {'action': event.action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
+    return None
+
+
+def _latest_document_analyst_merge_candidate(events):
+    for event in reversed(events):
+        if getattr(event, 'action', None) not in {
+            'DOCUMENT_ANALYST_MERGE_CANDIDATE_FOUND',
+            'DOCUMENT_ANALYST_MERGE_CONFIRMED',
+            'DOCUMENT_ANALYST_MERGE_REJECTED',
         }:
             continue
         payload = _normalize_payload(getattr(event, 'llm_output', None))
@@ -1485,6 +1610,9 @@ async def case_view_json(
         'document_analysis': _latest_document_analysis(chronology),
         'document_analyst_review': _latest_document_analyst_review(chronology),
         'document_analyst_followup': _latest_document_analyst_followup(chronology),
+        'document_analyst_ocr_recheck': _latest_document_analyst_ocr_recheck(chronology),
+        'document_analyst_deep_path': _latest_document_analyst_deep_path(chronology),
+        'document_analyst_merge_candidate': _latest_document_analyst_merge_candidate(chronology),
         'telegram_notification': _latest_telegram_notification(chronology),
         'accounting_manual_handoff': _latest_accounting_manual_handoff(chronology),
         'accounting_manual_handoff_resolution': _latest_accounting_manual_handoff_resolution(chronology),

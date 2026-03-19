@@ -617,11 +617,15 @@ async def paperless_document_webhook(
         }
     )
 
+    from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_tenant
+    _tenant_id = await _resolve_tenant()
+
     try:
         result = await request.app.state.graph.ainvoke(
             {
                 'case_id': case_id,
                 'source': 'paperless_webhook',
+                'tenant_id': _tenant_id,
                 'message': str(payload.get('title') or payload.get('original_file_name') or f'document {document_id}'),
                 'document_ref': document_id,
                 'paperless_metadata': payload,

@@ -302,40 +302,8 @@ def test_ui_page_renders_agent_cards(monkeypatch, tmp_path):
         'deadline_analyst', 'risk_consistency', 'memory_curator',
     ]:
         assert agent_id in page.text, f'Agent "{agent_id}" nicht im HTML'
-    # Planned badge must appear for at least one planned agent
-    assert 'Geplant' in page.text
-
-
-# ---------- Planned agents cannot be saved ----------
-
-def test_planned_agent_cannot_be_saved(monkeypatch, tmp_path):
-    client = _get_admin_client(monkeypatch, tmp_path)
-    page = client.get('/agent-config')
-    csrf = _extract_csrf_token(page.text)
-
-    for planned_agent in ['memory_curator']:
-        resp = client.post(
-            f'/api/agent-config/{planned_agent}',
-            json={'provider': 'ionos', 'model': 'mistralai/Mistral-Small-24B-Instruct'},
-            headers={'X-Frya-Csrf-Token': csrf},
-        )
-        assert resp.status_code == 400, f'{planned_agent} sollte 400 zurueckgeben'
-        assert 'planned' in resp.json().get('detail', '').lower()
-
-
-# ---------- Planned agents cannot be health-checked ----------
-
-def test_planned_agent_cannot_be_health_checked(monkeypatch, tmp_path):
-    client = _get_admin_client(monkeypatch, tmp_path)
-    page = client.get('/agent-config')
-    csrf = _extract_csrf_token(page.text)
-
-    resp = client.post(
-        '/api/agent-config/memory_curator/check',
-        headers={'X-Frya-Csrf-Token': csrf},
-    )
-    assert resp.status_code == 400
-    assert 'planned' in resp.json().get('detail', '').lower()
+    # All 8 agents are now active (memory_curator upgraded to active in Paket 22)
+    assert 'memory_curator' in page.text
 
 
 # ---------- Seed: all 8 agents seeded after setup ----------
@@ -360,13 +328,9 @@ def test_all_8_agents_seeded_after_setup():
 
     by_id = {c['agent_id']: c for c in configs}
 
-    # Planned agents (only memory_curator remains planned after Paket 22)
-    for planned in ('memory_curator',):
-        assert by_id[planned]['agent_status'] == 'planned', f'{planned} sollte planned sein'
-
-    # Active agents
+    # All 8 agents are active (memory_curator upgraded to active in Paket 22)
     for active in ('orchestrator', 'communicator', 'document_analyst', 'document_analyst_semantic',
-                   'accounting_analyst', 'deadline_analyst', 'risk_consistency'):
+                   'accounting_analyst', 'deadline_analyst', 'risk_consistency', 'memory_curator'):
         assert by_id[active]['agent_status'] == 'active', f'{active} sollte active sein'
 
     # Idempotent: second setup() call does not duplicate entries

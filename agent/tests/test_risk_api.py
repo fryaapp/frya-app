@@ -165,5 +165,4 @@ def test_build_uses_ionos_prefix():
     }
     svc = build_risk_analyst_service(MagicMock(), llm_repo, config)
     assert svc._model == 'openai/openai/gpt-oss-120b'
-    # Note: openai/ prefix already in model_str, ionos adds another openai/
-    # This is consistent with the accounting_analyst pattern
+    # IONOS always gets openai/ prefix — litellm strips outer openai/ → API receives openai/gpt-oss-120b

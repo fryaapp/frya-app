@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Technisch-Organisatorische Maßnahmen (TOMs)</h1>
+<p><a href="/ui/legal">&larr; Zurück zur Übersicht</a></p>
+<p class="notice">Gemäß Art. 32 DSGVO. Stand: [BITTE AUSFÜLLEN: Datum].</p>
+
+<h2>1. Zugangskontrolle</h2>
+<p>Maßnahmen, die verhindern, dass Unbefugte Zugang zu Datenverarbeitungsanlagen erhalten:</p>
+<ul>
+  <li><strong>Passwort-Hashing:</strong> PBKDF2-HMAC-SHA256 mit 390.000 Iterationen; keine Klartextspeicherung.</li>
+  <li><strong>CSRF-Schutz:</strong> Token-basierter Double-Submit-Cookie-Mechanismus auf allen zustandsändernden Requests.</li>
+  <li><strong>Rate-Limiting:</strong> Brute-Force-Schutz durch Anfragebegrenzung auf Login-Endpunkten.</li>
+  <li><strong>Account-Lockout:</strong> Temporäre Sperrung nach wiederholten Fehlversuchen.</li>
+  <li><strong>Session-Timeout:</strong> Automatischer Sitzungsablauf nach 8 Stunden Inaktivität.</li>
+  <li><strong>HTTPS-only:</strong> Alle Verbindungen über TLS 1.2+; HTTP wird auf HTTPS umgeleitet.</li>
+  <li><strong>Secure-Flag:</strong> Session-Cookie mit Secure, HttpOnly, SameSite=Lax.</li>
+</ul>
+
+<h2>2. Zugriffskontrolle</h2>
+<p>Maßnahmen, die sicherstellen, dass Berechtigte nur auf die für sie erforderlichen Daten zugreifen können:</p>
+<ul>
+  <li><strong>RBAC (Role-Based Access Control):</strong> Zwei Rollen — <em>operator</em> (Standardzugriff) und <em>admin</em> (erweiterte Verwaltungsfunktionen). Alle Zugriffe serverseitig geprüft.</li>
+  <li><strong>Tenant-Isolation:</strong> Mandantendaten sind auf Datenbankebene durch tenant_id voneinander getrennt. Cross-Tenant-Zugriffe werden systemseitig verhindert.</li>
+  <li><strong>Minimalprinzip:</strong> API-Endpunkte geben nur die für den jeweiligen Use-Case erforderlichen Daten zurück.</li>
+  <li><strong>Operator-Freigabe:</strong> KI-generierte Buchungsvorschläge und Aktionen erfordern explizite Freigabe durch einen autorisierten Operator (Vier-Augen-Prinzip für kritische Aktionen).</li>
+</ul>
+
+<h2>3. Verschlüsselung</h2>
+<ul>
+  <li><strong>Transport:</strong> TLS 1.2+ für alle externen Verbindungen (HTTPS, API-Aufrufe).</li>
+  <li><strong>Konfigurationsdaten:</strong> Sensitive Konfigurationswerte (API-Keys, Zugangsdaten) in der Datenbank mit Fernet-Verschlüsselung (AES-128-CBC) gespeichert.</li>
+  <li><strong>Backups:</strong> Backup-Archive verschlüsselt mit <em>age</em> (X25519-Schlüssel) vor Upload zu Hetzner Object Storage.</li>
+  <li><strong>Passwörter:</strong> PBKDF2-HMAC-SHA256 (kein reversibles Verfahren).</li>
+</ul>
+
+<h2>4. Verfügbarkeitskontrolle</h2>
+<ul>
+  <li><strong>Backups:</strong> Tägliche automatisierte Backups der PostgreSQL-Datenbank und Konfigurationsdaten auf Hetzner Object Storage (S3-kompatibel).</li>
+  <li><strong>Monitoring:</strong> Uptime Kuma für kontinuierliche Verfügbarkeitsüberwachung mit Alerting.</li>
+  <li><strong>Container-Isolation:</strong> Dienste laufen in separaten Docker-Containern; Fehler in einem Dienst beeinflussen andere nicht.</li>
+  <li><strong>Disaster-Recovery:</strong> Backup-Daten ermöglichen Wiederherstellung. RPO: [BITTE AUSFÜLLEN, z.B. 24h]. RTO: [BITTE AUSFÜLLEN, z.B. 4h].</li>
+</ul>
+
+<h2>5. Integrität</h2>
+<ul>
+  <li><strong>Audit-Log:</strong> Append-only, kryptografisch verkettetes Audit-Log (Hash-Chain). Nachträgliche Manipulation wird erkannt.</li>
+  <li><strong>Input-Sanitization:</strong> Alle Nutzereingaben und LLM-Ausgaben werden validiert und auf Sicherheitsrisiken geprüft.</li>
+  <li><strong>Output-Validation:</strong> LLM-generierte Outputs werden auf Halluzinationen und Richtlinientreue geprüft.</li>
+</ul>
+
+<h2>6. Trennungsgebot</h2>
+<ul>
+  <li>Daten verschiedener Mandanten werden durch tenant_id auf Datenbankebene getrennt.</li>
+  <li>Entwicklungs-, Test- und Produktivumgebungen sind voneinander getrennt.</li>
+</ul>
+
+<h2>7. Organisatorische Maßnahmen</h2>
+<ul>
+  <li>Regelmäßige Sicherheitsüberprüfungen und Code-Reviews.</li>
+  <li>Mitarbeiterschulung zum Thema Datenschutz: [BITTE AUSFÜLLEN: Häufigkeit].</li>
+  <li>Dokumentierte Incident-Response-Prozesse: [BITTE AUSFÜLLEN].</li>
+  <li>Meldung von Datenpannen binnen 72 Stunden an die Aufsichtsbehörde gem. Art. 33 DSGVO.</li>
+</ul>
+{% endblock %}

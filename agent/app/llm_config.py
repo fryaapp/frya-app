@@ -32,11 +32,11 @@ AGENT_CATALOG: dict[str, dict] = {
     },
     'communicator': {
         'label': 'Kommunikator',
-        'provider': 'bedrock',
-        'target_model': 'anthropic.claude-sonnet-4-6-v1',
-        'base_url': None,
+        'provider': 'ionos',
+        'target_model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8',
+        'base_url': IONOS_BASE_URL,
         'agent_status': 'active',
-        'note': 'Bedrock EU — claude-sonnet-4-6 (Fallback: openai/claude bis Bedrock steht)',
+        'note': 'IONOS DE — Llama-3.1-405B-Instruct-FP8 (aufgewertet von gpt-4o-mini)',
     },
     'document_analyst': {
         'label': 'Document Analyst (OCR)',
@@ -81,10 +81,10 @@ AGENT_CATALOG: dict[str, dict] = {
     'memory_curator': {
         'label': 'Memory Curator',
         'provider': 'ionos',
-        'target_model': 'openai/gpt-oss-120b',
+        'target_model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8',
         'base_url': IONOS_BASE_URL,
-        'agent_status': 'planned',
-        'note': 'IONOS DE — GPT-OSS 120B',
+        'agent_status': 'active',
+        'note': 'IONOS DE — Llama-3.1-405B-Instruct-FP8 (Langzeitgedächtnis-Kuration)',
     },
 }
 

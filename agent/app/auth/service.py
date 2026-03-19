@@ -56,6 +56,29 @@ def get_auth_service() -> AuthService:
     return AuthService.from_env()
 
 
+async def authenticate_db_then_env(
+    username: str,
+    password: str,
+    auth_service: 'AuthService',
+) -> 'AuthUser | None':
+    """
+    Try DB user first (supports invite-created users with no env entry).
+    Fall back to env-based AuthService for existing operator/admin accounts.
+    """
+    try:
+        from app.dependencies import get_user_repository
+        repo = get_user_repository()
+        db_user = await repo.find_by_username(username)
+        if db_user and db_user.is_active and db_user.password_hash:
+            if verify_password(password, db_user.password_hash):
+                return AuthUser(username=db_user.username, role=db_user.role)  # type: ignore[arg-type]
+            # Wrong password for known DB user — still fall through to env
+    except Exception:
+        pass
+    # Env-based fallback (existing FRYA_AUTH_USERS_JSON users)
+    return auth_service.authenticate(username, password)
+
+
 def parse_auth_users_json(raw: str) -> list[AuthUserRecord]:
     if not raw.strip():
         return []

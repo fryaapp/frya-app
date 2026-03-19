@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Allgemeine Geschäftsbedingungen (AGB)</h1>
+<p><a href="/ui/legal">&larr; Zurück zur Übersicht</a></p>
+<p class="notice">Template — keine Rechtsberatung. Vor Verwendung von einem Juristen prüfen lassen. Stand: [BITTE AUSFÜLLEN: Datum].</p>
+
+<h2>§ 1 Geltungsbereich</h2>
+<p>
+  Diese AGB gelten für alle Verträge zwischen [BITTE AUSFÜLLEN: Firmenname] (nachfolgend „Anbieter")
+  und dem Kunden über die Nutzung der FRYA-Plattform. Abweichende Bedingungen des Kunden gelten nur,
+  wenn der Anbieter diesen ausdrücklich schriftlich zugestimmt hat.
+</p>
+
+<h2>§ 2 Leistungsumfang</h2>
+<p>Der Anbieter stellt dem Kunden folgende Leistungen als Software-as-a-Service bereit:</p>
+<ul>
+  <li>KI-gestützte Verarbeitung und Klassifizierung von Geschäftsdokumenten</li>
+  <li>OCR-Analyse hochgeladener Dokumente</li>
+  <li>Automatisierte Buchungsvorschläge (ohne Gewähr — siehe § 4)</li>
+  <li>Fristüberwachung und Eskalationsmanagement</li>
+  <li>Kommunikationsunterstützung via Telegram-Schnittstelle</li>
+  <li>Speicherung und Verwaltung von Dokumenten und Buchhaltungsdaten</li>
+</ul>
+<p>
+  Nicht im Leistungsumfang enthalten: Steuerberatung, Rechtberatung, Wirtschaftsprüfung.
+  Die Plattform unterstützt kaufmännische Prozesse — ersetzt jedoch keine qualifizierten
+  Berater.
+</p>
+
+<h2>§ 3 Keine Steuerberatung</h2>
+<p>
+  <strong>FRYA erbringt keine Steuerberatungsleistungen.</strong>
+  Alle von der KI generierten Buchungsvorschläge, Klassifizierungen und Fristen sind
+  Hilfsmittel zur Unterstützung kaufmännischer Tätigkeiten. Sie stellen keine steuerliche
+  oder rechtliche Beratung dar und ersetzen nicht die Prüfung durch einen Steuerberater
+  oder Rechtsanwalt. Der Anbieter übernimmt keine Haftung für Buchungsfehler, die auf
+  Basis von KI-Vorschlägen getroffen wurden (siehe § 6).
+</p>
+
+<h2>§ 4 Keine Gewähr für Buchungsvorschläge</h2>
+<p>
+  KI-generierte Buchungsvorschläge dienen als Entscheidungshilfe. Sie erfordern stets
+  die Prüfung und ausdrückliche Freigabe durch einen autorisierten Operator.
+  Der Anbieter übernimmt keine Gewähr für die Richtigkeit, Vollständigkeit oder
+  steuerrechtliche Konformität von Buchungsvorschlägen.
+</p>
+
+<h2>§ 5 Datenlöschung nach Kündigung</h2>
+<p>
+  Nach Kündigung des Vertrags oder auf ausdrücklichen Wunsch des Kunden werden alle
+  personenbezogenen und betrieblichen Daten des Kunden wie folgt behandelt:
+</p>
+<ol>
+  <li><strong>Soft-Delete:</strong> Sofortiger Entzug des Systemzugangs; Daten werden intern als
+    „zur Löschung vorgemerkt" markiert.</li>
+  <li><strong>Datenexport:</strong> Auf Anfrage wird dem Kunden innerhalb von 7 Werktagen nach
+    Kündigung ein vollständiger Datenexport (ZIP) bereitgestellt.</li>
+  <li><strong>Hard-Delete:</strong> 30 Tage nach dem Soft-Delete werden alle Daten unwiderruflich
+    gelöscht. Gesetzliche Aufbewahrungspflichten (GoBD: 10 Jahre für Buchungsbelege) bleiben
+    vorbehalten.</li>
+</ol>
+
+<h2>§ 6 Haftungsbeschränkung</h2>
+<p>
+  Der Anbieter haftet unbeschränkt für Schäden aus der Verletzung von Leben, Körper oder
+  Gesundheit sowie für Schäden, die auf Vorsatz oder grober Fahrlässigkeit beruhen.
+  Im Übrigen ist die Haftung des Anbieters auf den vertraglich vereinbarten Betrag begrenzt,
+  sofern nicht zwingendes Gesetzesrecht etwas anderes vorschreibt.
+  [BITTE AUSFÜLLEN: Konkrete Haftungsbeschränkung, z.B. auf Jahresvertragswert]
+</p>
+
+<h2>§ 7 Verfügbarkeit</h2>
+<p>
+  Der Anbieter bemüht sich um eine Verfügbarkeit von [BITTE AUSFÜLLEN: z.B. 99 %] im
+  Jahresdurchschnitt. Ausfälle durch höhere Gewalt, Wartungsarbeiten oder Umstände außerhalb
+  der Kontrolle des Anbieters begründen keine Haftung.
+</p>
+
+<h2>§ 8 Pflichten des Kunden</h2>
+<ul>
+  <li>Zugangsdaten vertraulich behandeln und nicht an Dritte weitergeben.</li>
+  <li>Keine rechtswidrigen Inhalte in das System einbringen.</li>
+  <li>Änderungen von Kontaktdaten unverzüglich mitteilen.</li>
+  <li>KI-Vorschläge vor Buchung eigenverantwortlich prüfen.</li>
+</ul>
+
+<h2>§ 9 Anwendbares Recht und Gerichtsstand</h2>
+<p>
+  Es gilt ausschließlich das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts.
+  Gerichtsstand ist [BITTE AUSFÜLLEN: Ort].
+</p>
+
+<h2>§ 10 Salvatorische Klausel</h2>
+<p>
+  Sollten einzelne Bestimmungen dieser AGB unwirksam sein, bleibt die Wirksamkeit der übrigen
+  Bestimmungen unberührt.
+</p>
+{% endblock %}

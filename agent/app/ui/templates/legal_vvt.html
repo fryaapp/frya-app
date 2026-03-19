@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Verarbeitungsverzeichnis (VVT)</h1>
+<p><a href="/ui/legal">&larr; Zurück zur Übersicht</a></p>
+<p class="notice">Gemäß Art. 30 DSGVO. Stand: [BITTE AUSFÜLLEN: Datum]. Verantwortlicher: [BITTE AUSFÜLLEN].</p>
+
+<table class="vvt-table">
+  <thead>
+    <tr>
+      <th>Verarbeitungstätigkeit</th>
+      <th>Zweck</th>
+      <th>Rechtsgrundlage</th>
+      <th>Betroffene Personen</th>
+      <th>Datenkategorien</th>
+      <th>Empfänger / Auftragsverarbeiter</th>
+      <th>Löschfrist</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Dokumenten-Ingestion</strong></td>
+      <td>Aufnahme, Speicherung und Klassifizierung eingehender Geschäftsdokumente (Rechnungen, Lieferscheine, Verträge)</td>
+      <td>Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung); Art. 6 Abs. 1 lit. c DSGVO (gesetzliche Pflicht – GoBD)</td>
+      <td>Geschäftspartner (Lieferanten, Kunden), Mitarbeiter</td>
+      <td>Dateiname, Dokumententyp, Inhaltstext, Metadaten, Belegdatum, Betrag, Steuerdaten</td>
+      <td>IONOS SE (Hosting), Hetzner GmbH (Backup)</td>
+      <td>10 Jahre (GoBD); danach unwiderrufliche Löschung. 30 Tage nach Mandantenkündigung (sofern keine GoBD-Pflicht).</td>
+    </tr>
+    <tr>
+      <td><strong>OCR-Verarbeitung</strong></td>
+      <td>Automatische Texterkennung aus gescannten oder bildbasierten Dokumenten</td>
+      <td>Art. 6 Abs. 1 lit. b DSGVO</td>
+      <td>Personen, deren Daten in Dokumenten enthalten sind</td>
+      <td>Volltext des Dokuments, Erkennungssicherheit, Verarbeitungsstatus</td>
+      <td>IONOS SE (LLM-Verarbeitung, lokal in DE)</td>
+      <td>Wie zugehöriges Dokument (10 Jahre / 30 Tage nach Kündigung)</td>
+    </tr>
+    <tr>
+      <td><strong>Buchungsverarbeitung</strong></td>
+      <td>Verwaltung von Buchungsdaten, Konten, offenen Posten und Zahlungsabgleich</td>
+      <td>Art. 6 Abs. 1 lit. b DSGVO; Art. 6 Abs. 1 lit. c DSGVO (§ 238 HGB, § 147 AO)</td>
+      <td>Kunden, Lieferanten, Mitarbeiter</td>
+      <td>Kontonummer, IBAN, Betrag, Buchungstext, Steuerkennzeichen, Belegnummer, Fälligkeitsdatum</td>
+      <td>IONOS SE (Hosting), Hetzner GmbH (Backup)</td>
+      <td>10 Jahre (§ 147 AO / § 257 HGB)</td>
+    </tr>
+    <tr>
+      <td><strong>Fristüberwachung &amp; Mahnwesen</strong></td>
+      <td>Automatische Überwachung von Zahlungsfristen, Skonto-Fristen und Eskalation offener Posten</td>
+      <td>Art. 6 Abs. 1 lit. b DSGVO; Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse: Liquiditätssicherung)</td>
+      <td>Schuldner (Kunden des Mandanten)</td>
+      <td>Fälligkeitsdatum, Betrag, Mahnstufe, Eskalationsstatus</td>
+      <td>IONOS SE (Hosting), n8n (Workflow-Automation, lokal)</td>
+      <td>Wie Buchungsdaten (10 Jahre)</td>
+    </tr>
+    <tr>
+      <td><strong>Kommunikation (Telegram)</strong></td>
+      <td>Operative Kommunikation zwischen dem System und autorisierten Operatoren über Telegram-Schnittstelle</td>
+      <td>Art. 6 Abs. 1 lit. b DSGVO</td>
+      <td>Systemoperatoren (Mitarbeiter des Mandanten)</td>
+      <td>Telegram-Chat-ID, Nachrichtentext, Zeitstempel, Antwortdaten</td>
+      <td>Telegram Messenger Inc. (USA; Standardvertragsklauseln), IONOS SE (Hosting)</td>
+      <td>30 Tage nach Mandantenkündigung; Chat-Protokolle werden nicht länger als [BITTE AUSFÜLLEN] aufbewahrt</td>
+    </tr>
+    <tr>
+      <td><strong>Backup</strong></td>
+      <td>Datensicherung zur Gewährleistung der Verfügbarkeit und Wiederherstellbarkeit</td>
+      <td>Art. 6 Abs. 1 lit. c DSGVO (Art. 32 DSGVO); Art. 6 Abs. 1 lit. f DSGVO</td>
+      <td>Alle betroffenen Personen, deren Daten im System gespeichert sind</td>
+      <td>Alle im System gespeicherten Daten (verschlüsselt)</td>
+      <td>Hetzner Online GmbH (Object Storage, DE)</td>
+      <td>Backup-Aufbewahrung: [BITTE AUSFÜLLEN: z.B. 90 Tage]; danach automatische Überschreibung</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Hinweis</h2>
+<p>
+  Dieses Verarbeitungsverzeichnis ist gemäß Art. 30 DSGVO zu führen und regelmäßig zu aktualisieren.
+  Änderungen an Verarbeitungstätigkeiten, Auftragsverarbeitern oder Rechtsgrundlagen sind unverzüglich
+  einzupflegen. Verantwortlich für die Pflege: [BITTE AUSFÜLLEN: Datenschutzbeauftragter / Geschäftsführung].
+</p>
+{% endblock %}

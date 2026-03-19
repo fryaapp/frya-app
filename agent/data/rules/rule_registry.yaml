@@ -20,7 +20,22 @@ entries:
     required: true
   - file: policies/document_analyst_policy.md
     role: document_analyst_policy
-    required: false
+    required: true
+  - file: policies/risk_consistency_policy.md
+    role: risk_consistency_policy
+    required: true
+  - file: policies/memory_curator_policy.md
+    role: memory_curator_policy
+    required: true
+  - file: policies/deadline_analyst_policy.md
+    role: deadline_analyst_policy
+    required: true
+  - file: policies/communicator_policy.md
+    role: communicator_policy
+    required: true
+  - file: document_workflows.yaml
+    role: document_workflows
+    required: true
   - file: orchestrator_rules.yaml
     role: legacy_orchestrator_schema
     required: false

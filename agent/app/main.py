@@ -15,11 +15,15 @@ from starlette.status import HTTP_303_SEE_OTHER
 
 from app.api.agent_config import router as agent_config_router
 from app.api.cases import router as case_engine_router
+from app.api.communicator_send import router as communicator_send_router
 from app.api.deadlines import router as deadlines_router
+from app.api.n8n_endpoints import router as n8n_router
 from app.api.risks import router as risks_router
+from app.api.memory import router as memory_router
 from app.api.email_intake_views import router as email_intake_router
 from app.api.user_views import router as user_router
 from app.api.tenant_views import router as tenant_router
+from app.api.gdpr_views import router as gdpr_router
 from app.api.approval_views import router as approval_router
 from app.api.audit_views import router as audit_router
 from app.api.case_views import router as case_router
@@ -29,6 +33,7 @@ from app.api.problem_views import router as problem_router
 from app.api.proposal_views import router as proposal_router
 from app.api.rules_views import router as rules_router
 from app.api.verfahrensdoku_views import router as verfahrensdoku_router
+from app.api.e_invoice_views import router as e_invoice_router
 from app.api.webhooks import router as webhooks_router
 from app.api.ws import router as ws_router
 from app.approvals.service import ApprovalService
@@ -188,13 +193,18 @@ app.include_router(proposal_router)
 app.include_router(rules_router)
 app.include_router(approval_router)
 app.include_router(verfahrensdoku_router)
+app.include_router(e_invoice_router)
 app.include_router(agent_config_router)
 app.include_router(case_engine_router)
 app.include_router(deadlines_router)
+app.include_router(n8n_router)
+app.include_router(communicator_send_router)
 app.include_router(risks_router)
+app.include_router(memory_router)
 app.include_router(email_intake_router)
 app.include_router(user_router)
 app.include_router(tenant_router)
+app.include_router(gdpr_router)
 app.include_router(ui_router)
 
 

@@ -1,0 +1,273 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Agent-Konfiguration <span class="en-hint">(LLM Config)</span></h1>
+<p class="page-lead">Provider, Modell und API-Key pro Agent konfigurieren und live pruefen.</p>
+
+<div class="agent-config-grid">
+{% for agent in agents %}
+<article class="agent-card{% if agent.agent_status == 'planned' %} agent-card--planned{% endif %}" data-agent-id="{{ agent.agent_id }}">
+  <div class="card-header">
+    <h2>{{ agent.label }}</h2>
+    <span class="agent-id-hint">{{ agent.agent_id }}</span>
+  </div>
+
+  <div class="status-row">
+    {% if agent.agent_status == 'planned' %}
+    <span class="state-badge state-planned">Geplant — noch nicht implementiert</span>
+    {% elif agent.last_health_status and agent.last_health_status.startswith('ok') %}
+    <span class="state-badge state-ok">Aktiv — {{ agent.model }}</span>
+    {% elif agent.last_health_status and agent.last_health_status.startswith('error') %}
+    <span class="state-badge state-error">Fehler</span>
+    {% else %}
+    <span class="state-badge">Ungeprueft</span>
+    {% endif %}
+    {% if agent.agent_status != 'planned' %}
+    <span class="health-detail">{{ agent.last_health_status or '' }}</span>
+    {% endif %}
+  </div>
+
+  {% if agent.agent_status == 'planned' %}
+  <div class="planned-info">
+    <p class="planned-model">
+      <strong>Ziel-Modell:</strong> {{ agent.target_model }}
+    </p>
+    {% if agent.note %}
+    <p class="planned-note">{{ agent.note }}</p>
+    {% endif %}
+  </div>
+  {% else %}
+
+  <label>Provider
+    <select class="cfg-provider" onchange="onProviderChange(this)">
+      <option value="anthropic" {% if agent.provider == 'anthropic' %}selected{% endif %}>anthropic</option>
+      <option value="openai" {% if agent.provider == 'openai' %}selected{% endif %}>openai</option>
+      <option value="ionos" {% if agent.provider == 'ionos' %}selected{% endif %}>IONOS AI Hub</option>
+      <option value="bedrock" {% if agent.provider == 'bedrock' %}selected{% endif %}>AWS Bedrock</option>
+      <option value="ollama" {% if agent.provider == 'ollama' %}selected{% endif %}>ollama</option>
+      <option value="custom" {% if agent.provider == 'custom' %}selected{% endif %}>custom</option>
+    </select>
+  </label>
+
+  <label>Modell
+    <input type="text" class="cfg-model" value="{{ agent.model }}"
+           placeholder="z.B. gpt-4o-mini"
+           list="ionos-models-{{ agent.agent_id }}" />
+    <datalist id="ionos-models-{{ agent.agent_id }}">
+      <option value="meta-llama/Meta-Llama-3.1-405B-Instruct-FP8">
+      <option value="meta-llama/Llama-3.3-70B-Instruct">
+      <option value="meta-llama/Meta-Llama-3.1-8B-Instruct">
+      <option value="mistralai/Mistral-Small-24B-Instruct">
+      <option value="mistralai/Mistral-Nemo-Instruct-2407">
+      <option value="openai/gpt-oss-120b">
+      <option value="lightonai/LightOnOCR-2-1B">
+      <option value="openGPT-X/Teuken-7B-instruct-commercial">
+    </datalist>
+  </label>
+
+  <label>API-Key
+    <input type="password" class="cfg-api-key" value="" placeholder="{% if agent.api_key_set %}(gesetzt){% else %}(leer){% endif %}" />
+  </label>
+
+  <label>Base-URL <span class="en-hint">(optional)</span>
+    <input type="text" class="cfg-base-url" value="{{ agent.base_url or '' }}" placeholder="https://..." />
+  </label>
+
+  <div class="card-actions">
+    <button class="btn btn-save" onclick="saveConfig('{{ agent.agent_id }}')">Speichern</button>
+    <button class="btn btn-check" onclick="checkHealth('{{ agent.agent_id }}')">Jetzt pruefen</button>
+  </div>
+
+  {% if agent.from_env %}
+  <p class="env-hint">Kein DB-Eintrag — Werte aus ENV-Fallback.</p>
+  {% endif %}
+  {% if agent.note %}
+  <p class="model-note">{{ agent.note }}</p>
+  {% endif %}
+  {% endif %}
+</article>
+{% endfor %}
+</div>
+
+<style>
+.agent-config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+.agent-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1.2rem;
+  background: #fafafa;
+}
+.agent-card--planned {
+  background: #f8f8f8;
+  border-color: #e0e0e0;
+  opacity: 0.75;
+}
+.card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.agent-card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.agent-id-hint {
+  font-size: 0.75rem;
+  color: #888;
+  font-family: monospace;
+}
+.agent-card label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.agent-card input,
+.agent-card select {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  margin-top: 0.15rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  box-sizing: border-box;
+}
+.status-row {
+  margin-bottom: 0.8rem;
+}
+.health-detail {
+  display: block;
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 0.2rem;
+  word-break: break-all;
+}
+.card-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+.btn {
+  padding: 0.4rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.btn-save { background: #2563eb; color: #fff; }
+.btn-save:hover { background: #1d4ed8; }
+.btn-check { background: #059669; color: #fff; }
+.btn-check:hover { background: #047857; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.state-badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 4px; font-size: 0.8rem; background: #e5e7eb; }
+.state-ok { background: #d1fae5; color: #065f46; }
+.state-error { background: #fee2e2; color: #991b1b; }
+.state-planned { background: #f3f4f6; color: #6b7280; border: 1px dashed #9ca3af; }
+.env-hint { font-size: 0.75rem; color: #b45309; margin-top: 0.5rem; }
+.model-note { font-size: 0.72rem; color: #6b7280; margin-top: 0.4rem; font-style: italic; }
+.planned-info { margin-top: 0.5rem; }
+.planned-model { font-size: 0.85rem; margin: 0.3rem 0; }
+.planned-model code { font-family: monospace; background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
+.planned-note { font-size: 0.75rem; color: #6b7280; margin: 0.3rem 0; font-style: italic; }
+</style>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const HDR = {'Content-Type': 'application/json', 'X-Frya-Csrf-Token': CSRF};
+const IONOS_BASE_URL = 'https://openai.inference.de-txl.ionos.com/v1';
+
+function getCard(agentId) {
+  return document.querySelector('[data-agent-id="' + agentId + '"]');
+}
+
+function onProviderChange(selectEl) {
+  const card = selectEl.closest('.agent-card');
+  const baseUrlInput = card.querySelector('.cfg-base-url');
+  const modelInput = card.querySelector('.cfg-model');
+  if (selectEl.value === 'ionos') {
+    if (!baseUrlInput.value) {
+      baseUrlInput.value = IONOS_BASE_URL;
+    }
+    modelInput.placeholder = 'z.B. meta-llama/Llama-3.3-70B-Instruct';
+  } else if (baseUrlInput.value === IONOS_BASE_URL) {
+    baseUrlInput.value = '';
+    modelInput.placeholder = 'z.B. gpt-4o-mini';
+  }
+}
+
+async function saveConfig(agentId) {
+  const card = getCard(agentId);
+  const btn = card.querySelector('.btn-save');
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    const body = {
+      provider: card.querySelector('.cfg-provider').value,
+      model: card.querySelector('.cfg-model').value,
+      api_key: card.querySelector('.cfg-api-key').value,
+      base_url: card.querySelector('.cfg-base-url').value,
+    };
+    const resp = await fetch('/api/agent-config/' + agentId, {
+      method: 'POST', headers: HDR, body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      alert('Fehler: ' + (data.detail || resp.status));
+      return;
+    }
+    btn.textContent = 'Gespeichert!';
+    if (data.api_key_set) {
+      card.querySelector('.cfg-api-key').placeholder = '(gesetzt)';
+      card.querySelector('.cfg-api-key').value = '';
+    }
+  } catch (e) {
+    alert('Netzwerkfehler: ' + e);
+  } finally {
+    setTimeout(function() { btn.disabled = false; btn.textContent = 'Speichern'; }, 1500);
+  }
+}
+
+async function checkHealth(agentId) {
+  const card = getCard(agentId);
+  const btn = card.querySelector('.btn-check');
+  const badge = card.querySelector('.state-badge');
+  const detail = card.querySelector('.health-detail');
+  btn.disabled = true;
+  btn.textContent = 'Pruefe...';
+  badge.className = 'state-badge';
+  badge.textContent = 'Pruefe...';
+  try {
+    const resp = await fetch('/api/agent-config/' + agentId + '/check', {
+      method: 'POST', headers: HDR,
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      badge.className = 'state-badge state-error';
+      badge.textContent = 'Fehler';
+      detail.textContent = data.detail || resp.status;
+      return;
+    }
+    if (data.status.startsWith('ok')) {
+      badge.className = 'state-badge state-ok';
+      badge.textContent = 'Aktiv — ' + card.querySelector('.cfg-model').value;
+    } else {
+      badge.className = 'state-badge state-error';
+      badge.textContent = 'Fehler';
+    }
+    detail.textContent = data.status;
+  } catch (e) {
+    badge.className = 'state-badge state-error';
+    badge.textContent = 'Netzwerkfehler';
+    detail.textContent = String(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Jetzt pruefen';
+  }
+}
+</script>
+{% endblock %}

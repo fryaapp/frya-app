@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Services</h1>
+<p class="page-lead">Alle laufenden Open-Source-Services auf dem FRYA-Server. Status wird beim Laden der Seite geprueft.</p>
+
+<section>
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Services gesamt</p>
+      <p class="summary-value">{{ services | length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Online</p>
+      <p class="summary-value ok">{{ services | selectattr('status', 'equalto', 'online') | list | length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Offline / Unbekannt</p>
+      <p class="summary-value {% if services | selectattr('status', 'ne', 'online') | list | length > 0 %}warn{% else %}ok{% endif %}">
+        {{ services | selectattr('status', 'ne', 'online') | list | length }}
+      </p>
+    </article>
+  </div>
+</section>
+
+<section>
+  <h2>Web-Services</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Beschreibung</th>
+        <th>URL</th>
+        <th>Status</th>
+        <th>Zugangsdaten</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for svc in services if svc.kind == 'web' %}
+      <tr>
+        <td><strong>{{ svc.name }}</strong></td>
+        <td>{{ svc.description }}</td>
+        <td>
+          {% if svc.url %}
+          <a href="{{ svc.url }}" target="_blank" rel="noopener">{{ svc.url }}</a>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if svc.status == 'online' %}
+          <span class="state-badge state-ok">ONLINE</span>
+          {% elif svc.status == 'offline' %}
+          <span class="state-badge state-error">OFFLINE</span>
+          {% else %}
+          <span class="state-badge state-warn">UNBEKANNT</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if svc.credentials %}
+          <ul class="cred-list">
+            {% for k, v in svc.credentials.items() %}
+            <li><span class="cred-key">{{ k }}:</span> <span class="cred-val">{{ v }}</span></li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Datenbanken &amp; Interne Services</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Beschreibung</th>
+        <th>Host / Port</th>
+        <th>Status</th>
+        <th>Hinweis</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for svc in services if svc.kind == 'db' or svc.kind == 'internal' %}
+      <tr>
+        <td><strong>{{ svc.name }}</strong></td>
+        <td>{{ svc.description }}</td>
+        <td>
+          {% if svc.host %}
+          <code>{{ svc.host }}{% if svc.port %}:{{ svc.port }}{% endif %}</code>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if svc.status == 'online' %}
+          <span class="state-badge state-ok">ONLINE</span>
+          {% elif svc.status == 'offline' %}
+          <span class="state-badge state-error">OFFLINE</span>
+          {% elif svc.status == 'configured' %}
+          <span class="state-badge state-ok">KONFIGURIERT</span>
+          {% else %}
+          <span class="state-badge state-warn">UNBEKANNT</span>
+          {% endif %}
+        </td>
+        <td>{{ svc.note or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <p class="empty-sub">Status wird bei jedem Seitenaufruf live geprueft (Timeout: 3s). Interne Services ohne Web-UI zeigen Container-Konfigurationsstatus.</p>
+</section>
+
+<style>
+.cred-list { list-style: none; margin: 0; padding: 0; }
+.cred-list li { margin-bottom: 2px; font-size: 0.85em; }
+.cred-key { font-weight: 600; color: var(--text-muted, #666); }
+.cred-val { font-family: monospace; }
+.muted { color: var(--text-muted, #999); }
+.state-error { background: #fee; color: #c00; border: 1px solid #fcc; }
+</style>
+{% endblock %}

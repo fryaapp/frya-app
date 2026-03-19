@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from litellm import acompletion
+
+_LLM_TIMEOUT = float(os.environ.get('FRYA_LLM_TIMEOUT', '120'))
 
 from app.accounting_analyst.schemas import (
     BookingProposal,
@@ -25,24 +28,43 @@ _SYSTEM_PROMPT = """\
 Du bist ein deutschsprachiger Buchhalter mit Expertise im SKR03-Kontenrahmen.
 Analysiere den Vorgang und erstelle einen Buchungsvorschlag.
 
-Antworte NUR mit validem JSON, ohne Erklaerungen oder Markdown-Bloecke.
-Fehlende Werte als null angeben.
+═══════════════════════════════════════
+REGELN
+═══════════════════════════════════════
 
-JSON-Format (exakt):
+1. Antworte AUSSCHLIESSLICH mit validem JSON. Kein Freitext. Kein Markdown.
+2. Fehlende Werte als null. NIEMALS raten.
+3. Steuersatz NUR aus dem Beleg ableiten. "steuerfrei" → tax_rate=0.0. Kein Steuersatz erkennbar → null + confidence senken.
+4. Brutto = Netto + Steuer. Rechnung geht nicht auf → alle Werte aus Beleg übernehmen, Widerspruch im reasoning benennen. NICHT selbst korrigieren.
+5. Confidence NIE über 0.90. LLM-Kontierung hat inhärente Unsicherheit.
+   Wiederkehrend + bekannter Kreditor → 0.80-0.90. Erstmalig aber klar → 0.65-0.79.
+   Mehrdeutig → 0.40-0.64. Unsicher → 0.0-0.39.
+6. Früheren Buchungsvorschlag für denselben Beleg im reasoning referenzieren.
+
+═══════════════════════════════════════
+SKR03-KONTEN (häufig)
+═══════════════════════════════════════
+
+Aktiva/Passiva: 1000 Kasse | 1200 Bank | 1400 Forderungen LuL | 1571 VSt 7% | 1576 VSt 19% | 1600 Verbindlichkeiten LuL
+Aufwand: 3300 Wareneingang 19% | 3400 Wareneingang 7% | 3801 Eingangsleistungen (nicht steuerbar) | 3806 Eingangsleistungen EU | 4200 Raumkosten | 4300 Versicherungen | 4910 Porto | 4920 Telefon | 4940 Kfz | 4980 Buchführung
+Erlöse: 7000 Umsatzerlöse 19% | 7010 Umsatzerlöse 7%
+
+═══════════════════════════════════════
+OUTPUT
+═══════════════════════════════════════
+
 {
   "skr03_soll": "Kontonummer Soll (z.B. 3300)",
   "skr03_soll_name": "Kontobezeichnung Soll",
   "skr03_haben": "Kontonummer Haben (z.B. 1600)",
   "skr03_haben_name": "Kontobezeichnung Haben",
-  "tax_rate": Steuersatz als Zahl (19.0 oder 7.0 oder null),
-  "tax_amount": Steuerbetrag als Dezimalzahl oder null,
-  "net_amount": Nettobetrag als Dezimalzahl oder null,
-  "gross_amount": Bruttobetrag als Dezimalzahl oder null,
-  "reasoning": "Begruendung in einem Satz",
-  "confidence": Gesamtkonfidenz zwischen 0.0 und 1.0
+  "tax_rate": Steuersatz als Zahl (19.0, 7.0, 0.0) oder null,
+  "tax_amount": Steuerbetrag oder null,
+  "net_amount": Nettobetrag oder null,
+  "gross_amount": Bruttobetrag oder null,
+  "reasoning": "Begründung mit Referenz auf Beleg, Kreditor, Historie",
+  "confidence": 0.0-0.90
 }
-
-Haeufig verwendete SKR03-Konten:
 """ + '\n'.join(f'  {k}: {v}' for k, v in SKR03_COMMON_ACCOUNTS.items())
 
 
@@ -66,12 +88,33 @@ class AccountingAnalystService:
         """Generate a booking proposal; fall back to rule-based on any error."""
         if self._api_key:
             try:
-                return await self._analyze_with_llm(case_data)
+                proposal = await self._analyze_with_llm(case_data)
             except Exception as exc:
                 logger.warning(
                     'accounting_analyst LLM call failed — using rule-based fallback: %s', exc
                 )
-        return _rule_based_proposal(case_data)
+                proposal = _rule_based_proposal(case_data)
+        else:
+            proposal = _rule_based_proposal(case_data)
+
+        # ── Booking proposal validation ───────────────────────────────────────
+        from app.security.output_validator import validate_booking_proposal
+        _val = validate_booking_proposal(proposal)
+        if _val.findings:
+            logger.warning(
+                'accounting_analyst: proposal validation findings for case %s: %s',
+                proposal.case_id,
+                [f'{f.field}={f.issue}' for f in _val.findings],
+            )
+            if _val.overall_severity == 'HIGH':
+                new_confidence = min(proposal.confidence, 0.4)
+            elif _val.overall_severity == 'MEDIUM':
+                new_confidence = min(proposal.confidence, 0.6)
+            else:
+                new_confidence = proposal.confidence
+            proposal = proposal.model_copy(update={'confidence': new_confidence})
+
+        return proposal
 
     async def _analyze_with_llm(self, case_data: CaseAnalysisInput) -> BookingProposal:
         user_content = _build_user_message(case_data)
@@ -84,6 +127,7 @@ class AccountingAnalystService:
             ],
             'max_tokens': 512,
             'temperature': 0.0,
+            'timeout': _LLM_TIMEOUT,
         }
         if self._api_key:
             call_kwargs['api_key'] = self._api_key

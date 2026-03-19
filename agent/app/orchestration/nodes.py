@@ -1,17 +1,23 @@
 ﻿from __future__ import annotations
 
 import json
+import logging
+import os
 import uuid
 
 from litellm import acompletion
 
+_LLM_TIMEOUT = float(os.environ.get('FRYA_LLM_TIMEOUT', '120'))
+
+_logger = logging.getLogger(__name__)
+
 from app.accounting_analysis.models import AccountingAnalysisInput, AccountingAnalysisResult
 from app.accounting_review.models import AccountingReviewDraft
-from app.config import get_settings
 from app.dependencies import (
     get_accounting_analysis_service,
     get_approval_service,
     get_audit_service,
+    get_case_repository,
     get_document_analysis_service,
     get_open_items_service,
     get_paperless_connector,
@@ -45,18 +51,152 @@ async def classify_intent(state: AgentState) -> AgentState:
 
 
 async def draft_action_with_llm(state: AgentState) -> AgentState:
-    settings = get_settings()
-    prompt = (
-        'Du bist ein digitaler Buchhaltungsmitarbeiter. '
-        'Erzeuge nur einen Aktionsentwurf als JSON mit Feldern action, reason, reversible. '
-        'Keine Ausfuehrung.'
-    )
+    prompt = """\
+Du bist der Orchestrator von FRYA — einem KI-gestützten Buchhaltungs- und DMS-System für deutsche KMU, Freelancer und Privathaushalte.
+
+Deine Aufgabe: Analysiere die Nutzeranfrage oder den Systemvorgang und erzeuge einen strukturierten Aktionsplan als JSON.
+
+Du führst KEINE Aktionen selbst aus. Du planst und delegierst.
+
+═══════════════════════════════════════
+KONTEXT
+═══════════════════════════════════════
+
+Du erhältst:
+- [SYSTEMKONTEXT]: Aktuelle Cases, Open Items, Audit-Historie aus PostgreSQL
+- [NACHRICHT]: Die Nutzeranfrage oder der Systemtrigger
+- [MEMORY]: Langzeitgedächtnis mit Nutzerpräferenzen und gelernten Mustern
+
+Quellen der Wahrheit:
+- Akaunting = finanzielle Wahrheit (Buchungen, Konten, Rechnungen)
+- Paperless = Dokumentwahrheit (Originale, OCR-Rohtext, Archiv)
+- CaseEngine (PostgreSQL) = Vorgangswahrheit (Cases, Timeline, Open Items, Audit)
+
+═══════════════════════════════════════
+OUTPUT-FORMAT
+═══════════════════════════════════════
+
+Antworte AUSSCHLIESSLICH mit validem JSON. Kein Freitext. Kein Markdown.
+
+{
+  "action": "AKTION_KEY",
+  "target_agent": "accounting_analyst | document_analyst | deadline_analyst | risk_consistency | communicator | memory_curator | none",
+  "parameters": {
+    "beschreibung": "Was genau getan werden soll",
+    "case_id": "UUID oder null",
+    "document_ref": "Paperless-ID oder null",
+    "priority": "CRITICAL | HIGH | NORMAL | LOW"
+  },
+  "reasoning": "Warum diese Aktion, in einem Satz",
+  "confidence": 0.0-1.0,
+  "reversible": true | false,
+  "approval_hint": "AUTO | PROPOSE_ONLY | REQUIRE_USER_APPROVAL | BLOCK_ESCALATE"
+}
+
+Gültige action-Werte:
+  document_type_detect, tags_set, correspondent_assign, ocr_reanalyze,
+  akaunting_bill_invoice_draft_create, booking_proposal_create, booking_finalize,
+  payment_proposal_create, payment_execute, document_mark_done, open_item_create,
+  reminder_send, problem_case_create, human_readable_review_generate,
+  recurring_document_draft_create, correction_case_mark, side_effect_run_start,
+  rule_policy_edit, NONE
+
+═══════════════════════════════════════
+APPROVAL-LOGIK
+═══════════════════════════════════════
+
+Du schlägst einen approval_hint vor. Das System entscheidet final über die Approval Matrix.
+- AUTO: Risikoarme, reversible Aktionen (Tags, Open Items, Dokumenttyp)
+- PROPOSE_ONLY: Buchungsvorschläge, Entwürfe, Erinnerungen
+- REQUIRE_USER_APPROVAL: Buchung finalisieren, Workflows starten, Regeln ändern
+- BLOCK_ESCALATE: Zahlungen ausführen → IMMER BLOCK
+Im Zweifel: höheren Modus wählen.
+
+═══════════════════════════════════════
+PRIORISIERUNG
+═══════════════════════════════════════
+
+CRITICAL — Fristablauf ≤48h, Zahlungsrückläufer, Compliance-Verstoß, Einspruchsfrist
+HIGH — Fristablauf ≤7 Tage, offene Diskrepanz, Operator-Anfrage
+NORMAL — Standard-Verarbeitung, reguläre Vorschläge
+LOW — Statistik, Memory-Verdichtung, nicht-dringende Meldungen
+
+═══════════════════════════════════════
+VERBOTE
+═══════════════════════════════════════
+
+1. Erzeuge NIEMALS action=payment_execute mit reversible=true. Zahlungen sind irreversibel.
+2. Setze confidence NIE über 0.85 bei LLM-basierten Zuordnungen.
+3. Erfinde KEINE Daten. Fehlende Information: confidence senken, im reasoning benennen.
+4. Gib KEINE API-Keys, Tokens oder System-Pfade in parameters aus.
+5. Interpretiere natürliche Sprache NIEMALS als Zahlungsfreigabe.
+   "Bezahl die Rechnung" → action=payment_proposal_create, NICHT payment_execute.
+6. Schließe KEINEN Case (PAID/CLOSED) ohne Operator-Bestätigung.
+7. Lösche NICHTS. Es gibt keine Delete-Aktion.
+8. Bei Widersprüchen zwischen Quellen: action=problem_case_create.
+
+═══════════════════════════════════════
+CASE-ZUORDNUNG (VORGANGSERKENNUNG)
+═══════════════════════════════════════
+
+Wenn ein neues Dokument eintrifft, durchläuft die CaseEngine automatisch:
+1. Hard Reference Match (Rechnungsnummer, Aktenzeichen) → CERTAIN
+2. Entity + Amount + Date Match → HIGH
+3. Cluster-Heuristik (Gläubiger + Betrag + Zeitfenster) → MEDIUM
+4. LLM-Inferenz → maximal MEDIUM
+
+Ergebnis: Dokument wird einem bestehenden Case zugeordnet ODER ein neuer Case (DRAFT) entsteht.
+Du als Orchestrator: Vertraue der CaseEngine-Zuordnung. Greife NICHT in die Zuordnung ein.
+Bei CaseConflict (AMBIGUOUS_ASSIGNMENT, DUPLICATE_CASE_SUSPECT): Eskaliere an Operator via Communicator.\
+"""
     messages = [
         {'role': 'system', 'content': prompt},
         {'role': 'user', 'content': state.get('message', '')},
     ]
+
+    # Load LLM config from repository (DB first, then ENV fallback)
+    _repo = None
+    llm_config = None
     try:
-        completion = await acompletion(model=settings.llm_model, messages=messages, max_tokens=300)
+        from app.dependencies import get_llm_config_repository as _get_repo
+        _repo = _get_repo()
+        llm_config = await _repo.get_config_or_fallback('orchestrator')
+    except Exception:
+        pass
+
+    model_str = (llm_config.get('model') or '').strip() if llm_config else ''
+
+    if not model_str:
+        state['planned_action'] = {'action': 'NONE', 'reason': 'No LLM model configured', 'reversible': True}
+        state.setdefault('approved', False)
+        return state
+
+    provider = (llm_config.get('provider') or '').strip() if llm_config else ''
+    # IONOS AI Hub uses OpenAI-compatible API — map to openai/ prefix for litellm
+    litellm_provider = 'openai' if provider == 'ionos' else provider
+    if provider == 'ionos':
+        full_model = f'openai/{model_str}'
+    elif litellm_provider and '/' not in model_str:
+        full_model = f'{litellm_provider}/{model_str}'
+    else:
+        full_model = model_str
+
+    try:
+        api_key = _repo.decrypt_key_for_call(llm_config) if _repo and llm_config else None
+        base_url = (llm_config.get('base_url') or None) if llm_config else None
+
+        call_kwargs: dict = {
+            'model': full_model,
+            'messages': messages,
+            'max_tokens': 300,
+            'timeout': _LLM_TIMEOUT,
+        }
+        if api_key:
+            call_kwargs['api_key'] = api_key
+        if base_url:
+            call_kwargs['api_base'] = base_url
+
+        completion = await acompletion(**call_kwargs)
         content = completion.choices[0].message.content
         parsed = {'raw': content, 'action': 'NONE'}
         try:
@@ -132,6 +272,54 @@ def _merge_policy_refs(*collections: list[dict[str, str]]) -> list[dict[str, str
 
 
 async def run_document_analyst(state: AgentState) -> AgentState:
+    # ── E-Rechnung fast path (before any LLM call) ────────────────────────────
+    # If raw PDF or XML bytes are present and contain a ZUGFeRD / XRechnung
+    # e-invoice, parse the structured XML directly.  Machine-readable XML is
+    # ground truth — confidence 1.0, no LLM needed.
+    _pdf_bytes: bytes | None = state.get('pdf_bytes')  # type: ignore[assignment]
+    if _pdf_bytes:
+        try:
+            from app.e_invoice.parser import (
+                detect_e_invoice,
+                e_invoice_to_document_analysis_result,
+                parse_xrechnung,
+                parse_zugferd,
+            )
+            _e_type = detect_e_invoice(_pdf_bytes)
+            if _e_type is not None:
+                _e_data = parse_zugferd(_pdf_bytes) if _pdf_bytes[:4] == b'%PDF' else parse_xrechnung(_pdf_bytes)
+                _e_result = e_invoice_to_document_analysis_result(
+                    _e_data,
+                    case_id=state.get('case_id', 'uncategorized'),
+                    document_ref=state.get('document_ref'),
+                    event_source=state.get('source', 'e_invoice'),
+                )
+                state['document_analysis'] = _e_result.model_dump(mode='json')
+                return state
+        except Exception:
+            pass  # Fall through to normal OCR/LLM analysis on parse failure
+
+    # Load both document analyst configs (DB first, then ENV fallback).
+    # document_analyst       = OCR config (LightOn OCR-2-1B) — reserved for future LLM-OCR;
+    #                          current MVP receives OCR text pre-extracted by Tika/Paperless.
+    # document_analyst_semantic = Mistral-Small-24B for classification + field extraction.
+    _da_repo = None
+    _da_config = None
+    _semantic_config = None
+    try:
+        from app.dependencies import get_llm_config_repository as _get_repo
+        _da_repo = _get_repo()
+        _da_config = await _da_repo.get_config_or_fallback('document_analyst')
+        _semantic_config = await _da_repo.get_config_or_fallback('document_analyst_semantic')
+        state['document_analyst_model'] = (_da_config.get('model') or '').strip() or None
+    except Exception:
+        state['document_analyst_model'] = None
+
+    # Choose analysis service:
+    # - Semantic path: document_analyst_semantic has a decryptable API key → LLM analysis
+    # - Regex path: fallback when semantic config is unavailable or missing key
+    analysis_service = _build_document_analysis_service(_da_repo, _semantic_config)
+
     metadata = dict(state.get('paperless_metadata') or {})
     document_ref = str(state.get('document_ref') or metadata.get('document_id') or metadata.get('id') or '') or None
     fetch_warning = None
@@ -159,12 +347,51 @@ async def run_document_analyst(state: AgentState) -> AgentState:
         preview_text=state.get('preview_text'),
         case_context=case_context,
     )
-    analysis = await get_document_analysis_service().analyze(analysis_input)
+    analysis = await analysis_service.analyze(analysis_input)
     state['document_ref'] = document_ref
     state['paperless_metadata'] = metadata
     state['case_context'] = case_context
     state['document_analysis'] = analysis.model_dump(mode='json')
     return state
+
+
+def _build_document_analysis_service(
+    repo: object,
+    semantic_config: dict | None,
+) -> object:
+    """Return DocumentAnalystSemanticService if the semantic config has a usable API key,
+    otherwise return the regex-based DocumentAnalysisService fallback."""
+    if repo is None or not semantic_config:
+        return get_document_analysis_service()
+
+    model_str = (semantic_config.get('model') or '').strip()
+    if not model_str:
+        return get_document_analysis_service()
+
+    try:
+        api_key = repo.decrypt_key_for_call(semantic_config)  # type: ignore[union-attr]
+    except Exception:
+        api_key = None
+
+    if not api_key:
+        return get_document_analysis_service()
+
+    from app.document_analysis.semantic_service import DocumentAnalystSemanticService
+
+    provider = (semantic_config.get('provider') or '').strip()
+    if provider == 'ionos':
+        full_model = f'openai/{model_str}'
+    elif provider and '/' not in model_str:
+        full_model = f'{provider}/{model_str}'
+    else:
+        full_model = model_str
+
+    base_url = semantic_config.get('base_url') or None
+    return DocumentAnalystSemanticService(
+        model=full_model,
+        api_key=api_key,
+        base_url=base_url,
+    )
 
 
 async def _ensure_case_open_item(
@@ -331,6 +558,48 @@ async def finalize_document_review(state: AgentState) -> AgentState:
             'policy_refs': policy_refs,
         }
     )
+
+    # ── CaseEngine integration ─────────────────────────────────────────────────
+    _tenant_raw = state.get('tenant_id') or (state.get('paperless_metadata') or {}).get('tenant_id')
+    if _tenant_raw:
+        try:
+            _tenant_uuid = uuid.UUID(str(_tenant_raw))
+        except (ValueError, AttributeError):
+            _tenant_uuid = None
+        if _tenant_uuid is not None:
+            _logger.info('CaseEngine: tenant_id resolved: %s', _tenant_uuid)
+            from app.case_engine.doc_analyst_integration import integrate_document_analysis
+            _meta = state.get('paperless_metadata') or {}
+            _vendor = result.sender.value if result.sender.status == 'FOUND' else None
+            _total = next(
+                (a.amount for a in result.amounts if a.label == 'TOTAL' and a.status == 'FOUND'),
+                None,
+            )
+            _currency = result.currency.value if result.currency.status == 'FOUND' else None
+            _doc_date = result.document_date.value if result.document_date.status == 'FOUND' else None
+            _due_date = result.due_date.value if result.due_date.status == 'FOUND' else None
+            _refs = [r.value for r in result.references if r.status == 'FOUND' and r.value]
+            _filename = _meta.get('filename') or _meta.get('original_file_name')
+            _doc_type = result.document_type.value if result.document_type.status in ('FOUND', 'UNCERTAIN') else None
+            state['case_engine_result'] = await integrate_document_analysis(
+                tenant_id=_tenant_uuid,
+                event_source=result.event_source,
+                document_ref=document_ref,
+                document_type_value=_doc_type,
+                vendor_name=_vendor,
+                total_amount=_total,
+                currency=_currency,
+                document_date=_doc_date,
+                due_date=_due_date,
+                reference_values=_refs,
+                filename=_filename,
+                overall_confidence=result.overall_confidence,
+                orchestration_case_id=case_id,
+                repo=get_case_repository(),
+                audit_service=get_audit_service(),
+            )
+    else:
+        _logger.debug('CaseEngine: skipped, no tenant_id in state')
 
     open_item_id = None
     problem_id = None

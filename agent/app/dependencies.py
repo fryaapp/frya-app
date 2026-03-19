@@ -30,14 +30,25 @@ from app.telegram.clarification_service import TelegramClarificationService
 from app.telegram.communicator.memory.conversation_store import ConversationMemoryStore
 from app.telegram.communicator.memory.user_store import UserMemoryStore
 from app.telegram.communicator.service import TelegramCommunicatorService
+from app.telegram.document_analyst_deep_path_service import TelegramDocumentAnalystDeepPathService
 from app.telegram.document_analyst_followup_service import TelegramDocumentAnalystFollowupService
+from app.telegram.document_analyst_merge_service import TelegramDocumentAnalystMergeService
+from app.telegram.document_analyst_ocr_recheck_service import TelegramDocumentAnalystOcrRecheckService
 from app.telegram.document_analyst_review_service import TelegramDocumentAnalystReviewService
 from app.telegram.document_analyst_start_service import TelegramDocumentAnalystStartService
 from app.telegram.media_service import TelegramMediaIngressService
 from app.telegram.notification_service import TelegramNotificationService
 from app.telegram.repository import TelegramCaseLinkRepository
 from app.telegram.service import TelegramCaseLinkService
+from app.llm_config import LLMConfigRepository
 from app.telegram.dedup import TelegramUpdateDeduplicator
+from app.email_intake.repository import EmailIntakeRepository
+from app.email_intake.service import EmailIntakeService
+from app.auth.user_repository import UserRepository
+from app.auth.reset_service import PasswordResetService
+from app.email.mail_service import MailService
+from app.auth.tenant_repository import TenantRepository
+from app.case_engine.repository import CaseRepository
 
 
 @lru_cache
@@ -184,11 +195,35 @@ def get_telegram_document_analyst_followup_service() -> TelegramDocumentAnalystF
 
 
 @lru_cache
+def get_telegram_document_analyst_deep_path_service() -> TelegramDocumentAnalystDeepPathService:
+    return TelegramDocumentAnalystDeepPathService(
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+    )
+
+
+@lru_cache
+def get_telegram_document_analyst_merge_service() -> TelegramDocumentAnalystMergeService:
+    return TelegramDocumentAnalystMergeService(
+        audit_service=get_audit_service(),
+    )
+
+
+@lru_cache
+def get_telegram_document_analyst_ocr_recheck_service() -> TelegramDocumentAnalystOcrRecheckService:
+    return TelegramDocumentAnalystOcrRecheckService(
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+    )
+
+
+@lru_cache
 def get_telegram_document_analyst_review_service() -> TelegramDocumentAnalystReviewService:
     return TelegramDocumentAnalystReviewService(
         audit_service=get_audit_service(),
         open_items_service=get_open_items_service(),
         followup_service=get_telegram_document_analyst_followup_service(),
+        deep_path_service=get_telegram_document_analyst_deep_path_service(),
     )
 
 
@@ -215,6 +250,7 @@ def get_telegram_document_analyst_start_service() -> TelegramDocumentAnalystStar
         audit_service=get_audit_service(),
         open_items_service=get_open_items_service(),
         review_service=get_telegram_document_analyst_review_service(),
+        merge_service=get_telegram_document_analyst_merge_service(),
     )
 
 
@@ -291,6 +327,12 @@ def get_bank_reconciliation_review_service() -> BankReconciliationReviewService:
 
 
 @lru_cache
+def get_llm_config_repository() -> LLMConfigRepository:
+    settings = get_settings()
+    return LLMConfigRepository(settings.database_url, settings.redis_url, settings.config_encryption_key)
+
+
+@lru_cache
 def get_rule_change_audit_repository() -> RuleChangeAuditRepository:
     settings = get_settings()
     return RuleChangeAuditRepository(settings.database_url)
@@ -299,3 +341,60 @@ def get_rule_change_audit_repository() -> RuleChangeAuditRepository:
 @lru_cache
 def get_rule_change_audit_service() -> RuleChangeAuditService:
     return RuleChangeAuditService(get_rule_change_audit_repository())
+
+
+@lru_cache
+def get_email_intake_repository() -> EmailIntakeRepository:
+    settings = get_settings()
+    return EmailIntakeRepository(settings.database_url)
+
+
+@lru_cache
+def get_email_intake_service() -> EmailIntakeService:
+    settings = get_settings()
+    return EmailIntakeService(
+        repository=get_email_intake_repository(),
+        audit_service=get_audit_service(),
+        open_items_service=get_open_items_service(),
+        file_store=get_file_store(),
+        mailgun_signing_key=settings.mailgun_webhook_signing_key,
+    )
+
+
+@lru_cache
+def get_user_repository() -> UserRepository:
+    settings = get_settings()
+    return UserRepository(settings.database_url)
+
+
+@lru_cache
+def get_password_reset_service() -> PasswordResetService:
+    settings = get_settings()
+    return PasswordResetService(settings.redis_url)
+
+
+@lru_cache
+def get_mail_service() -> MailService:
+    settings = get_settings()
+    return MailService(
+        audit_service=get_audit_service(),
+        database_url=settings.database_url,
+        mailgun_api_key=settings.mailgun_api_key,
+        mailgun_domain=settings.mailgun_domain,
+        mailgun_from=settings.mailgun_from,
+        encryption_key=settings.config_encryption_key,
+        brevo_api_key=settings.brevo_api_key,
+        mail_provider=settings.mail_provider,
+    )
+
+
+@lru_cache
+def get_tenant_repository() -> TenantRepository:
+    settings = get_settings()
+    return TenantRepository(settings.database_url)
+
+
+@lru_cache
+def get_case_repository() -> CaseRepository:
+    settings = get_settings()
+    return CaseRepository(settings.database_url)

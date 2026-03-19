@@ -2551,4 +2551,233 @@ async def api_keys_page(
     )
 
 
+# ---------------------------------------------------------------------------
+# Services Dashboard
+# ---------------------------------------------------------------------------
+
+@router.get('/services', response_class=HTMLResponse)
+async def ui_services(request: Request) -> HTMLResponse:
+    import httpx
+    from urllib.parse import urlparse
+
+    settings = get_settings()
+
+    async def _http_check(url: str | None) -> str:
+        if not url:
+            return 'unknown'
+        try:
+            async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=3.0) as client:
+                resp = await client.get(url)
+                return 'online' if resp.status_code < 500 else 'offline'
+        except Exception:
+            return 'offline'
+
+    def _mask(value: str | None, show_chars: int = 4) -> str:
+        if not value:
+            return '(nicht gesetzt)'
+        if len(value) <= show_chars:
+            return '***'
+        return value[:show_chars] + '***'
+
+    def _host_port(dsn: str | None) -> tuple[str | None, str | None]:
+        if not dsn:
+            return None, None
+        try:
+            p = urlparse(dsn)
+            return p.hostname or p.netloc, str(p.port) if p.port else None
+        except Exception:
+            return dsn, None
+
+    pg_host, pg_port = _host_port(settings.database_url)
+    redis_host, redis_port = _host_port(settings.redis_url)
+
+    # Check web services in parallel
+    paperless_status, akaunting_status, n8n_status, uptime_status, tika_status, gotenberg_status = (
+        await _http_check(settings.paperless_base_url),
+        await _http_check(settings.akaunting_base_url),
+        await _http_check(settings.n8n_base_url),
+        await _http_check('http://frya-uptime-kuma:3001'),
+        await _http_check('http://frya-tika:9998'),
+        await _http_check('http://frya-gotenberg:3000'),
+    )
+
+    services = [
+        {
+            'kind': 'web',
+            'name': 'Paperless-ngx',
+            'description': 'Dokumenten-Archiv — empfaengt und indexiert alle eingehenden Dokumente',
+            'url': settings.paperless_base_url,
+            'status': paperless_status,
+            'credentials': {
+                'URL': settings.paperless_base_url or '(nicht gesetzt)',
+                'Token': _mask(settings.paperless_token),
+            },
+        },
+        {
+            'kind': 'web',
+            'name': 'Akaunting',
+            'description': 'Buchhaltungs-Software — Verwaltung von Rechnungen, Zahlungen, Konten',
+            'url': settings.akaunting_base_url,
+            'status': akaunting_status,
+            'credentials': {
+                'URL': settings.akaunting_base_url or '(nicht gesetzt)',
+                'E-Mail': settings.akaunting_email or '(nicht gesetzt)',
+                'Passwort': _mask(settings.akaunting_password),
+            },
+        },
+        {
+            'kind': 'web',
+            'name': 'n8n',
+            'description': 'Workflow-Automation — Verbindet FRYA mit externen Diensten',
+            'url': settings.n8n_base_url,
+            'status': n8n_status,
+            'credentials': {
+                'URL': settings.n8n_base_url or '(nicht gesetzt)',
+                'API-Key': 'Siehe /ui/api-keys',
+            },
+        },
+        {
+            'kind': 'web',
+            'name': 'Uptime Kuma',
+            'description': 'Monitoring — Ueberwacht Verfuegbarkeit aller Services',
+            'url': 'http://frya-uptime-kuma:3001',
+            'status': uptime_status,
+            'credentials': {
+                'Login': 'Eigenes Uptime-Kuma-Konto',
+            },
+        },
+        {
+            'kind': 'internal',
+            'name': 'Tika',
+            'description': 'Dokument-Parser — extrahiert Text aus PDFs und Office-Dokumenten',
+            'host': 'frya-tika',
+            'port': '9998',
+            'status': tika_status,
+            'note': 'Intern erreichbar (kein Web-UI)',
+            'credentials': None,
+        },
+        {
+            'kind': 'internal',
+            'name': 'Gotenberg',
+            'description': 'PDF-Rendering-Service — konvertiert HTML/Office zu PDF',
+            'host': 'frya-gotenberg',
+            'port': '3000',
+            'status': gotenberg_status,
+            'note': 'Intern erreichbar (kein Web-UI)',
+            'credentials': None,
+        },
+        {
+            'kind': 'db',
+            'name': 'PostgreSQL',
+            'description': 'Primaere Datenbank — speichert alle FRYA-Daten',
+            'host': pg_host,
+            'port': pg_port,
+            'status': 'configured' if settings.database_url else 'unknown',
+            'note': 'Kein Web-UI — Verbindung via DATABASE_URL',
+            'credentials': None,
+        },
+        {
+            'kind': 'db',
+            'name': 'Redis',
+            'description': 'Cache &amp; Session-Store — Sitzungsdaten, Dedup-TTL',
+            'host': redis_host,
+            'port': redis_port,
+            'status': 'configured' if settings.redis_url else 'unknown',
+            'note': 'Kein Web-UI — Verbindung via REDIS_URL',
+            'credentials': None,
+        },
+        {
+            'kind': 'db',
+            'name': 'MariaDB',
+            'description': 'Akaunting-Datenbank — wird exklusiv von Akaunting verwendet',
+            'host': 'frya-mariadb',
+            'port': '3306',
+            'status': 'configured',
+            'note': 'Kein Web-UI — nur Akaunting-intern',
+            'credentials': None,
+        },
+    ]
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'services.html',
+        _ctx(request, title='Services', services=services),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Legal / DSGVO pages
+# ---------------------------------------------------------------------------
+
+@router.get('/legal', response_class=HTMLResponse)
+async def legal_overview(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_overview.html',
+        _ctx(request, title='Rechtliches'),
+    )
+
+
+@router.get('/legal/datenschutz', response_class=HTMLResponse)
+async def legal_datenschutz(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_datenschutz.html',
+        _ctx(request, title='Datenschutzerklärung'),
+    )
+
+
+@router.get('/legal/avv', response_class=HTMLResponse)
+async def legal_avv(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_avv.html',
+        _ctx(request, title='AVV-Template'),
+    )
+
+
+@router.get('/legal/toms', response_class=HTMLResponse)
+async def legal_toms(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_toms.html',
+        _ctx(request, title='TOMs'),
+    )
+
+
+@router.get('/legal/impressum', response_class=HTMLResponse)
+async def legal_impressum(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_impressum.html',
+        _ctx(request, title='Impressum'),
+    )
+
+
+@router.get('/legal/agb', response_class=HTMLResponse)
+async def legal_agb(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_agb.html',
+        _ctx(request, title='AGB'),
+    )
+
+
+@router.get('/legal/vvt', response_class=HTMLResponse)
+async def legal_vvt(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_vvt.html',
+        _ctx(request, title='Verarbeitungsverzeichnis'),
+    )
+
+
+@router.get('/legal/verfahrensdoku', response_class=HTMLResponse)
+async def legal_verfahrensdoku(request: Request) -> HTMLResponse:
+    return TEMPLATES.TemplateResponse(
+        request,
+        'legal_verfahrensdoku.html',
+        _ctx(request, title='Verfahrensdokumentation (GoBD)'),
+    )
+
 

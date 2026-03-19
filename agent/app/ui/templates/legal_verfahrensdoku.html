@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Verfahrensdokumentation (GoBD)</h1>
+<p><a href="/ui/legal">&larr; Zurück zur Übersicht</a></p>
+<p class="notice">Gemäß GoBD (BMF-Schreiben vom 28.11.2019), §146 AO, §147 AO, §14b UStG. Stand: 2026-03-19.</p>
+
+<h2>1. Systembeschreibung</h2>
+<p>
+  <strong>FRYA</strong> ist ein KI-gestütztes Dokumentenmanagement- und Buchhaltungssystem für kleine und mittelgroße Unternehmen.
+  Das System empfängt Eingangsbelege (Rechnungen, Lieferscheine, Kontoauszüge) über Paperless-ngx,
+  analysiert diese automatisiert mittels Large-Language-Models (LLMs), ordnet sie Buchungsvorgängen zu
+  und archiviert alle Aktionen in einem unveränderlichen, kryptografisch gesicherten Audit-Log.
+</p>
+<ul>
+  <li><strong>Betreiber:</strong> [BITTE AUSFÜLLEN: Unternehmensname, Adresse]</li>
+  <li><strong>Technologie:</strong> Python/FastAPI (Backend), PostgreSQL (Datenbank), Paperless-ngx (Dokumentenarchiv), n8n (Workflow-Automation)</li>
+  <li><strong>Hosting:</strong> Hetzner Cloud (Deutschland), Rechenzentrum Nürnberg</li>
+  <li><strong>Mandantenfähigkeit:</strong> Ja — vollständige Datentrennung per <code>tenant_id</code> auf Datenbankebene</li>
+</ul>
+
+<h2>2. Datenfluss und Verarbeitungsprozess</h2>
+<ol>
+  <li><strong>Dokumenteneingang:</strong> Belege werden per E-Mail, Scanner oder manuellen Upload in Paperless-ngx erfasst. OCR-Erkennung erzeugt maschinenlesbaren Text.</li>
+  <li><strong>Webhook-Benachrichtigung:</strong> Paperless löst nach erfolgreicher Verarbeitung einen Webhook an n8n aus (Workflow 05: Paperless Post-Consumption).</li>
+  <li><strong>Dokumentenanalyse:</strong> FRYA-Agent analysiert Dokument mittels LLM — extrahiert Betrag, Datum, Rechnungsnummer, Lieferant und klassifiziert den Belegtyp.</li>
+  <li><strong>Fallzuordnung (CaseEngine):</strong> Das Dokument wird automatisch einem offenen Buchungsvorgang (<code>case_cases</code>) zugeordnet. Confidence-Level: HIGH / MEDIUM / LOW.</li>
+  <li><strong>Buchungsvorschlag:</strong> AccountingAnalyst-Agent erzeugt SKR03/SKR04-Buchungsvorschlag. Buchung wird <em>nicht</em> ohne Operator-Freigabe gebucht.</li>
+  <li><strong>Operator-Freigabe:</strong> Autorisierter Nutzer prüft und genehmigt oder lehnt den Vorschlag ab (Vier-Augen-Prinzip).</li>
+  <li><strong>Archivierung:</strong> Alle Aktionen werden im Audit-Log (<code>frya_audit_log</code>) mit Zeitstempel, Nutzer, Aktion, Ergebnis und kryptografischer Hash-Kette gespeichert.</li>
+  <li><strong>Benachrichtigung:</strong> Telegram-Notifikation an zuständigen Operator bei neuen Belegen und Freigabeerfordernis.</li>
+</ol>
+
+<h2>3. Zugriffskontrolle und Autorisierung</h2>
+<ul>
+  <li><strong>RBAC:</strong> Zwei Rollen — <em>operator</em> (Standardzugriff auf Dokumente, Fälle, Freigaben) und <em>admin</em> (Nutzerverwaltung, Mandantenverwaltung, Konfiguration). Alle Endpunkte serverseitig geprüft.</li>
+  <li><strong>Tenant-Isolation:</strong> Jeder API-Aufruf ist an eine <code>tenant_id</code> gebunden. Mandantenübergreifende Zugriffe werden auf Datenbankebene verhindert.</li>
+  <li><strong>Authentifizierung:</strong> JWT-Token (HS256) mit kurzem Ablaufzeitraum. Passwörter: PBKDF2-HMAC-SHA256 (390.000 Iterationen).</li>
+  <li><strong>Datenbanknutzer:</strong> Applikationsnutzer <code>frya</code> hat auf GoBD-relevanten Tabellen ausschließlich INSERT- und SELECT-Rechte — UPDATE, DELETE und TRUNCATE sind entzogen (Write-Once-Enforcement).</li>
+</ul>
+
+<h2>4. Unveränderlichkeit und Integrität des Audit-Logs</h2>
+<p>
+  Das Audit-Log (<code>frya_audit_log</code>) ist append-only und kryptografisch gesichert:
+</p>
+<ul>
+  <li><strong>Hash-Chain:</strong> Jeder Eintrag enthält <code>record_hash = SHA-256(previous_hash || JSON-Payload)</code>. Eine Manipulation eines Eintrags bricht die gesamte Kette.</li>
+  <li><strong>Integritätsprüfung:</strong> Der Endpunkt <a href="/inspect/audit/verify-chain"><code>GET /inspect/audit/verify-chain</code></a> prüft die vollständige Hash-Kette aller Einträge und gibt <code>valid: true/false</code> zurück.</li>
+  <li><strong>Datenbankebene:</strong> REVOKE UPDATE, DELETE, TRUNCATE ON <code>frya_audit_log</code> FROM <code>frya</code> — Applikationsnutzer kann keine Einträge überschreiben oder löschen.</li>
+  <li><strong>Vollständigkeit:</strong> Jede Aktion (Dokumenteneingang, Analyse, Freigabe, Ablehnung, Konfigurationsänderung, Mandantenverwaltung) erzeugt einen Audit-Eintrag.</li>
+</ul>
+
+<h2>5. Aufbewahrungsfristen (§147 AO / §14b UStG)</h2>
+<table border="1" cellpadding="6">
+  <tr><th>Objekt / Tabelle</th><th>Aufbewahrungsfrist</th><th>Rechtsgrundlage</th></tr>
+  <tr><td>Buchungsbelege (<code>case_documents</code>)</td><td>10 Jahre</td><td>§147 Abs. 1 Nr. 4 AO, §14b UStG</td></tr>
+  <tr><td>Buchungsvorgänge (<code>case_cases</code>)</td><td>10 Jahre</td><td>§147 Abs. 1 Nr. 1 AO</td></tr>
+  <tr><td>Audit-Protokolle (<code>frya_audit_log</code>)</td><td>10 Jahre</td><td>§147 Abs. 1 Nr. 1 AO (Buchungsbelege/Protokolle)</td></tr>
+  <tr><td>Abrechnungssonderfälle (<code>frya_problem_cases</code>)</td><td>10 Jahre</td><td>§147 Abs. 1 Nr. 1 AO</td></tr>
+  <tr><td>Nutzerdaten, Konfiguration</td><td>30 Tage (Soft-Delete)</td><td>DSGVO Art. 17 (kein GoBD-Bezug)</td></tr>
+</table>
+<p>
+  Die Aufbewahrungsfristen beginnen mit Ablauf des Kalenderjahres der Erstellung des Dokuments (§147 Abs. 4 AO).
+</p>
+
+<h2>6. Löschkonzept</h2>
+<ul>
+  <li><strong>GoBD-geschützte Daten:</strong> Buchungsbelege, Buchungsvorgänge und Audit-Logs können vor Ablauf der 10-jährigen Aufbewahrungsfrist systemseitig <em>nicht</em> gelöscht werden. Ein Hard-Delete-Versuch wird mit HTTP 409 (GoBD-Sperre) abgewiesen.</li>
+  <li><strong>Mandantenlöschung:</strong>
+    <ol>
+      <li>Soft-Delete: Mandant wird auf Status <code>pending_deletion</code> gesetzt; alle Nutzer deaktiviert.</li>
+      <li>Hard-Delete nach 30 Tagen: Nutzerdaten werden gelöscht. GoBD-relevante Buchungsdaten bleiben für die Restlaufzeit der Aufbewahrungsfrist erhalten.</li>
+      <li>Automatische Benachrichtigung des Mandantenadministrators per E-Mail.</li>
+    </ol>
+  </li>
+  <li><strong>Nutzerdaten (DSGVO Art. 17):</strong> Nutzerdaten unterliegen dem Standard-Löschkonzept (30-Tage-Soft-Delete, dann Hard-Delete). Keine GoBD-Sperre.</li>
+</ul>
+
+<h2>7. Datensicherung (Backup)</h2>
+<ul>
+  <li><strong>Häufigkeit:</strong> Tägliche automatisierte Backups der PostgreSQL-Datenbank.</li>
+  <li><strong>Verschlüsselung:</strong> Backup-Archive werden vor dem Upload mit <em>age</em> (X25519-Schlüssel) verschlüsselt.</li>
+  <li><strong>Speicherort:</strong> Hetzner Object Storage (S3-kompatibel), Rechenzentrum Deutschland.</li>
+  <li><strong>Aufbewahrung:</strong> [BITTE AUSFÜLLEN: z.B. 90 Tage rolling window].</li>
+  <li><strong>Wiederherstellung:</strong> Backup-Wiederherstellung mittels <code>pg_restore</code> und Entschlüsselung mit gesichertem age-Schlüssel. Ziel-RPO: [BITTE AUSFÜLLEN, z.B. 24h]. Ziel-RTO: [BITTE AUSFÜLLEN, z.B. 4h].</li>
+</ul>
+
+<h2>8. Änderungsprotokoll dieser Verfahrensdokumentation</h2>
+<table border="1" cellpadding="6">
+  <tr><th>Version</th><th>Datum</th><th>Änderung</th><th>Autor</th></tr>
+  <tr><td>1.0</td><td>2026-03-19</td><td>Erststellung der GoBD-Verfahrensdokumentation</td><td>[BITTE AUSFÜLLEN]</td></tr>
+</table>
+{% endblock %}

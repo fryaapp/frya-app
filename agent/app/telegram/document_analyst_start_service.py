@@ -1,12 +1,15 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.audit.service import AuditService
 from app.open_items.service import OpenItemsService
 from app.telegram.document_analyst_review_service import TelegramDocumentAnalystReviewService
 from app.telegram.models import TelegramDocumentAnalystContextRecord, TelegramDocumentAnalystStartRecord
+
+if TYPE_CHECKING:
+    from app.telegram.document_analyst_merge_service import TelegramDocumentAnalystMergeService
 
 
 class TelegramDocumentAnalystStartService:
@@ -15,10 +18,12 @@ class TelegramDocumentAnalystStartService:
         audit_service: AuditService,
         open_items_service: OpenItemsService,
         review_service: TelegramDocumentAnalystReviewService,
+        merge_service: 'TelegramDocumentAnalystMergeService | None' = None,
     ) -> None:
         self.audit_service = audit_service
         self.open_items_service = open_items_service
         self.review_service = review_service
+        self.merge_service = merge_service
 
     async def start_runtime(
         self,
@@ -82,9 +87,12 @@ class TelegramDocumentAnalystStartService:
         await self._log_start_record(requested_record)
 
         runtime_case_id = context.target_case_id
+        from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_tenant
+        _tenant_id = await _resolve_tenant()
         graph_state = {
             'case_id': runtime_case_id,
             'source': 'telegram_document_analyst_start',
+            'tenant_id': _tenant_id,
             'message': media_payload.get('caption_text') or media_payload.get('file_name') or context.telegram_document_ref,
             'document_ref': context.telegram_document_ref,
             'paperless_metadata': self._build_runtime_metadata(context, media_payload),
@@ -118,11 +126,22 @@ class TelegramDocumentAnalystStartService:
             }
         )
         await self._log_start_record(started_record)
+        document_analysis_payload = result.get('document_analysis') if isinstance(result, dict) else None
         await self.review_service.mark_ready_from_start(
             started_record,
-            document_analysis_payload=result.get('document_analysis') if isinstance(result, dict) else None,
+            document_analysis_payload=document_analysis_payload,
         )
         await self._complete_transition_open_items(context=context, media_payload=media_payload)
+
+        if self.merge_service is not None:
+            try:
+                await self.merge_service.search_merge_candidate(
+                    started_record,
+                    document_analysis_payload=document_analysis_payload,
+                )
+            except Exception:
+                pass  # Merge search is best-effort; never fail the start
+
         return started_record
 
     def build_ready_record(

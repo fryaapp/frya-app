@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}E-Mail {{ intake.email_intake_id }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <a href="/ui/email-intake" class="btn btn-sm btn-secondary">← Zurück</a>
+  <h1>E-Mail-Eingang</h1>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <dl class="row mb-0">
+      <dt class="col-sm-3">ID</dt><dd class="col-sm-9"><code>{{ intake.email_intake_id }}</code></dd>
+      <dt class="col-sm-3">Empfangen</dt><dd class="col-sm-9">{{ intake.received_at }}</dd>
+      <dt class="col-sm-3">Absender</dt><dd class="col-sm-9">{{ intake.sender_email }}{% if intake.sender_name %} ({{ intake.sender_name }}){% endif %}</dd>
+      <dt class="col-sm-3">Betreff</dt><dd class="col-sm-9">{{ intake.subject or '-' }}</dd>
+      <dt class="col-sm-3">Status</dt>
+      <dd class="col-sm-9">
+        {% if intake.intake_status == 'RECEIVED' %}<span class="badge bg-secondary">RECEIVED</span>
+        {% elif intake.intake_status == 'PROCESSING' %}<span class="badge bg-primary">PROCESSING</span>
+        {% elif intake.intake_status == 'COMPLETED' %}<span class="badge bg-success">COMPLETED</span>
+        {% else %}<span class="badge bg-danger">{{ intake.intake_status }}</span>{% endif %}
+      </dd>
+    </dl>
+  </div>
+</div>
+
+{% if attachments %}
+<h4>Anhänge ({{ attachments|length }})</h4>
+<table class="table table-sm">
+  <thead><tr><th>Datei</th><th>MIME</th><th>Größe</th><th>Analyst-Case</th></tr></thead>
+  <tbody>
+    {% for att in attachments %}
+    <tr>
+      <td>{{ att.file_name or '-' }}</td>
+      <td><small>{{ att.mime_type or '-' }}</small></td>
+      <td>{{ att.file_size or '-' }}</td>
+      <td>
+        {% if att.analyst_case_id %}
+          <a href="/ui/cases/{{ att.analyst_case_id }}">{{ att.analyst_case_id }}</a>
+        {% else %}<span class="text-muted">-</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% set has_unforwarded = attachments | selectattr('analyst_case_id', 'none') | list %}
+{% if has_unforwarded %}
+<form method="post" action="/api/email-intake/{{ intake.email_intake_id }}/forward-to-analyst">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+  <button type="submit" class="btn btn-primary">An Document Analyst weiterleiten</button>
+</form>
+{% else %}
+<p class="text-success">✓ Alle Anhänge wurden bereits an den Document Analyst weitergeleitet.</p>
+{% endif %}
+
+{% else %}
+<p class="text-muted">Keine Anhänge in dieser Mail.</p>
+{% endif %}
+
+{% if intake.body_plain %}
+<h4 class="mt-4">Nachrichtentext</h4>
+<pre class="border rounded p-2 small" style="max-height:200px;overflow-y:auto">{{ intake.body_plain[:1000] }}</pre>
+{% endif %}
+{% endblock %}

@@ -1,12 +1,15 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from app.audit.service import AuditService
 from app.open_items.service import OpenItemsService
 from app.telegram.document_analyst_followup_service import TelegramDocumentAnalystFollowupService
 from app.telegram.models import TelegramDocumentAnalystReviewRecord, TelegramDocumentAnalystStartRecord
+
+if TYPE_CHECKING:
+    from app.telegram.document_analyst_deep_path_service import TelegramDocumentAnalystDeepPathService
 
 
 class TelegramDocumentAnalystReviewService:
@@ -15,10 +18,12 @@ class TelegramDocumentAnalystReviewService:
         audit_service: AuditService,
         open_items_service: OpenItemsService,
         followup_service: TelegramDocumentAnalystFollowupService,
+        deep_path_service: 'TelegramDocumentAnalystDeepPathService | None' = None,
     ) -> None:
         self.audit_service = audit_service
         self.open_items_service = open_items_service
         self.followup_service = followup_service
+        self.deep_path_service = deep_path_service
 
     async def mark_ready_from_start(
         self,
@@ -81,6 +86,11 @@ class TelegramDocumentAnalystReviewService:
             await self.open_items_service.update_status(start_record.runtime_open_item_id, 'COMPLETED')
         if decision == 'STILL_OPEN':
             await self.followup_service.mark_required_from_review(resolved, source=source)
+        if decision == 'COMPLETED' and self.deep_path_service is not None:
+            await self.deep_path_service.process_after_review(
+                resolved,
+                document_analysis_payload=document_analysis_payload,
+            )
 
         return resolved
 

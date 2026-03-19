@@ -53,3 +53,25 @@ class AuditService:
 
     async def case_ids(self, limit: int = 200) -> list[str]:
         return await self.repository.list_case_ids(limit=limit)
+
+    async def verify_chain(self) -> dict:
+        """Verify hash-chain integrity across all audit records.
+
+        Returns {valid, entries_checked, first_broken_at (id or None)}.
+        """
+        rows = await self.repository.list_all_ordered()
+        prev_hash: str | None = None
+        for row_id, stored_prev, stored_hash in rows:
+            if stored_prev != prev_hash:
+                return {
+                    'valid': False,
+                    'entries_checked': row_id,
+                    'first_broken_at': row_id,
+                    'reason': f'previous_hash mismatch at id={row_id}',
+                }
+            prev_hash = stored_hash
+        return {
+            'valid': True,
+            'entries_checked': len(rows),
+            'first_broken_at': None,
+        }

@@ -259,6 +259,7 @@ class TelegramDocumentAnalystContextRecord(BaseModel):
     document_context_link_confidence: Literal['LOW', 'MEDIUM']
     document_context_link_reason: str | None = None
     operator_confirmation_required: bool = True
+    source_channel: Literal['TELEGRAM', 'EMAIL', 'MANUAL'] = 'TELEGRAM'
     storage_path: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -357,6 +358,68 @@ class TelegramDocumentAnalystFollowupRecord(BaseModel):
     data_request_question: str | None = None
     withdraw_reason: str | None = None
     internal_takeover_reason: str | None = None
+    actor: str | None = None
+    note: str | None = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TelegramDocumentAnalystOcrRecheckRecord(BaseModel):
+    ocr_recheck_ref: str
+    review_ref: str
+    source_case_id: str
+    target_case_id: str
+    telegram_document_ref: str
+    ocr_recheck_status: Literal[
+        'DOCUMENT_ANALYST_OCR_RECHECK_REQUESTED',
+        'DOCUMENT_ANALYST_OCR_RECHECK_RUNNING',
+        'DOCUMENT_ANALYST_OCR_RECHECK_COMPLETED',
+        'DOCUMENT_ANALYST_OCR_RECHECK_FAILED',
+    ]
+    force_ocr: bool = True
+    recheck_output_status: str | None = None
+    recheck_open_item_id: str | None = None
+    actor: str | None = None
+    note: str | None = None
+    error: str | None = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TelegramDocumentAnalystDeepPathRecord(BaseModel):
+    deep_path_ref: str
+    review_ref: str
+    source_case_id: str
+    target_case_id: str
+    telegram_document_ref: str
+    deep_path_status: Literal[
+        'DOCUMENT_ANALYST_DEEP_PATH_READY',
+        'DOCUMENT_ANALYST_DEEP_PATH_TRIGGERED',
+        'DOCUMENT_ANALYST_DEEP_PATH_COMPLETED',
+    ]
+    propose_only: bool = True
+    document_type: str | None = None
+    booking_proposal: dict | None = None
+    booking_open_item_id: str | None = None
+    note: str | None = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TelegramDocumentAnalystMergeCandidateRecord(BaseModel):
+    merge_ref: str
+    start_ref: str
+    source_case_id: str
+    target_case_id: str
+    telegram_document_ref: str
+    candidate_case_id: str | None = None
+    confidence_score: float = 0.0
+    match_reasons: list[str] = Field(default_factory=list)
+    merge_status: Literal[
+        'DOCUMENT_ANALYST_MERGE_CANDIDATE_FOUND',
+        'DOCUMENT_ANALYST_MERGE_CONFIRMED',
+        'DOCUMENT_ANALYST_MERGE_REJECTED',
+    ]
     actor: str | None = None
     note: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

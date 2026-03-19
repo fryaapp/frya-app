@@ -1,0 +1,227 @@
+# document_workflows.yaml
+# Zentrale Konfiguration: Dokumenttyp → Agenten-Kette → Approval-Default
+# Pfad: app/data/rules/document_workflows.yaml
+# Änderbar ohne Code-Deployment.
+#
+# ZUORDNUNGSLOGIK (CaseEngine):
+# Jedes neue Dokument durchläuft den CaseEngine-Zuordnungsalgorithmus:
+#   Schicht 1: Hard Reference Match (Rechnungsnr, Aktenzeichen) → CERTAIN
+#   Schicht 2: Entity + Amount + Date Match → HIGH
+#   Schicht 3: Cluster-Heuristik (Gläubiger + Betrag + Zeitfenster) → MEDIUM
+#   Schicht 4: LLM-Inferenz (nur V2, max MEDIUM)
+#   Kein Match: Neuer Case (DRAFT)
+#   Mehrere Matches: CaseConflict → Operator-Eskalation
+# NACH der Zuordnung läuft die unten definierte Agenten-Kette.
+
+document_types:
+
+  incoming_invoice:
+    indicators:
+      keywords: ["Rechnung", "Invoice", "Rechnungsnummer", "Rechnungs-Nr", "Nettobetrag"]
+      has_amount: true
+      has_tax_info: true
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - accounting_analyst
+      - risk_consistency
+      - deadline_analyst
+      - communicator
+    approval_default: PROPOSE_ONLY
+    auto_conditions:
+      recurring_vendor: true
+      confidence_gte: 0.85
+      no_anomaly_flag: true
+      no_case_conflict: true
+    case_type: incoming_invoice
+    priority: NORMAL
+
+  outgoing_invoice:
+    indicators:
+      keywords: ["Ausgangsrechnung", "Rechnungsstellung"]
+      source: operator_request
+    chain:
+      - communicator
+      - accounting_analyst
+      - risk_consistency
+      - case_engine_assign
+      - deadline_analyst
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: outgoing_invoice
+    priority: NORMAL
+
+  dunning_incoming:
+    indicators:
+      keywords: ["Mahnung", "Zahlungserinnerung", "letzte Aufforderung", "Mahngebühr"]
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - deadline_analyst
+      - risk_consistency
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: incoming_invoice
+    priority: HIGH
+
+  dunning_outgoing:
+    indicators:
+      trigger: n8n_cron
+    chain:
+      - accounting_analyst
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: outgoing_invoice
+    priority: HIGH
+
+  contract:
+    indicators:
+      keywords: ["Vertrag", "Vereinbarung", "Laufzeit", "Kündigungsfrist"]
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - deadline_analyst
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: contract
+    priority: NORMAL
+
+  notice:
+    indicators:
+      keywords: ["Bescheid", "Finanzamt", "Einspruch", "Festsetzung", "Steuerbescheid"]
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - deadline_analyst
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: notice
+    priority: CRITICAL
+
+  tax_document:
+    indicators:
+      keywords: ["Steuererklärung", "Voranmeldung", "USt-Voranmeldung", "Lohnsteuer"]
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - deadline_analyst
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: tax_document
+    priority: HIGH
+
+  bank_statement:
+    indicators:
+      keywords: ["Kontoauszug", "Kontostand", "Buchungstag", "Saldo"]
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - accounting_analyst
+      - communicator
+    approval_default: PROPOSE_ONLY
+    auto_conditions:
+      confidence_gte: 0.90
+      no_anomaly_flag: true
+    case_type: bank_statement
+    priority: NORMAL
+
+  receipt:
+    indicators:
+      keywords: ["Quittung", "Kassenbon", "Beleg", "Barverkauf"]
+      has_amount: true
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - accounting_analyst
+      - communicator
+    approval_default: PROPOSE_ONLY
+    auto_conditions:
+      confidence_gte: 0.85
+      amount_below: 250.00
+      no_anomaly_flag: true
+    case_type: receipt
+    priority: LOW
+
+  salary:
+    indicators:
+      keywords: ["Gehaltsabrechnung", "Lohnabrechnung", "Brutto", "Netto", "Arbeitgeber"]
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - accounting_analyst
+      - communicator
+    approval_default: PROPOSE_ONLY
+    auto_conditions:
+      recurring_vendor: true
+      confidence_gte: 0.85
+    case_type: salary
+    priority: NORMAL
+
+  insurance:
+    indicators:
+      keywords: ["Versicherung", "Police", "Versicherungsschein", "Beitrag", "Prämie"]
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - deadline_analyst
+      - accounting_analyst
+      - communicator
+    approval_default: PROPOSE_ONLY
+    auto_conditions:
+      recurring_vendor: true
+      confidence_gte: 0.85
+    case_type: insurance
+    priority: NORMAL
+
+  correspondence:
+    indicators:
+      keywords: ["Sehr geehrte", "Schreiben", "Mitteilung"]
+      fallback: true
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: correspondence
+    priority: LOW
+
+  other:
+    indicators:
+      fallback: true
+    chain:
+      - doc_analyst_ocr
+      - doc_analyst_semantic
+      - case_engine_assign
+      - communicator
+    approval_default: REQUIRE_USER_APPROVAL
+    auto_conditions: {}
+    case_type: other
+    priority: LOW
+
+# Globale Regeln
+global_rules:
+  case_assignment_position: after_doc_analyst_semantic
+  confidence_escalation:
+    below_0_45: BLOCK_ESCALATE
+    below_0_75: +1_stufe
+  anomaly_escalation: +1_stufe
+  case_conflict_escalation: REQUIRE_USER_APPROVAL
+  llm_assignment_confidence_cap: MEDIUM
+  closed_case_match: reopen_and_notify

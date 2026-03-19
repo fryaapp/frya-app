@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Vorgaenge <span class="en-hint">(CaseEngine)</span></h1>
+<p class="page-lead">Strukturierte Vorgaenge — Rechnungen, Vertraege, Mahnungen und mehr.</p>
+
+{% if msg %}
+<div class="flash-msg">{{ msg }}</div>
+{% endif %}
+
+<!-- ── Zusammenfassung ──────────────────────────────────────────────── -->
+<section>
+  <div class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Gesamt</p>
+      <p class="summary-value">{{ rows | length }}</p>
+    </article>
+    <article class="summary-card status-overdue-card">
+      <p class="summary-label">Ueberfaellig</p>
+      <p class="summary-value">{{ rows | selectattr('case.status', 'eq', 'OVERDUE') | list | length }}</p>
+    </article>
+    <article class="summary-card status-open-card">
+      <p class="summary-label">Offen</p>
+      <p class="summary-value">{{ rows | selectattr('case.status', 'eq', 'OPEN') | list | length }}</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Entwurf</p>
+      <p class="summary-value">{{ rows | selectattr('case.status', 'eq', 'DRAFT') | list | length }}</p>
+    </article>
+  </div>
+</section>
+
+<!-- ── Filter ───────────────────────────────────────────────────────── -->
+<section class="filter-panel">
+  <div class="section-head">
+    <h2>Filter</h2>
+    <a class="inline-link" href="/ui/vorgaenge{% if tenant_id %}?tenant_id={{ tenant_id }}{% endif %}">Reset</a>
+  </div>
+  <form method="get" class="filters">
+    {% if tenant_id %}<input type="hidden" name="tenant_id" value="{{ tenant_id }}" />{% endif %}
+    <label>Status
+      <select name="status">
+        <option value="">Alle</option>
+        {% for s in all_statuses %}
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Typ
+      <select name="case_type">
+        <option value="">Alle</option>
+        {% for t in all_types %}
+        <option value="{{ t }}" {% if t == selected_type %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Suche
+      <input type="text" name="q" value="{{ query or '' }}" placeholder="Vendor / Case-Nr" />
+    </label>
+    <button type="submit">Anwenden</button>
+  </form>
+</section>
+
+<!-- ── Tabelle ──────────────────────────────────────────────────────── -->
+<section>
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>Nr.</th>
+        <th>Typ</th>
+        <th>Vendor</th>
+        <th>Betrag</th>
+        <th>Status</th>
+        <th>Faellig <span class="en-hint">(Due)</span></th>
+        <th>Docs</th>
+        <th>Konflikte</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><a href="/ui/vorgaenge/{{ row.case.id }}{% if tenant_id %}?tenant_id={{ tenant_id }}{% endif %}">{{ row.case.case_number or row.case.id[:8] }}</a></td>
+      <td><code>{{ row.case.case_type }}</code></td>
+      <td>{{ row.case.vendor_name or '—' }}</td>
+      <td>{% if row.case.total_amount %}{{ row.case.total_amount }} {{ row.case.currency }}{% else %}—{% endif %}</td>
+      <td>
+        {% if row.case.status == 'OVERDUE' %}<span class="hint-badge" style="background:#fca5a5;color:#7f1d1d">OVERDUE</span>
+        {% elif row.case.status == 'OPEN' %}<span class="hint-badge" style="background:#fde68a;color:#78350f">OPEN</span>
+        {% elif row.case.status == 'PAID' %}<span class="hint-badge" style="background:#bbf7d0;color:#14532d">PAID</span>
+        {% elif row.case.status == 'CLOSED' %}<span class="hint-badge" style="background:#4ade80;color:#14532d">CLOSED</span>
+        {% elif row.case.status == 'MERGED' %}<span class="hint-badge" style="background:#e2e8f0;color:#334155">MERGED</span>
+        {% elif row.case.status == 'DISCARDED' %}<span class="hint-badge" style="background:#e5e7eb;color:#374151">DISCARDED</span>
+        {% else %}<span class="hint-badge" style="background:#f3f4f6;color:#6b7280">{{ row.case.status }}</span>
+        {% endif %}
+      </td>
+      <td>{{ row.case.due_date or '—' }}</td>
+      <td>{{ row.doc_count }}</td>
+      <td>{% if row.conflict_count > 0 %}<span class="hint-badge" style="background:#fca5a5;color:#7f1d1d">{{ row.conflict_count }}</span>{% else %}0{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">Keine Vorgaenge vorhanden.{% if not tenant_id %} Bitte <code>?tenant_id=&lt;UUID&gt;</code> in der URL angeben.{% endif %}</p>
+  {% endif %}
+</section>
+
+<!-- ── Neuer Vorgang ─────────────────────────────────────────────────── -->
+<section>
+  <div class="section-head">
+    <h2>Neuer Vorgang <span class="en-hint">(Create)</span></h2>
+  </div>
+  <form method="post" action="/ui/vorgaenge" class="form-inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+    <label>Tenant-ID
+      <input type="text" name="tenant_id" value="{{ tenant_id or '' }}" placeholder="UUID" required />
+    </label>
+    <label>Typ
+      <select name="case_type" required>
+        {% for t in all_types %}
+        <option value="{{ t }}">{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Titel
+      <input type="text" name="title" placeholder="optional" />
+    </label>
+    <label>Vendor
+      <input type="text" name="vendor_name" placeholder="optional" />
+    </label>
+    <label>Betrag
+      <input type="number" name="total_amount" step="0.01" placeholder="0.00" />
+    </label>
+    <label>Faellig
+      <input type="date" name="due_date" />
+    </label>
+    <button type="submit">Anlegen</button>
+  </form>
+</section>
+
+{% endblock %}

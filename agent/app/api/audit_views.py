@@ -35,3 +35,15 @@ async def audit_json(
 ) -> list[dict]:
     records = await (audit_service.by_case(case_id, limit=500) if case_id else audit_service.recent(limit=200))
     return [r.model_dump() for r in records]
+
+
+@router.get('/verify-chain')
+async def verify_chain(
+    audit_service: AuditService = Depends(get_audit_service),
+) -> dict:
+    """GoBD-Compliance: verify hash-chain integrity across all audit records.
+
+    Returns valid=true if every record's previous_hash matches
+    the record_hash of its predecessor (append-only guarantee).
+    """
+    return await audit_service.verify_chain()

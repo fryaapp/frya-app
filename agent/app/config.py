@@ -55,6 +55,29 @@ class Settings(BaseSettings):
     auth_cookie_domain: str | None = None
     auth_csrf_header: str = 'x-frya-csrf-token'
 
+    config_encryption_key: str | None = None
+
+    mailgun_webhook_signing_key: str = ''
+
+    # Frya-Mailgun fallback for system mails (password reset, invitations)
+    mailgun_api_key: str | None = None
+    mailgun_domain: str | None = None
+    mailgun_from: str = 'noreply@frya.app'
+
+    # Base URL shown in password-reset links (e.g. https://app.myfrya.de)
+    app_base_url: str = 'http://localhost:8001'
+
+    # Mail provider switch: 'brevo' | 'mailgun' (default)
+    # Set FRYA_MAIL_PROVIDER=brevo to route system mails via Brevo API v3
+    mail_provider: str = 'mailgun'
+    brevo_api_key: str | None = None
+
+    # CaseEngine: default tenant for single-tenant deployments.
+    # Used when no tenant_id is present in request context.
+    # Set to the UUID of the tenant in frya_tenants, or leave empty to
+    # use the first active tenant from the DB.
+    default_tenant_id: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

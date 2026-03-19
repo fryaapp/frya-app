@@ -15,6 +15,26 @@ ROLE_LEVEL = {
 }
 
 
+async def _resolve_db_user(payload: dict[str, Any]) -> 'AuthUser | None':
+    """Try to resolve a session user from the DB (for invite-created users)."""
+    try:
+        from app.auth.models import RoleName
+        from app.dependencies import get_user_repository
+        username = payload.get('username')
+        role = payload.get('role')
+        if not username or not role:
+            return None
+        repo = get_user_repository()
+        record = await repo.find_by_username(username)
+        if record is None or not record.is_active:
+            return None
+        if record.role != role:
+            return None
+        return AuthUser(username=record.username, role=record.role)  # type: ignore[arg-type]
+    except Exception:
+        return None
+
+
 def _is_ui_request(request: Request) -> bool:
     return request.url.path.startswith('/ui')
 
@@ -49,6 +69,25 @@ def _enforce_idle_timeout(request: Request) -> None:
     request.session['auth_last_seen'] = now
 
 
+async def _enforce_session_version(request: Request, username: str) -> None:
+    """Reject sessions issued before a password reset (session_version mismatch)."""
+    session_ver = request.session.get('session_ver')
+    if session_ver is None:
+        # Old sessions without version are still accepted — no enforcement yet
+        return
+    try:
+        from app.dependencies import get_user_repository
+        repo = get_user_repository()
+        current_ver = await repo.get_session_version(username)
+        # current_ver == 1 means user is env-only (not in DB), always ok
+        if current_ver > 1 and int(session_ver) < current_ver:
+            request.session.clear()
+            _raise_unauthorized()
+    except Exception:
+        # Never block login due to DB errors in version check
+        pass
+
+
 async def get_optional_user(
     request: Request,
     auth_service: AuthService = Depends(get_auth_service),
@@ -59,10 +98,14 @@ async def get_optional_user(
 
     user = auth_service.resolve_session_user(payload)
     if user is None:
+        # Also try DB user — covers users created via invite
+        user = await _resolve_db_user(payload)
+    if user is None:
         request.session.clear()
         return None
 
     _enforce_idle_timeout(request)
+    await _enforce_session_version(request, user.username)
     request.state.auth_user = user
     return user
 
@@ -77,10 +120,13 @@ async def require_authenticated(
 
     user = auth_service.resolve_session_user(payload)
     if user is None:
+        user = await _resolve_db_user(payload)
+    if user is None:
         request.session.clear()
         _raise_unauthorized()
 
     _enforce_idle_timeout(request)
+    await _enforce_session_version(request, user.username)
     request.state.auth_user = user
     return user
 

@@ -38,6 +38,9 @@ class CommunicatorTurn(BaseModel):
     response_type: str
     context_resolution: CommunicatorContextResolution | None = None
     memory_types_used: list[str] = Field(default_factory=list)
+    llm_called: bool = False
+    model_used: str | None = None
+    response_source: str = 'TEMPLATE'  # LLM / TEMPLATE / FALLBACK / GUARDRAIL
 
 
 class CommunicatorResult(BaseModel):

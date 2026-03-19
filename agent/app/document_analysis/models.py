@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 FieldStatus = Literal['FOUND', 'MISSING', 'UNCERTAIN', 'CONFLICT']
 SourceKind = Literal['OCR_TEXT', 'PAPERLESS_METADATA', 'PREVIEW_TEXT', 'CASE_CONTEXT', 'DERIVED', 'NONE']
-DocumentTypeValue = Literal['INVOICE', 'REMINDER', 'LETTER', 'OTHER']
+DocumentTypeValue = Literal['INVOICE', 'REMINDER', 'LETTER', 'CONTRACT', 'NOTICE', 'TAX_DOCUMENT', 'RECEIPT', 'BANK_STATEMENT', 'SALARY', 'INSURANCE', 'DUNNING', 'CORRESPONDENCE', 'OTHER']
 AnalysisDecision = Literal['ANALYZED', 'INCOMPLETE', 'LOW_CONFIDENCE', 'CONFLICT']
 RecommendedNextStep = Literal['ACCOUNTING_REVIEW', 'HUMAN_REVIEW', 'OCR_RECHECK', 'GENERAL_REVIEW']
 RiskSeverity = Literal['INFO', 'WARNING', 'HIGH']

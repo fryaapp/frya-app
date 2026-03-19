@@ -9,11 +9,14 @@
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from litellm import acompletion
+
+_LLM_TIMEOUT = float(os.environ.get('FRYA_LLM_TIMEOUT', '120'))
 
 from app.case_engine.models import CaseRecord
 from app.case_engine.repository import CaseRepository
@@ -231,19 +234,30 @@ class DeadlineAnalystService:
         due_soon: list[DeadlineCheck],
         skonto_expiring: list[DeadlineCheck],
     ) -> str:
+        _system = (
+            'Du bist der Frist-Analyst von FRYA. Deine Aufgabe: Fristen und Termine in Dokumenten '
+            'und Vorgängen erkennen, überwachen und rechtzeitig warnen. '
+            'Antworte NUR mit reinem deutschen Text, ohne JSON, ohne Markdown, ohne Aufzählung. '
+            'Einspruchsfristen (OBJECTION) sind IMMER CRITICAL. '
+            'Skonto-Fristen sind HIGH — Geld sparen ist wichtig.'
+        )
         prompt = (
-            'Erstelle eine kurze deutsche Zusammenfassung (max 2 Saetze) der Fristensituation:\n'
-            f'- Ueberfaellig: {len(overdue)} Faelle\n'
-            f'- Heute faellig: {len(due_today)} Faelle\n'
-            f'- Diese Woche faellig: {len(due_soon)} Faelle\n'
-            f'- Skonto laeuft ab: {len(skonto_expiring)} Faelle\n'
-            'Antworte mit reinem Text, ohne Aufzaehlung, ohne Markdown.'
+            'Erstelle eine kurze deutsche Zusammenfassung (max 2 Sätze) der Fristensituation:\n'
+            f'- Überfällig: {len(overdue)} Fälle\n'
+            f'- Heute fällig: {len(due_today)} Fälle\n'
+            f'- Diese Woche fällig: {len(due_soon)} Fälle\n'
+            f'- Skonto läuft ab: {len(skonto_expiring)} Fälle\n'
+            'Antworte mit reinem Text, ohne Aufzählung, ohne Markdown.'
         )
         call_kwargs: dict = {
             'model': self._model,
-            'messages': [{'role': 'user', 'content': prompt}],
+            'messages': [
+                {'role': 'system', 'content': _system},
+                {'role': 'user', 'content': prompt},
+            ],
             'max_tokens': 150,
             'temperature': 0.3,
+            'timeout': _LLM_TIMEOUT,
         }
         if self._api_key:
             call_kwargs['api_key'] = self._api_key
