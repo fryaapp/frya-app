@@ -1,10 +1,9 @@
-/* agent_config.js — CSP-compliant (no inline scripts) */
+/* agent_config.js — CSP-compliant, single-dropdown model selection */
 (function () {
   'use strict';
 
   var CSRF = document.querySelector('meta[name="csrf-token"]').content;
   var HDR = {'Content-Type': 'application/json', 'X-Frya-Csrf-Token': CSRF};
-  var IONOS_BASE_URL = 'https://openai.inference.de-txl.ionos.com/v1';
 
   function getCard(el) {
     return el.closest('.agent-card');
@@ -14,19 +13,22 @@
     return card.getAttribute('data-agent-id');
   }
 
-  /* Provider change — auto-fill IONOS base URL */
-  function onProviderChange(selectEl) {
+  /* Model dropdown change — show/hide custom fields, update hidden inputs */
+  function onModelSelectChange(selectEl) {
     var card = getCard(selectEl);
-    var baseUrlInput = card.querySelector('.cfg-base-url');
-    var modelInput = card.querySelector('.cfg-model');
-    if (selectEl.value === 'ionos') {
-      if (!baseUrlInput.value) {
-        baseUrlInput.value = IONOS_BASE_URL;
-      }
-      modelInput.placeholder = 'z.B. meta-llama/Llama-3.3-70B-Instruct';
-    } else if (baseUrlInput.value === IONOS_BASE_URL) {
-      baseUrlInput.value = '';
-      modelInput.placeholder = 'z.B. gpt-4o-mini';
+    var customFields = card.querySelector('.custom-fields');
+    var hiddenProvider = card.querySelector('input[type="hidden"].cfg-provider');
+    var hiddenModel = card.querySelector('input[type="hidden"].cfg-model');
+    var hiddenBaseUrl = card.querySelector('input[type="hidden"].cfg-base-url');
+    var opt = selectEl.options[selectEl.selectedIndex];
+
+    if (selectEl.value === 'custom') {
+      customFields.style.display = 'block';
+    } else {
+      customFields.style.display = 'none';
+      if (hiddenProvider) hiddenProvider.value = opt.getAttribute('data-provider') || '';
+      if (hiddenModel) hiddenModel.value = opt.getAttribute('data-model') || '';
+      if (hiddenBaseUrl) hiddenBaseUrl.value = opt.getAttribute('data-base-url') || '';
     }
   }
 
@@ -37,12 +39,24 @@
     btn.disabled = true;
     btn.textContent = '...';
     try {
-      var body = {
-        provider: card.querySelector('.cfg-provider').value,
-        model: card.querySelector('.cfg-model').value,
-        api_key: card.querySelector('.cfg-api-key').value,
-        base_url: card.querySelector('.cfg-base-url').value,
-      };
+      var selectEl = card.querySelector('.cfg-model-select');
+      var isCustom = selectEl && selectEl.value === 'custom';
+      var provider, model, base_url, api_key;
+
+      if (isCustom) {
+        var cf = card.querySelector('.custom-fields');
+        provider = cf.querySelector('.cfg-provider').value;
+        model = cf.querySelector('.cfg-model').value;
+        base_url = cf.querySelector('.cfg-base-url').value;
+        api_key = cf.querySelector('.cfg-api-key').value;
+      } else {
+        provider = card.querySelector('input[type="hidden"].cfg-provider').value;
+        model = card.querySelector('input[type="hidden"].cfg-model').value;
+        base_url = card.querySelector('input[type="hidden"].cfg-base-url').value;
+        api_key = '';
+      }
+
+      var body = {provider: provider, model: model, base_url: base_url, api_key: api_key};
       var resp = await fetch('/api/agent-config/' + agentId, {
         method: 'POST', headers: HDR, body: JSON.stringify(body),
       });
@@ -52,9 +66,12 @@
         return;
       }
       btn.textContent = 'Gespeichert!';
-      if (data.api_key_set) {
-        card.querySelector('.cfg-api-key').placeholder = '(gesetzt)';
-        card.querySelector('.cfg-api-key').value = '';
+      if (data.api_key_set && isCustom) {
+        var keyInput = card.querySelector('.custom-fields .cfg-api-key');
+        if (keyInput) {
+          keyInput.placeholder = '(gesetzt)';
+          keyInput.value = '';
+        }
       }
     } catch (e) {
       alert('Netzwerkfehler: ' + e);
@@ -86,7 +103,8 @@
       }
       if (data.status.startsWith('ok')) {
         badge.className = 'state-badge state-ok';
-        badge.textContent = 'Aktiv \u2014 ' + card.querySelector('.cfg-model').value;
+        var modelName = card.querySelector('input[type="hidden"].cfg-model');
+        badge.textContent = 'Aktiv \u2014 ' + (modelName ? modelName.value : '');
       } else {
         badge.className = 'state-badge state-error';
         badge.textContent = 'Fehler';
@@ -114,8 +132,8 @@
   });
 
   document.addEventListener('change', function (e) {
-    if (e.target.classList.contains('cfg-provider')) {
-      onProviderChange(e.target);
+    if (e.target.classList.contains('cfg-model-select')) {
+      onModelSelectChange(e.target);
     }
   });
 })();

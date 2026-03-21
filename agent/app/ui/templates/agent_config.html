@@ -37,40 +37,37 @@
   </div>
   {% else %}
 
-  <label>Provider
-    <select class="cfg-provider">
-      <option value="anthropic" {% if agent.provider == 'anthropic' %}selected{% endif %}>anthropic</option>
-      <option value="openai" {% if agent.provider == 'openai' %}selected{% endif %}>openai</option>
-      <option value="ionos" {% if agent.provider == 'ionos' %}selected{% endif %}>IONOS AI Hub</option>
-      <option value="bedrock" {% if agent.provider == 'bedrock' %}selected{% endif %}>AWS Bedrock</option>
-      <option value="ollama" {% if agent.provider == 'ollama' %}selected{% endif %}>ollama</option>
-      <option value="custom" {% if agent.provider == 'custom' %}selected{% endif %}>custom</option>
+  <label>Modell
+    <select class="cfg-model-select">
+      {% for m in model_catalog %}
+      <option value="{{ m.id }}"
+              data-provider="{{ m.provider }}"
+              data-model="{{ m.model }}"
+              data-base-url="{{ m.base_url }}"
+              {% if m.provider == agent.provider and m.model == agent.model %}selected{% endif %}>
+        {{ m.label }}
+      </option>
+      {% endfor %}
     </select>
   </label>
 
-  <label>Modell
-    <input type="text" class="cfg-model" value="{{ agent.model }}"
-           placeholder="z.B. gpt-4o-mini"
-           list="ionos-models-{{ agent.agent_id }}" />
-    <datalist id="ionos-models-{{ agent.agent_id }}">
-      <option value="meta-llama/Meta-Llama-3.1-405B-Instruct-FP8">
-      <option value="meta-llama/Llama-3.3-70B-Instruct">
-      <option value="meta-llama/Meta-Llama-3.1-8B-Instruct">
-      <option value="mistralai/Mistral-Small-24B-Instruct">
-      <option value="mistralai/Mistral-Nemo-Instruct-2407">
-      <option value="openai/gpt-oss-120b">
-      <option value="lightonai/LightOnOCR-2-1B">
-      <option value="openGPT-X/Teuken-7B-instruct-commercial">
-    </datalist>
-  </label>
-
-  <label>API-Key
-    <input type="password" class="cfg-api-key" value="" placeholder="{% if agent.api_key_set %}(gesetzt){% else %}(leer){% endif %}" />
-  </label>
-
-  <label>Base-URL <span class="en-hint">(optional)</span>
-    <input type="text" class="cfg-base-url" value="{{ agent.base_url or '' }}" placeholder="https://..." />
-  </label>
+  <div class="custom-fields" style="display:none;">
+    <label>Provider
+      <input type="text" class="cfg-provider" value="{{ agent.provider or '' }}" autocomplete="off" />
+    </label>
+    <label>Modell-ID
+      <input type="text" class="cfg-model" value="{{ agent.model }}" autocomplete="off" />
+    </label>
+    <label>Base-URL
+      <input type="text" class="cfg-base-url" value="{{ agent.base_url or '' }}" placeholder="https://..." autocomplete="off" />
+    </label>
+    <label>API-Key
+      <input type="text" class="cfg-api-key" value="" placeholder="{% if agent.api_key_set %}(gesetzt){% else %}(leer){% endif %}" autocomplete="new-password" />
+    </label>
+  </div>
+  <input type="hidden" class="cfg-provider" value="{{ agent.provider or '' }}" />
+  <input type="hidden" class="cfg-model" value="{{ agent.model }}" />
+  <input type="hidden" class="cfg-base-url" value="{{ agent.base_url or '' }}" />
 
   <div class="card-actions">
     <button class="btn btn-save" data-action="save">Speichern</button>

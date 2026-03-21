@@ -21,6 +21,20 @@ router = APIRouter(tags=['agent-config'])
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / 'ui' / 'templates'))
 
+IONOS_BASE_URL = 'https://openai.inference.de-txl.ionos.com/v1'
+
+MODEL_CATALOG: list[dict] = [
+    {'id': 'ionos/meta-llama/Meta-Llama-3.1-405B-Instruct-FP8', 'label': 'IONOS \u2014 Llama 3.1 405B (FP8)', 'provider': 'ionos', 'model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8', 'base_url': IONOS_BASE_URL},
+    {'id': 'ionos/meta-llama/Llama-3.3-70B-Instruct', 'label': 'IONOS \u2014 Llama 3.3 70B', 'provider': 'ionos', 'model': 'meta-llama/Llama-3.3-70B-Instruct', 'base_url': IONOS_BASE_URL},
+    {'id': 'ionos/mistralai/Mistral-Small-24B-Instruct', 'label': 'IONOS \u2014 Mistral Small 24B', 'provider': 'ionos', 'model': 'mistralai/Mistral-Small-24B-Instruct', 'base_url': IONOS_BASE_URL},
+    {'id': 'ionos/openai/gpt-oss-120b', 'label': 'IONOS \u2014 GPT-OSS 120B', 'provider': 'ionos', 'model': 'openai/gpt-oss-120b', 'base_url': IONOS_BASE_URL},
+    {'id': 'ionos/lightonai/LightOnOCR-2-1B', 'label': 'IONOS \u2014 LightOn OCR-2 1B', 'provider': 'ionos', 'model': 'lightonai/LightOnOCR-2-1B', 'base_url': IONOS_BASE_URL},
+    {'id': 'anthropic/claude-sonnet-4-6', 'label': 'Anthropic \u2014 Claude Sonnet 4.6', 'provider': 'anthropic', 'model': 'claude-sonnet-4-6', 'base_url': ''},
+    {'id': 'custom', 'label': 'Eigenes Modell eingeben...', 'provider': '', 'model': '', 'base_url': ''},
+]
+
+_MODEL_CATALOG_BY_ID = {m['id']: m for m in MODEL_CATALOG}
+
 
 @router.get('/agent-config', response_class=HTMLResponse)
 async def agent_config_page(
@@ -60,6 +74,7 @@ async def agent_config_page(
             'auth_user': auth_user,
             'title': 'Agent-Konfiguration',
             'agents': agents,
+            'model_catalog': MODEL_CATALOG,
         },
     )
 

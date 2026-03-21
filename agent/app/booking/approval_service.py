@@ -141,6 +141,10 @@ def format_booking_proposal_message(
         elif ann.action_suggested == 'FLAG_FOR_TAX_ADVISOR':
             lines.append('Hab den Beleg für deinen Steuerberater markiert.')
 
+    # EU AI Act: KI-Transparenzhinweis
+    lines.append('')
+    lines.append('KI-generierter Vorschlag \u2014 bitte pruefen')
+
     return '\n'.join(lines)
 
 
