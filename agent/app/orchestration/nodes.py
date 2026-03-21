@@ -24,6 +24,7 @@ from app.dependencies import (
     get_paperless_connector,
     get_policy_access_layer,
     get_problem_case_service,
+    get_telegram_case_link_repository,
     get_telegram_connector,
 )
 from app.document_analysis.models import DocumentAnalysisInput, DocumentAnalysisResult
@@ -959,6 +960,22 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
                 if isinstance(_meta, dict) and _meta.get('telegram_chat_id'):
                     _chat_id = str(_meta['telegram_chat_id'])
                     break
+            # Fallback: case_id mismatch (doc-N vs tg-chat-msg).
+            # Look up frya_telegram_case_links for the originating Telegram case
+            # that linked to this document case (linked_case_id = review.case_id).
+            if not _chat_id:
+                try:
+                    _tg_link = await get_telegram_case_link_repository().find_latest_trackable_for_linked_case(review.case_id)
+                    if _tg_link is None:
+                        # Last resort: most-recent link record overall (single-user staging)
+                        _recent = await get_telegram_case_link_repository().list_recent(limit=1)
+                        _tg_link = _recent[0] if _recent else None
+                    if _tg_link and _tg_link.telegram_chat_ref:
+                        # telegram_chat_ref format: "tg-chat:{chat_id}"
+                        _ref = _tg_link.telegram_chat_ref
+                        _chat_id = _ref.split(':', 1)[1] if ':' in _ref else None
+                except Exception as _link_exc:
+                    _logger.warning('telegram_case_link fallback failed for case %s: %s', review.case_id, _link_exc)
             if _chat_id:
                 from app.connectors.contracts import NotificationMessage
                 _inline_keyboard = {
