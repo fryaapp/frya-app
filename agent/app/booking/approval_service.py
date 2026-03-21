@@ -127,6 +127,8 @@ def format_booking_proposal_message(
             lines.append('Achtung: Sieht nach einem Duplikat aus.')
         elif risk.code == 'TAX_PLAUSIBILITY':
             lines.append('Der Steuersatz kommt mir komisch vor.')
+        elif risk.code == 'TAX_DERIVED_FROM_GROSS':
+            lines.append('Hinweis: MwSt-Split nicht erkennbar — 19% aus Brutto abgeleitet.')
         elif risk.severity == 'HIGH':
             lines.append(f'Achtung: {risk.message}')
 

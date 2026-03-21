@@ -209,7 +209,7 @@ class DocumentAnalystSemanticService:
         effective_ocr = _inj.cleaned_text
 
         metadata = dict(payload.paperless_metadata or {})
-        truncated = effective_ocr[:4000]
+        truncated = effective_ocr[:8000]
         user_content = f'Dokumenttext:\n{truncated}'
         if metadata.get('title'):
             user_content = f'Titel: {metadata["title"]}\n\n{user_content}'

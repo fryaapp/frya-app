@@ -371,7 +371,7 @@ async def run_document_analyst(state: AgentState) -> AgentState:
                         model=f'openai/{_ocr_model}',
                         api_key=_ocr_api_key,
                         base_url=_ocr_base_url,
-                        max_pages=1,
+                        max_pages=3,
                     )
                     state['ocr_text'] = _ocr_text
                     _logger.info(
