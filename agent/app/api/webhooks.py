@@ -806,6 +806,113 @@ async def paperless_document_webhook(
     }
 
 
+async def _handle_telegram_callback_query(
+    callback_query: dict,
+    raw_payload: dict,
+    audit_service: AuditService,
+    telegram_connector: TelegramConnector,
+) -> dict:
+    """Handle Telegram inline keyboard callback_query (booking approval buttons).
+
+    callback_data format: "booking:{case_id}:approve|reject|correct|defer"
+    """
+    callback_id = callback_query.get('id', '')
+    callback_data = callback_query.get('data', '')
+    chat = (callback_query.get('message') or {}).get('chat') or {}
+    chat_id = str(chat.get('id', ''))
+    from_user = callback_query.get('from') or {}
+    update_id = raw_payload.get('update_id')
+
+    if not callback_data.startswith('booking:'):
+        # Unknown callback — ack and ignore
+        if callback_id and telegram_connector.bot_token:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=10) as _cl:
+                await _cl.post(
+                    f'https://api.telegram.org/bot{telegram_connector.bot_token}/answerCallbackQuery',
+                    json={'callback_query_id': callback_id},
+                )
+        return {'status': 'ignored', 'reason': 'unknown_callback_data'}
+
+    parts = callback_data.split(':')
+    if len(parts) < 3:
+        return {'status': 'ignored', 'reason': 'malformed_callback_data'}
+
+    case_id = parts[1]
+    action = parts[2].upper()  # APPROVE | REJECT | CORRECT | DEFER
+
+    await audit_service.log_event(
+        {
+            'event_id': str(uuid.uuid4()),
+            'case_id': case_id,
+            'source': 'telegram_callback',
+            'agent_name': 'frya-orchestrator',
+            'approval_status': 'NOT_REQUIRED',
+            'action': 'TELEGRAM_BOOKING_CALLBACK_RECEIVED',
+            'result': f'{action} from chat {chat_id}',
+            'llm_input': {
+                'callback_data': callback_data,
+                'update_id': update_id,
+                'sender_id': str(from_user.get('id', '')),
+            },
+        }
+    )
+
+    from app.booking.approval_service import BookingApprovalService
+    from app.dependencies import (
+        get_akaunting_connector,
+        get_approval_service as _get_approval_svc,
+        get_open_items_service as _get_oi_svc,
+    )
+
+    _approval_svc = _get_approval_svc()
+    # Look up the pending booking approval for this case
+    _pending = [
+        r for r in await _approval_svc.list_by_case(case_id)
+        if r.status == 'PENDING' and r.action_type == 'booking_finalize'
+    ]
+    if not _pending:
+        return {'status': 'not_found', 'case_id': case_id, 'reason': 'no_pending_booking_approval'}
+    _approval_id = _pending[0].approval_id
+
+    booking_svc = BookingApprovalService(
+        approval_service=_approval_svc,
+        open_items_service=_get_oi_svc(),
+        audit_service=audit_service,
+        akaunting_connector=get_akaunting_connector(),
+    )
+
+    result = await booking_svc.process_response(
+        case_id=case_id,
+        approval_id=_approval_id,
+        decision_raw=action,
+        decided_by=str(from_user.get('username') or from_user.get('id') or 'telegram_user'),
+        source='telegram_callback',
+    )
+
+    # Ack the callback so Telegram removes the loading spinner
+    if callback_id and telegram_connector.bot_token:
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=10) as _cl:
+            await _cl.post(
+                f'https://api.telegram.org/bot{telegram_connector.bot_token}/answerCallbackQuery',
+                json={'callback_query_id': callback_id},
+            )
+
+    # Send confirmation message to the user
+    if chat_id and telegram_connector.bot_token:
+        _ack_texts = {
+            'APPROVE': '✅ Buchung wurde freigegeben.',
+            'REJECT': '❌ Buchung wurde abgelehnt.',
+            'CORRECT': '✏️ Bitte schick mir die Korrektur als Nachricht.',
+            'DEFER': '⏸️ Buchung zurückgestellt. Du kannst sie später freigeben.',
+        }
+        _ack = _ack_texts.get(action, f'Aktion "{action}" verarbeitet.')
+        await telegram_connector.send(NotificationMessage(target=chat_id, text=_ack))
+
+    return {'status': 'processed', 'case_id': case_id, 'action': action, 'result': result}
+
+
 @router.post('/telegram')
 async def telegram_webhook(
     payload: dict,
@@ -827,6 +934,11 @@ async def telegram_webhook(
     email_intake_repository: Any = Depends(get_email_intake_repository),
     document_analyst_start_service: TelegramDocumentAnalystStartService = Depends(get_telegram_document_analyst_start_service),
 ) -> dict:
+    # ── Inline keyboard callback_query (booking approval buttons) ────────────
+    callback_query = payload.get('callback_query')
+    if isinstance(callback_query, dict):
+        return await _handle_telegram_callback_query(callback_query, payload, audit_service, telegram_connector)
+
     normalized = _normalize_telegram_update(payload)
     if normalized is None:
         ignored_case = f"tg-ignored-{payload.get('update_id', uuid.uuid4())}"

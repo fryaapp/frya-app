@@ -961,10 +961,23 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
                     break
             if _chat_id:
                 from app.connectors.contracts import NotificationMessage
+                _inline_keyboard = {
+                    'inline_keyboard': [
+                        [
+                            {'text': '✅ Buchen', 'callback_data': f'booking:{review.case_id}:approve'},
+                            {'text': '✏️ Korrigieren', 'callback_data': f'booking:{review.case_id}:correct'},
+                        ],
+                        [
+                            {'text': '❌ Ablehnen', 'callback_data': f'booking:{review.case_id}:reject'},
+                            {'text': '⏸️ Später', 'callback_data': f'booking:{review.case_id}:defer'},
+                        ],
+                    ]
+                }
                 await get_telegram_connector().send(
                     NotificationMessage(
                         target=_chat_id,
                         text=_proposal_text,
+                        reply_markup=_inline_keyboard,
                         metadata={
                             'case_id': review.case_id,
                             'approval_id': approval_id,

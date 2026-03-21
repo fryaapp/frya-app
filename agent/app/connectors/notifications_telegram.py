@@ -16,7 +16,9 @@ class TelegramConnector(NotificationConnector):
             return {'ok': False, 'reason': 'telegram_bot_token_missing'}
 
         url = f'https://api.telegram.org/bot{self.bot_token}/sendMessage'
-        payload = {'chat_id': message.target, 'text': message.text, 'disable_notification': disable_notification}
+        payload: dict = {'chat_id': message.target, 'text': message.text, 'disable_notification': disable_notification}
+        if message.reply_markup:
+            payload['reply_markup'] = message.reply_markup
 
         async with httpx.AsyncClient(timeout=20) as client:
             try:
