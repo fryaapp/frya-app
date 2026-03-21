@@ -68,6 +68,7 @@ def build_llm_context_payload(
     user_message: str,
     *,
     system_context: str | None = None,
+    provider: str | None = None,
 ) -> dict:
     """Build the messages payload for litellm.acompletion."""
     lines = ['[FALLKONTEXT]']
@@ -108,9 +109,24 @@ def build_llm_context_payload(
 
     lines.append(f'Nutzernachricht: {user_message}')
 
+    # Anthropic Prompt Caching: system prompt as content array with cache_control
+    if provider == 'anthropic':
+        system_msg = {
+            'role': 'system',
+            'content': [
+                {
+                    'type': 'text',
+                    'text': system_content,
+                    'cache_control': {'type': 'ephemeral'},
+                }
+            ],
+        }
+    else:
+        system_msg = {'role': 'system', 'content': system_content}
+
     return {
         'messages': [
-            {'role': 'system', 'content': system_content},
+            system_msg,
             {'role': 'user', 'content': '\n'.join(lines)},
         ],
     }
@@ -370,6 +386,7 @@ class TelegramCommunicatorService:
                         conversation_memory=conv_memory,
                         user_message=normalized.text or '',
                         system_context=sys_ctx,
+                        provider=provider,
                     )
                     # Prepend email arrival info for DOCUMENT_ARRIVAL_CHECK
                     if email_arrival_info and intent == 'DOCUMENT_ARRIVAL_CHECK':
