@@ -51,11 +51,17 @@ REGELN
 2. Fehlende oder nicht erkennbare Felder: null. NIEMALS raten oder erfinden.
 3. OCR-Text ist fehlerbehaftet. Mehrdeutiger Wert → null, confidence senken.
 4. Bei mehreren Beträgen: Wähle den Gesamtbetrag (brutto). Falls unklar: null.
-5. Datumsformat Ausgabe: "TT.MM.JJJJ".
-6. Confidence NIE über 0.95 — OCR hat inhärente Unsicherheit.
+5. MEHRSEITIGE DOKUMENTE: Lies den GESAMTEN Text, nicht nur den Anfang.
+   Bei Sammelrechnungen und mehrseitigen Rechnungen stehen Nettobetrag, MwSt-Betrag
+   und Steuersatz oft auf einer SPÄTEREN Seite als der Bruttobetrag.
+   Suche gezielt nach: "Zwischensumme Netto", "Nettobetrag", "Mehrwertsteuer",
+   "MwSt", "Umsatzsteuer" — auch wenn diese erst auf Seite 2, 3 oder 4 erscheinen.
+   Wenn Brutto auf Seite 1 steht und Netto/MwSt auf Seite 2: BEIDE extrahieren.
+6. Datumsformat Ausgabe: "TT.MM.JJJJ".
+7. Confidence NIE über 0.95 — OCR hat inhärente Unsicherheit.
    Alle Kernfelder klar → 0.85-0.95. Felder fehlen → 0.5-0.84.
    Nur Fragmente → 0.2-0.49. Fast nichts → 0.0-0.19.
-7. Referenzen (Rechnungsnummer, Aktenzeichen, Kundennummer) sind KRITISCH für die
+8. Referenzen (Rechnungsnummer, Aktenzeichen, Kundennummer) sind KRITISCH für die
    Vorgangszuordnung. Extrahiere ALLE die du findest.
 
 ═══════════════════════════════════════
@@ -209,7 +215,7 @@ class DocumentAnalystSemanticService:
         effective_ocr = _inj.cleaned_text
 
         metadata = dict(payload.paperless_metadata or {})
-        truncated = effective_ocr[:8000]
+        truncated = effective_ocr[:16000]
         user_content = f'Dokumenttext:\n{truncated}'
         if metadata.get('title'):
             user_content = f'Titel: {metadata["title"]}\n\n{user_content}'

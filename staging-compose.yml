@@ -27,7 +27,7 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: ./agent
       dockerfile: Dockerfile
     # Bootstrap admin: add these to your .env file to seed a permanent admin account on first start.
     # FRYA_INITIAL_ADMIN_USERNAME=admin
@@ -45,7 +45,7 @@ services:
       - traefik.http.routers.frya-backend-http.rule=Host(`api.staging.myfrya.de`)
       - traefik.http.routers.frya-backend-http.entrypoints=web
       - traefik.http.routers.frya-backend-http.middlewares=redirect-to-https@file
-      - traefik.http.services.frya-backend.loadbalancer.server.port=8000
+      - traefik.http.services.frya-backend.loadbalancer.server.port=8001
       - com.centurylinklabs.watchtower.enable=true
     restart: unless-stopped
     networks:
@@ -133,12 +133,14 @@ services:
       PAPERLESS_ADMIN_PASSWORD: ${STAGING_PAPERLESS_ADMIN_PASSWORD}
       PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
       PAPERLESS_CONSUMER_ENABLE_BARCODES: "true"
-      PAPERLESS_CONSUMER_BARCODE_SCANNER: ZXINGCPP
+      PAPERLESS_CONSUMER_BARCODE_SCANNER: ZXING
+      PAPERLESS_POST_CONSUME_SCRIPT: /usr/src/paperless/scripts/frya_webhook.sh
     volumes:
       - paperless_data:/usr/src/paperless/data
       - paperless_media:/usr/src/paperless/media
       - paperless_export:/usr/src/paperless/export
       - paperless_consume:/usr/src/paperless/consume
+      - /opt/dms-staging/scripts:/usr/src/paperless/scripts:ro
     networks:
       - frya-internal
     labels:
