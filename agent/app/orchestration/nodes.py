@@ -607,6 +607,57 @@ async def finalize_document_review(state: AgentState) -> AgentState:
         }
     )
 
+    # ── Annotation action handling (handwritten notes from Der Kopf) ──────────
+    for _ann in result.annotations:
+        if _ann.action_suggested == 'CHECK_PAYMENT_EXISTS':
+            await _ensure_case_open_item(
+                case_id,
+                title='Zahlungsvermerk pruefen',
+                description=(
+                    f'Handschriftlicher Zahlungsvermerk erkannt: "{_ann.raw_text}"\n'
+                    f'Interpretation: {_ann.interpreted}\n'
+                    f'Bitte pruefen ob Zahlungseingang in der Buchhaltung erfasst ist.'
+                ),
+                source='document_analyst_annotation',
+                desired_status='OPEN',
+                document_ref=document_ref,
+            )
+        elif _ann.action_suggested == 'FLAG_PROBLEM_CASE':
+            await _ensure_problem_case(
+                case_id,
+                title='Problemvermerk erkannt',
+                details=(
+                    f'Handschriftlicher Problemvermerk: "{_ann.raw_text}"\n'
+                    f'Interpretation: {_ann.interpreted}'
+                ),
+                document_ref=document_ref,
+            )
+        elif _ann.action_suggested == 'SUGGEST_ALLOCATION':
+            await _ensure_case_open_item(
+                case_id,
+                title='Kostenaufteilung pruefen',
+                description=(
+                    f'Zuordnungshinweis erkannt: "{_ann.raw_text}"\n'
+                    f'Interpretation: {_ann.interpreted}\n'
+                    f'Moegliche Aufteilung privat/betrieblich pruefen.'
+                ),
+                source='document_analyst_annotation',
+                desired_status='OPEN',
+                document_ref=document_ref,
+            )
+        elif _ann.action_suggested == 'FLAG_FOR_TAX_ADVISOR':
+            await get_audit_service().log_event({
+                'event_id': str(uuid.uuid4()),
+                'case_id': case_id,
+                'source': state.get('source', 'api'),
+                'document_ref': document_ref,
+                'agent_name': 'document-analyst',
+                'approval_status': 'NOT_REQUIRED',
+                'action': 'TAX_ADVISOR_FLAG_SET',
+                'result': f'Steuerberater-Vermerk: {_ann.interpreted}',
+                'llm_output': _ann.model_dump(mode='json'),
+            })
+
     # ── CaseEngine integration ─────────────────────────────────────────────────
     _tenant_raw = state.get('tenant_id') or (state.get('paperless_metadata') or {}).get('tenant_id')
     if _tenant_raw:

@@ -20,3 +20,22 @@ def clear_llm_config_cache():
             fn.cache_clear()
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def mock_paperless_upload(monkeypatch):
+    """Default: Paperless upload succeeds in tests unless overridden.
+
+    Tests that specifically test upload failure should override
+    PaperlessConnector.upload_document themselves (their monkeypatch runs after
+    this fixture and takes precedence).
+    """
+    from app.connectors.dms_paperless import PaperlessConnector
+
+    _call_count = [0]
+
+    async def _default_upload(self, file_bytes: bytes, filename: str, title: str | None = None):
+        _call_count[0] += 1
+        return {'task_id': f'test-task-{_call_count[0]:04d}'}
+
+    monkeypatch.setattr(PaperlessConnector, 'upload_document', _default_upload)

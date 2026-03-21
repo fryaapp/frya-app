@@ -25,6 +25,9 @@ _LLM_TIMEOUT = float(os.environ.get('FRYA_LLM_TIMEOUT', '120'))
 
 from app.document_analysis.models import (
     AnalysisDecision,
+    Annotation,
+    AnnotationAction,
+    AnnotationType,
     DetectedAmount,
     DocumentAnalysisInput,
     DocumentAnalysisResult,
@@ -95,8 +98,47 @@ OUTPUT
   "contract_end_date": "TT.MM.JJJJ oder null",
   "cancellation_period_days": Kündigungsfrist in Tagen oder null,
   "references": ["alle gefundenen Referenznummern als Array"],
-  "confidence": 0.0-0.95
-}"""
+  "confidence": 0.0-0.95,
+  "annotations": [
+    {
+      "type": "payment_note|status_note|problem_note|payment_method|correction_note|warning_note|allocation_note|tax_advisor_note|check_mark|date_note|unknown",
+      "raw_text": "exakter Text wie er im OCR vorkommt",
+      "interpreted": "deutsche Beschreibung was dieser Vermerk bedeutet",
+      "confidence": 0.5-0.95,
+      "action_suggested": "CHECK_PAYMENT_EXISTS|FLAG_PROBLEM_CASE|SUGGEST_ALLOCATION|FLAG_FOR_TAX_ADVISOR|NONE"
+    }
+  ]
+}
+
+═══════════════════════════════════════
+HANDSCHRIFTLICHE VERMERKE UND STEMPEL
+═══════════════════════════════════════
+
+Prüfe den OCR-Text auf handschriftliche Vermerke, Stempel oder Markierungen.
+Diese stehen oft am Rand, in Ecken, quer über dem Dokument, oder zwischen
+gedruckten Zeilen. Sie sind oft unvollständig, abgekürzt oder schlecht lesbar.
+
+Muster und ihre Bedeutungen:
+
+| Muster im OCR-Text | type | action_suggested |
+|---------------------|------|------------------|
+| "bezahlt", "bez.", "gezahlt", "beglichen" + Datum | payment_note | CHECK_PAYMENT_EXISTS |
+| "ERLEDIGT", "erled.", "DONE", "OK" | status_note | NONE |
+| "Reklamation", "Beschwerde", "MÄNGEL" | problem_note | FLAG_PROBLEM_CASE |
+| "per Nachnahme", "bar", "Überweisung" | payment_method | NONE |
+| Durchgestrichene Beträge (wirre Zeichen über/neben Zahlen) | correction_note | NONE |
+| "Achtung", "VORSICHT", "WICHTIG", "DRINGEND" | warning_note | NONE |
+| "privat", "betrieblich", "50/50", "anteilig" | allocation_note | SUGGEST_ALLOCATION |
+| "StB", "für Steuerberater", "Anlage" | tax_advisor_note | FLAG_FOR_TAX_ADVISOR |
+| Häkchen, Kreuze (✓, ✗, X) als OCR-Artefakte | check_mark | NONE |
+| Datums-Patterns ohne Kontext (3.5.25, 03/05, Mai 25) | date_note | NONE |
+
+Wenn OCR-Text und Handschrift-Vermerk widersprüchlich sind (z.B. Betrag 49,95 EUR
+aber Vermerk "45,00 bezahlt"), setze für das widersprüchliche Feld confidence -0.2
+und füge es zu "missing_fields" hinzu.
+
+Wenn kein handschriftlicher Vermerk erkennbar: "annotations": [] (leeres Array).
+Erfinde KEINE Vermerke. Nur was der OCR-Text hergibt."""
 
 
 class DocumentAnalystSemanticService:
@@ -178,7 +220,7 @@ class DocumentAnalystSemanticService:
                 {'role': 'system', 'content': _SYSTEM_PROMPT},
                 {'role': 'user', 'content': user_content},
             ],
-            'max_tokens': 512,
+            'max_tokens': 1024,
             'temperature': 0.0,
             'timeout': _LLM_TIMEOUT,
         }
@@ -363,6 +405,35 @@ class DocumentAnalystSemanticService:
                 except (InvalidOperation, ValueError):
                     pass
 
+        # ── Parse handwritten annotations (Der Kopf — Vermerke) ─────────────────
+        annotations: list[Annotation] = []
+        _valid_types: set[str] = {
+            'payment_note', 'status_note', 'problem_note', 'payment_method',
+            'correction_note', 'warning_note', 'allocation_note', 'tax_advisor_note',
+            'check_mark', 'date_note', 'unknown',
+        }
+        _valid_actions: set[str] = {
+            'CHECK_PAYMENT_EXISTS', 'FLAG_PROBLEM_CASE', 'SUGGEST_ALLOCATION',
+            'FLAG_FOR_TAX_ADVISOR', 'NONE',
+        }
+        for _ann in (data.get('annotations') or []):
+            if not isinstance(_ann, dict):
+                continue
+            _atype = str(_ann.get('type') or 'unknown').lower()
+            if _atype not in _valid_types:
+                _atype = 'unknown'
+            _action = str(_ann.get('action_suggested') or 'NONE').upper()
+            if _action not in _valid_actions:
+                _action = 'NONE'
+            _ann_conf = min(1.0, max(0.0, float(_ann.get('confidence') or 0.5)))
+            annotations.append(Annotation(
+                type=_atype,  # type: ignore[arg-type]
+                raw_text=str(_ann.get('raw_text') or ''),
+                interpreted=str(_ann.get('interpreted') or ''),
+                confidence=_ann_conf,
+                action_suggested=_action,  # type: ignore[arg-type]
+            ))
+
         # Reuse the regex service's risk/decision logic
         svc = self._fallback
         missing_fields = svc._missing_fields(
@@ -402,6 +473,7 @@ class DocumentAnalystSemanticService:
             due_date=due_date,
             references=references,
             risks=risks,
+            annotations=annotations,
             warnings=[],
             missing_fields=missing_fields,
             recommended_next_step=next_step,

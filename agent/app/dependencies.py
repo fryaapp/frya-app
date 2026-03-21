@@ -183,6 +183,7 @@ def get_telegram_media_ingress_service() -> TelegramMediaIngressService:
         max_bytes=settings.telegram_media_max_bytes,
         allowed_mime_types=allowed_mime_types,
         allowed_extensions=allowed_extensions,
+        paperless_connector=get_paperless_connector(),
     )
 
 

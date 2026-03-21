@@ -6,7 +6,10 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+import logging
+
 from app.audit.service import AuditService
+from app.connectors.dms_paperless import PaperlessConnector
 from app.memory.file_store import FileStore
 from app.open_items.service import OpenItemsService
 from app.telegram.models import (
@@ -20,6 +23,8 @@ from app.telegram.models import (
 from app.connectors.notifications_telegram import TelegramConnector
 from app.telegram.service import TelegramCaseLinkService
 
+logger = logging.getLogger(__name__)
+
 
 class TelegramMediaIngressService:
     def __init__(
@@ -32,6 +37,7 @@ class TelegramMediaIngressService:
         max_bytes: int,
         allowed_mime_types: set[str],
         allowed_extensions: set[str],
+        paperless_connector: PaperlessConnector | None = None,
     ) -> None:
         self.audit_service = audit_service
         self.open_items_service = open_items_service
@@ -41,6 +47,7 @@ class TelegramMediaIngressService:
         self.max_bytes = max_bytes
         self.allowed_mime_types = {x.lower() for x in allowed_mime_types if x}
         self.allowed_extensions = {x.lower() for x in allowed_extensions if x}
+        self.paperless_connector = paperless_connector
 
     async def handle_media_ingress(
         self,
@@ -204,6 +211,50 @@ class TelegramMediaIngressService:
             }
         )
         await self._log_media_event(case_id, self._event_name(attachment, 'STORED'), stored.model_dump(mode='json'))
+
+        # ── Upload to Paperless (Single Source of Truth) ──────────────────────
+        paperless_task_id: str | None = None
+        if self.paperless_connector is not None:
+            # Encode case_id in title so the post-consumption webhook can correlate
+            _pl_title = f'frya:{case_id}:{attachment.file_name or stored_relative_path}'
+            try:
+                _pl_result = await self.paperless_connector.upload_document(
+                    content,
+                    filename=attachment.file_name or Path(stored_relative_path).name,
+                    title=_pl_title,
+                )
+                paperless_task_id = _pl_result.get('task_id') if isinstance(_pl_result, dict) else str(_pl_result)
+                await self._log_media_event(
+                    case_id,
+                    self._event_name(attachment, 'UPLOADED_TO_PAPERLESS'),
+                    {
+                        **stored.model_dump(mode='json'),
+                        'paperless_task_id': paperless_task_id,
+                        'telegram_chat_id': normalized.actor.chat_id,
+                    },
+                )
+                logger.info('Telegram file %s uploaded to Paperless, task_id=%s', attachment.file_name, paperless_task_id)
+            except Exception as _pl_exc:
+                logger.warning('Paperless upload failed for %s: %s', attachment.file_name, _pl_exc)
+                await self._log_media_event(
+                    case_id,
+                    self._event_name(attachment, 'UPLOAD_FAILED'),
+                    {**stored.model_dump(mode='json'), 'error': str(_pl_exc)},
+                )
+                # Return error reply so the user knows — do not continue silently
+                return (
+                    self._rejected_route(
+                        case_id=case_id,
+                        thread_ref=thread_ref,
+                        status='DOCUMENT_UPLOAD_FAILED' if attachment.media_kind == 'document' else 'MEDIA_UPLOAD_FAILED',
+                        label='Verarbeitung fehlgeschlagen',
+                        detail='Beleg konnte nicht an das Dokumentenmanagementsystem übergeben werden.',
+                        next_step='Versuch es nochmal.',
+                        attachment=attachment,
+                    ),
+                    'FRYA: Konnte den Beleg nicht verarbeiten — versuch\'s nochmal.',
+                    {'status': 'UPLOAD_FAILED', 'intent': 'media.ingress', 'error': str(_pl_exc)},
+                )
 
         context_case_link = await self.telegram_case_link_service.latest_trackable_for_message(
             normalized,
@@ -556,6 +607,8 @@ class TelegramMediaIngressService:
             'DOCUMENT_TOO_LARGE': 'ACK_DOCUMENT_TOO_LARGE',
             'DOCUMENT_UNSUPPORTED': 'ACK_DOCUMENT_UNSUPPORTED',
             'DOCUMENT_DOWNLOAD_FAILED': 'ACK_DOCUMENT_FAILED',
+            'DOCUMENT_UPLOAD_FAILED': 'ACK_DOCUMENT_FAILED',
+            'MEDIA_UPLOAD_FAILED': 'ACK_MEDIA_FAILED',
         }
         return TelegramRoutingResult(
             case_id=case_id,

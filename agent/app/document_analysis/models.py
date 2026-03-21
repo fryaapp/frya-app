@@ -12,6 +12,12 @@ DocumentTypeValue = Literal['INVOICE', 'REMINDER', 'LETTER', 'CONTRACT', 'NOTICE
 AnalysisDecision = Literal['ANALYZED', 'INCOMPLETE', 'LOW_CONFIDENCE', 'CONFLICT']
 RecommendedNextStep = Literal['ACCOUNTING_REVIEW', 'HUMAN_REVIEW', 'OCR_RECHECK', 'GENERAL_REVIEW']
 RiskSeverity = Literal['INFO', 'WARNING', 'HIGH']
+AnnotationType = Literal[
+    'payment_note', 'status_note', 'problem_note', 'payment_method',
+    'correction_note', 'warning_note', 'allocation_note', 'tax_advisor_note',
+    'check_mark', 'date_note', 'unknown',
+]
+AnnotationAction = Literal['CHECK_PAYMENT_EXISTS', 'FLAG_PROBLEM_CASE', 'SUGGEST_ALLOCATION', 'FLAG_FOR_TAX_ADVISOR', 'NONE']
 
 T = TypeVar('T')
 
@@ -37,6 +43,16 @@ class DetectedAmount(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     source_kind: SourceKind = 'NONE'
     evidence_excerpt: str | None = None
+
+
+class Annotation(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    type: AnnotationType
+    raw_text: str
+    interpreted: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    action_suggested: AnnotationAction = 'NONE'
 
 
 class DocumentRisk(BaseModel):
@@ -76,6 +92,7 @@ class DocumentAnalysisResult(BaseModel):
     due_date: ExtractedField[date]
     references: list[ExtractedField[str]] = Field(default_factory=list)
     risks: list[DocumentRisk] = Field(default_factory=list)
+    annotations: list[Annotation] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
     recommended_next_step: RecommendedNextStep

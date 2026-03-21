@@ -640,7 +640,13 @@ async def paperless_document_webhook(
     open_items_service: OpenItemsService = Depends(get_open_items_service),
 ) -> dict:
     document_id = str(payload.get('document_id', 'unknown'))
-    case_id = f'doc-{document_id}'
+    # If Telegram upload encoded frya:{case_id}: in the title, reuse that case_id
+    # so the Paperless webhook continues the same case instead of creating a new one.
+    _title = str(payload.get('title') or '')
+    if _title.startswith('frya:') and _title.count(':') >= 2:
+        case_id = _title.split(':')[1]
+    else:
+        case_id = f'doc-{document_id}'
 
     await audit_service.log_event(
         {
@@ -712,6 +718,82 @@ async def paperless_document_webhook(
         }
 
     output = result.get('output', {}) if isinstance(result, dict) else {}
+
+    # ── Telegram result notification (only for Telegram-originated documents) ──
+    # If the title encoded frya:{case_id}:, we know the source was Telegram.
+    # Retrieve the chat_id stored in the TELEGRAM_DOCUMENT_UPLOADED_TO_PAPERLESS event.
+    if _title.startswith('frya:') and _title.count(':') >= 2:
+        try:
+            import json as _json
+            _tg_events = await audit_service.by_case(case_id, limit=200)
+            # Find the Paperless upload event that holds the telegram_chat_id
+            _upload_event = next(
+                (e for e in _tg_events if getattr(e, 'action', None) in {
+                    'TELEGRAM_DOCUMENT_UPLOADED_TO_PAPERLESS',
+                    'TELEGRAM_MEDIA_UPLOADED_TO_PAPERLESS',
+                }),
+                None,
+            )
+            if _upload_event is not None:
+                _upload_meta = _upload_event.llm_output
+                if isinstance(_upload_meta, str):
+                    try:
+                        _upload_meta = _json.loads(_upload_meta)
+                    except Exception:
+                        _upload_meta = {}
+                _chat_id = (_upload_meta or {}).get('telegram_chat_id')
+                if _chat_id:
+                    # Find analysis result
+                    _analysis_event = next(
+                        (e for e in reversed(_tg_events) if getattr(e, 'action', None) == 'DOCUMENT_ANALYSIS_COMPLETED'),
+                        None,
+                    )
+                    if _analysis_event is not None:
+                        _raw = _analysis_event.llm_output
+                        if isinstance(_raw, str):
+                            try:
+                                _raw = _json.loads(_raw)
+                            except Exception:
+                                _raw = {}
+                        _p = _raw if isinstance(_raw, dict) else {}
+                        _decision = _p.get('global_decision', 'UNKNOWN')
+                        _doc_type = (_p.get('document_type') or {}).get('value') or '?'
+                        _sender_val = (_p.get('sender') or {}).get('value') or '?'
+                        _amounts = _p.get('amounts') or []
+                        _total = next(
+                            (a.get('amount') for a in _amounts if isinstance(a, dict) and a.get('label') == 'TOTAL' and a.get('status') == 'FOUND'),
+                            None,
+                        )
+                        _currency = (_p.get('currency') or {}).get('value') or ''
+                        _confidence = _p.get('overall_confidence', 0.0)
+                        _conf_pct = f'{int(float(_confidence) * 100)}%' if _confidence else '?'
+                        _missing = _p.get('missing_fields') or []
+                        if _decision in {'COMPLETED', 'ANALYZED'}:
+                            _amount_str = f'{_total} {_currency}'.strip() if _total else '?'
+                            _result_text = (
+                                f'FRYA: Dokument analysiert.\n'
+                                f'Typ: {_doc_type} | Absender: {_sender_val}\n'
+                                f'Betrag: {_amount_str} | Konfidenz: {_conf_pct}\n'
+                                f'Ref: {case_id}'
+                            )
+                        else:
+                            _missing_str = ', '.join(_missing) if _missing else '—'
+                            _result_text = (
+                                f'FRYA: Dokument analysiert — unvollständig.\n'
+                                f'Typ: {_doc_type} | Konfidenz: {_conf_pct}\n'
+                                f'Fehlende Felder: {_missing_str}\n'
+                                f'Ref: {case_id}'
+                            )
+                        await get_telegram_connector().send(
+                            NotificationMessage(
+                                target=_chat_id,
+                                text=_result_text,
+                                metadata={'case_id': case_id, 'intent': 'document.analysis_result'},
+                            )
+                        )
+        except Exception:
+            pass  # Notification failure never blocks the response
+
     return {
         'status': 'accepted',
         'case_id': case_id,
@@ -1001,108 +1083,9 @@ async def telegram_webhook(
         )
         # ── Auto-trigger Document Analyst ────────────────────────────────────
         # If FRYA_AUTO_TRIGGER_DOCUMENT_ANALYST=true and the document was accepted,
-        # start the Document Analyst immediately in the background.
-        # Falls back silently to the existing Open Item if the analyst fails.
-        _analyst_ctx = command_result.get('document_analyst_context') or {}
-        _analyst_ctx_case_id = _analyst_ctx.get('target_case_id') or case_id
-        if (
-            get_settings().auto_trigger_document_analyst
-            and route.routing_status == 'DOCUMENT_ACCEPTED'
-            and _analyst_ctx.get('analyst_context_status') in {
-                'DOCUMENT_ANALYST_PENDING',
-                'DOCUMENT_ANALYST_CONTEXT_READY',
-                'DOCUMENT_ANALYST_CONTEXT_ATTACHED',
-            }
-        ):
-            _graph = request.app.state.graph
-
-            _auto_chat_id = normalized.actor.chat_id
-            _auto_update_ref = normalized.telegram_update_ref
-            _auto_source_case_id = case_id  # always the incoming doc's case
-
-            async def _auto_start_analyst(_case_id: str = _analyst_ctx_case_id) -> None:
-                try:
-                    await document_analyst_start_service.start_runtime(
-                        _case_id,
-                        actor='system',
-                        note='Automatisch gestartet nach Telegram-Dokumenteingang.',
-                        trigger='auto_telegram_ingress',
-                        graph=_graph,
-                    )
-                    # ── Send Telegram result notification ────────────────────
-                    try:
-                        _events = await audit_service.by_case(_case_id, limit=100)
-                        _analysis_event = next(
-                            (e for e in reversed(_events) if getattr(e, 'action', None) == 'DOCUMENT_ANALYSIS_COMPLETED'),
-                            None,
-                        )
-                        if _analysis_event is not None:
-                            _raw = _analysis_event.llm_output
-                            if isinstance(_raw, str):
-                                import json as _json
-                                try:
-                                    _raw = _json.loads(_raw)
-                                except Exception:
-                                    _raw = {}
-                            _p = _raw if isinstance(_raw, dict) else {}
-                            _decision = _p.get('global_decision', 'UNKNOWN')
-                            _doc_type = (_p.get('document_type') or {}).get('value') or '?'
-                            _sender_val = (_p.get('sender') or {}).get('value') or '?'
-                            _amounts = _p.get('amounts') or []
-                            _total = next(
-                                (a.get('amount') for a in _amounts if isinstance(a, dict) and a.get('label') == 'TOTAL' and a.get('status') == 'FOUND'),
-                                None,
-                            )
-                            _currency = (_p.get('currency') or {}).get('value') or ''
-                            _confidence = _p.get('overall_confidence', 0.0)
-                            _conf_pct = f'{int(float(_confidence) * 100)}%' if _confidence else '?'
-                            _missing = _p.get('missing_fields') or []
-
-                            if _decision in {'COMPLETED', 'ANALYZED'}:
-                                _amount_str = f'{_total} {_currency}'.strip() if _total else '?'
-                                _result_text = (
-                                    f'FRYA: Dokument analysiert.\n'
-                                    f'Typ: {_doc_type} | Absender: {_sender_val}\n'
-                                    f'Betrag: {_amount_str} | Konfidenz: {_conf_pct}\n'
-                                    f'Ref: {_auto_source_case_id}'
-                                )
-                            else:
-                                _missing_str = ', '.join(_missing) if _missing else '—'
-                                _result_text = (
-                                    f'FRYA: Dokument analysiert — unvollständig.\n'
-                                    f'Typ: {_doc_type} | Konfidenz: {_conf_pct}\n'
-                                    f'Fehlende Felder: {_missing_str}\n'
-                                    f'Ref: {_auto_source_case_id}'
-                                )
-                            await telegram_connector.send(
-                                NotificationMessage(
-                                    target=_auto_chat_id,
-                                    text=_result_text,
-                                    metadata={
-                                        'case_id': _auto_source_case_id,
-                                        'telegram_update_ref': _auto_update_ref,
-                                        'intent': 'document.analysis_result',
-                                    },
-                                )
-                            )
-                    except Exception:
-                        pass  # Notification failure never blocks the flow
-                except Exception as _exc:
-                    # Log failure — Open Item bleibt als Fallback bestehen
-                    try:
-                        await audit_service.log_event({
-                            'event_id': str(uuid.uuid4()),
-                            'case_id': _case_id,
-                            'source': 'telegram',
-                            'agent_name': 'frya-orchestrator',
-                            'approval_status': 'NOT_REQUIRED',
-                            'action': 'DOCUMENT_ANALYST_AUTO_TRIGGER_FAILED',
-                            'result': str(_exc),
-                        })
-                    except Exception:
-                        pass
-
-            asyncio.create_task(_auto_start_analyst())
+        # Document Analyst is triggered automatically via the Paperless post-consumption
+        # webhook (POST /webhooks/paperless/document) after the file is uploaded to
+        # Paperless in TelegramMediaIngressService. No direct trigger here.
 
         return {
             'status': 'accepted' if route.routing_status in {'MEDIA_ACCEPTED', 'DOCUMENT_ACCEPTED'} else 'ignored',
