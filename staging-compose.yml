@@ -184,6 +184,7 @@ services:
       - traefik.http.routers.akaunting.entrypoints=websecure
       - traefik.http.routers.akaunting.tls.certresolver=le
       - traefik.http.services.akaunting.loadbalancer.server.port=80
+      - com.centurylinklabs.watchtower.enable=false
 
   mariadb:
     image: mariadb:11
