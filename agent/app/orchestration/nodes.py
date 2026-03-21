@@ -300,9 +300,8 @@ async def run_document_analyst(state: AgentState) -> AgentState:
             pass  # Fall through to normal OCR/LLM analysis on parse failure
 
     # Load both document analyst configs (DB first, then ENV fallback).
-    # document_analyst       = OCR config (LightOn OCR-2-1B) — reserved for future LLM-OCR;
-    #                          current MVP receives OCR text pre-extracted by Tika/Paperless.
-    # document_analyst_semantic = Mistral-Small-24B for classification + field extraction.
+    # document_analyst          = LightOnOCR-2-1B — Stage 1: visual OCR from PDF images
+    # document_analyst_semantic = Mistral-Small-24B — Stage 2: field classification from text
     _da_repo = None
     _da_config = None
     _semantic_config = None
@@ -333,6 +332,55 @@ async def run_document_analyst(state: AgentState) -> AgentState:
                 metadata = merged_metadata
         except Exception as exc:
             fetch_warning = str(exc)
+
+    # ── Stage 1: LightOnOCR — PDF visual OCR when no usable text available ────
+    # Runs when ocr_text is absent or below the minimum useful length.
+    # Pipeline: PDF bytes → page images → LightOnOCR-2-1B → plain text
+    # That text is then passed to Stage 2 (Mistral semantic) below.
+    from app.document_analysis.ocr_service import MIN_OCR_CHARS, read_pdf_from_local_path, run_lightocr
+    _ocr_text: str | None = state.get('ocr_text')
+    if not _ocr_text or len(_ocr_text.strip()) < MIN_OCR_CHARS:
+        _pdf_bytes: bytes | None = None
+
+        # Try 1: local stored file (Telegram-sourced documents)
+        _stored_path = (
+            metadata.get('stored_relative_path')
+            or (state.get('paperless_metadata') or {}).get('stored_relative_path')
+        )
+        if _stored_path:
+            _pdf_bytes = read_pdf_from_local_path(_stored_path)
+
+        # Try 2: download from Paperless (numeric doc ID)
+        if _pdf_bytes is None and document_ref and document_ref.isdigit():
+            try:
+                _pdf_bytes = await get_paperless_connector().download_document_bytes(document_ref)
+            except Exception as _dl_exc:
+                _logger.debug('Paperless PDF download failed for %s: %s', document_ref, _dl_exc)
+
+        # Run LightOnOCR if we have PDF bytes and an API key
+        if _pdf_bytes and _da_config and _da_repo:
+            _ocr_model = (_da_config.get('model') or '').strip()
+            _ocr_api_key = _da_repo.decrypt_key_for_call(_da_config)
+            _ocr_base_url = _da_config.get('base_url')
+            if _ocr_model and _ocr_api_key:
+                try:
+                    _ocr_text = await run_lightocr(
+                        _pdf_bytes,
+                        model=f'openai/{_ocr_model}',
+                        api_key=_ocr_api_key,
+                        base_url=_ocr_base_url,
+                        max_pages=1,
+                    )
+                    state['ocr_text'] = _ocr_text
+                    _logger.info(
+                        'LightOnOCR stage 1 completed: %d chars for case %s',
+                        len(_ocr_text), state.get('case_id'),
+                    )
+                except Exception as _ocr_exc:
+                    _logger.warning(
+                        'LightOnOCR stage 1 failed for case %s: %s',
+                        state.get('case_id'), _ocr_exc,
+                    )
 
     case_context = await _build_document_context(state.get('case_id', 'uncategorized'))
     if fetch_warning:

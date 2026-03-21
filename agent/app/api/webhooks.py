@@ -1016,6 +1016,10 @@ async def telegram_webhook(
         ):
             _graph = request.app.state.graph
 
+            _auto_chat_id = normalized.actor.chat_id
+            _auto_update_ref = normalized.telegram_update_ref
+            _auto_source_case_id = case_id  # always the incoming doc's case
+
             async def _auto_start_analyst(_case_id: str = _analyst_ctx_case_id) -> None:
                 try:
                     await document_analyst_start_service.start_runtime(
@@ -1025,8 +1029,78 @@ async def telegram_webhook(
                         trigger='auto_telegram_ingress',
                         graph=_graph,
                     )
-                except Exception:
-                    pass  # Open Item bleibt als Fallback bestehen
+                    # ── Send Telegram result notification ────────────────────
+                    try:
+                        _events = await audit_service.by_case(_case_id, limit=100)
+                        _analysis_event = next(
+                            (e for e in reversed(_events) if getattr(e, 'action', None) == 'DOCUMENT_ANALYSIS_COMPLETED'),
+                            None,
+                        )
+                        if _analysis_event is not None:
+                            _raw = _analysis_event.llm_output
+                            if isinstance(_raw, str):
+                                import json as _json
+                                try:
+                                    _raw = _json.loads(_raw)
+                                except Exception:
+                                    _raw = {}
+                            _p = _raw if isinstance(_raw, dict) else {}
+                            _decision = _p.get('global_decision', 'UNKNOWN')
+                            _doc_type = (_p.get('document_type') or {}).get('value') or '?'
+                            _sender_val = (_p.get('sender') or {}).get('value') or '?'
+                            _amounts = _p.get('amounts') or []
+                            _total = next(
+                                (a.get('amount') for a in _amounts if isinstance(a, dict) and a.get('label') == 'TOTAL' and a.get('status') == 'FOUND'),
+                                None,
+                            )
+                            _currency = (_p.get('currency') or {}).get('value') or ''
+                            _confidence = _p.get('overall_confidence', 0.0)
+                            _conf_pct = f'{int(float(_confidence) * 100)}%' if _confidence else '?'
+                            _missing = _p.get('missing_fields') or []
+
+                            if _decision in {'COMPLETED', 'ANALYZED'}:
+                                _amount_str = f'{_total} {_currency}'.strip() if _total else '?'
+                                _result_text = (
+                                    f'FRYA: Dokument analysiert.\n'
+                                    f'Typ: {_doc_type} | Absender: {_sender_val}\n'
+                                    f'Betrag: {_amount_str} | Konfidenz: {_conf_pct}\n'
+                                    f'Ref: {_auto_source_case_id}'
+                                )
+                            else:
+                                _missing_str = ', '.join(_missing) if _missing else '—'
+                                _result_text = (
+                                    f'FRYA: Dokument analysiert — unvollständig.\n'
+                                    f'Typ: {_doc_type} | Konfidenz: {_conf_pct}\n'
+                                    f'Fehlende Felder: {_missing_str}\n'
+                                    f'Ref: {_auto_source_case_id}'
+                                )
+                            await telegram_connector.send(
+                                NotificationMessage(
+                                    target=_auto_chat_id,
+                                    text=_result_text,
+                                    metadata={
+                                        'case_id': _auto_source_case_id,
+                                        'telegram_update_ref': _auto_update_ref,
+                                        'intent': 'document.analysis_result',
+                                    },
+                                )
+                            )
+                    except Exception:
+                        pass  # Notification failure never blocks the flow
+                except Exception as _exc:
+                    # Log failure — Open Item bleibt als Fallback bestehen
+                    try:
+                        await audit_service.log_event({
+                            'event_id': str(uuid.uuid4()),
+                            'case_id': _case_id,
+                            'source': 'telegram',
+                            'agent_name': 'frya-orchestrator',
+                            'approval_status': 'NOT_REQUIRED',
+                            'action': 'DOCUMENT_ANALYST_AUTO_TRIGGER_FAILED',
+                            'result': str(_exc),
+                        })
+                    except Exception:
+                        pass
 
             asyncio.create_task(_auto_start_analyst())
 

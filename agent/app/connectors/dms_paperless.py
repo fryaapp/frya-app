@@ -20,6 +20,20 @@ class PaperlessConnector(DMSConnector):
             return {}
         return {'Authorization': f'Token {self.token}'}
 
+    async def download_document_bytes(self, doc_id: str) -> bytes:
+        """Download the raw PDF/file bytes for a Paperless document.
+
+        GET /api/documents/{doc_id}/download/
+        Raises httpx.HTTPStatusError on 4xx/5xx.
+        """
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(
+                f'{self.base_url}/api/documents/{doc_id}/download/',
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            return response.content
+
     async def get_document(self, doc_id: str) -> dict:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(f'{self.base_url}/api/documents/{doc_id}/', headers=self._headers())
