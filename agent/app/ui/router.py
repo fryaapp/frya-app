@@ -2781,3 +2781,13 @@ async def legal_verfahrensdoku(request: Request) -> HTMLResponse:
     )
 
 
+@router.get('/upload', response_class=HTMLResponse)
+async def upload_page(request: Request) -> HTMLResponse:
+    """Bulk-Upload UI — /ui/upload."""
+    return TEMPLATES.TemplateResponse(
+        request,
+        'upload.html',
+        _ctx(request, title='Dokumente hochladen'),
+    )
+
+

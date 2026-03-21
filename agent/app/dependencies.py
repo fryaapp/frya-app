@@ -49,6 +49,8 @@ from app.auth.reset_service import PasswordResetService
 from app.email.mail_service import MailService
 from app.auth.tenant_repository import TenantRepository
 from app.case_engine.repository import CaseRepository
+from app.bulk_upload.repository import BulkUploadRepository
+from app.bulk_upload.service import BulkUploadService
 
 
 @lru_cache
@@ -398,3 +400,19 @@ def get_tenant_repository() -> TenantRepository:
 def get_case_repository() -> CaseRepository:
     settings = get_settings()
     return CaseRepository(settings.database_url)
+
+
+@lru_cache
+def get_bulk_upload_repository() -> BulkUploadRepository:
+    settings = get_settings()
+    return BulkUploadRepository(settings.database_url)
+
+
+@lru_cache
+def get_bulk_upload_service() -> BulkUploadService:
+    return BulkUploadService(
+        bulk_repo=get_bulk_upload_repository(),
+        case_repo=get_case_repository(),
+        paperless=get_paperless_connector(),
+        audit_service=get_audit_service(),
+    )

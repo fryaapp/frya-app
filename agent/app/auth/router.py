@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -34,11 +35,20 @@ _MIN_PASSWORD_LEN = 12
 
 
 def _safe_next(next_target: str | None) -> str:
+    """Return a safe redirect target — always a relative path within this app.
+
+    Decodes percent-encoded input first to block bypasses like /%2F%2Fexample.com.
+    """
     if not next_target:
         return '/ui/dashboard'
-    if not next_target.startswith('/'):
+    # Decode once to catch encoded-slash bypasses (e.g. /%2F%2F)
+    decoded = unquote(next_target)
+    if not decoded.startswith('/'):
         return '/ui/dashboard'
-    if next_target.startswith('//'):
+    if decoded.startswith('//'):
+        return '/ui/dashboard'
+    # Reject anything that looks like a scheme (e.g. after double-decode or unicode tricks)
+    if ':' in decoded.split('/')[1] if len(decoded.split('/')) > 1 else '':
         return '/ui/dashboard'
     return next_target
 

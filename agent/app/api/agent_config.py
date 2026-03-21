@@ -161,6 +161,12 @@ async def health_check(
     provider = config.get('provider', '')
     base_url = config.get('base_url') or None
     api_key = repo.decrypt_key_for_call(config)
+    if not api_key and provider == 'anthropic':
+        try:
+            from app.dependencies import get_settings as _get_settings
+            api_key = _get_settings().anthropic_api_key or None
+        except Exception:
+            pass
 
     # IONOS AI Hub uses OpenAI-compatible API — always use openai/ prefix
     if provider == 'ionos':
@@ -185,8 +191,18 @@ async def health_check(
         resp = await acompletion(**kwargs)
         status = f'ok — {resp.model}'
     except Exception as exc:
-        status = f'error — {type(exc).__name__}: {str(exc)[:200]}'
-        logger.warning('Health check failed for %s: %s', agent_id, status)
+        logger.warning('Health check failed for agent %s: %s: %s', agent_id, type(exc).__name__, exc)
+        msg = str(exc)
+        if 'credit balance' in msg or 'billing' in msg.lower():
+            status = 'error — kein Guthaben (Anthropic Billing)'
+        elif 'invalid x-api-key' in msg or 'authentication' in msg.lower():
+            status = 'error — API-Key ungültig'
+        elif 'rate limit' in msg.lower():
+            status = 'error — Rate Limit erreicht'
+        elif 'model_not_found' in msg or 'not found' in msg.lower():
+            status = 'error — Modell nicht gefunden'
+        else:
+            status = f'error — {type(exc).__name__}'
 
     await repo.update_health_status(agent_id, status)
 

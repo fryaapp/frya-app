@@ -1,7 +1,10 @@
 ﻿from __future__ import annotations
 
+import logging
 import time
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 from fastapi import Depends, HTTPException, Request
 
@@ -83,9 +86,9 @@ async def _enforce_session_version(request: Request, username: str) -> None:
         if current_ver > 1 and int(session_ver) < current_ver:
             request.session.clear()
             _raise_unauthorized()
-    except Exception:
-        # Never block login due to DB errors in version check
-        pass
+    except Exception as exc:
+        # Never block login due to DB errors, but log for audit trail
+        _logger.warning('Session version check failed for %s: %s', username, exc)
 
 
 async def get_optional_user(

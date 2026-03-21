@@ -30,6 +30,7 @@
         <a class="{% if path == '/ui/dashboard' %}active{% endif %}" href="/ui/dashboard">Dashboard</a>
         <a class="{% if path.startswith('/ui/cases') %}active{% endif %}" href="/ui/cases">Faelle <span class="en-hint">(Cases)</span></a>
         <a class="{% if path.startswith('/ui/vorgaenge') %}active{% endif %}" href="/ui/vorgaenge">Vorgaenge <span class="en-hint">(CaseEngine)</span></a>
+        <a class="{% if path.startswith('/ui/upload') %}active{% endif %}" href="/ui/upload">Dokumente hochladen <span class="en-hint">(Bulk Upload)</span></a>
         <a class="{% if path.startswith('/ui/fristen') %}active{% endif %}" href="/ui/fristen">Fristen <span class="en-hint">(Deadlines)</span></a>
         <a class="{% if path.startswith('/ui/open-items') %}active{% endif %}" href="/ui/open-items">Offene Aufgaben <span class="en-hint">(Open Items)</span></a>
         <a class="{% if path.startswith('/ui/problem-cases') %}active{% endif %}" href="/ui/problem-cases">Problemfaelle <span class="en-hint">(Problem Cases)</span></a>

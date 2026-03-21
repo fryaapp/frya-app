@@ -1,0 +1,466 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Dokumente hochladen <span class="en-hint">(Bulk Upload)</span></h1>
+<p class="page-lead">Mehrere Dokumente auf einmal hochladen — bis zu 50 Dateien, je max. 20 MB (PDF, PNG, JPG, TIFF).</p>
+
+{% if msg %}
+<div class="flash-msg">{{ msg }}</div>
+{% endif %}
+
+<!-- ── Upload-Zone ───────────────────────────────────────────────────── -->
+<section id="upload-section">
+  <div id="drop-zone" class="drop-zone" role="button" tabindex="0" aria-label="Dokumente hochladen">
+    <div class="drop-zone-inner">
+      <p class="drop-zone-icon">📄</p>
+      <p class="drop-zone-text">Dokumente hierher ziehen oder <strong>klicken</strong></p>
+      <p class="drop-zone-hint">PDF, PNG, JPG, JPEG, TIFF &bull; max. 20 MB pro Datei &bull; max. 50 Dateien</p>
+      <input type="file" id="file-input" multiple accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif" style="display:none" />
+    </div>
+  </div>
+
+  <div id="file-list-container" style="display:none">
+    <div class="section-head">
+      <h2>Ausgewählte Dateien</h2>
+      <button type="button" id="clear-btn" class="btn-secondary">Auswahl löschen</button>
+    </div>
+    <table id="file-list-table">
+      <thead>
+        <tr>
+          <th>Dateiname</th>
+          <th>Größe</th>
+          <th>Typ</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="file-list-body"></tbody>
+    </table>
+    <div id="file-warnings"></div>
+    <div class="upload-actions">
+      <button type="button" id="upload-btn" class="btn-primary" disabled>
+        <span id="upload-btn-label">0 Dokumente hochladen</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ── Batch-Status ──────────────────────────────────────────────────── -->
+<section id="batch-status-section" style="display:none">
+  <div class="section-head">
+    <h2>Verarbeitungsstatus</h2>
+    <span id="batch-id-display" class="mono-hint"></span>
+  </div>
+
+  <div id="progress-summary" class="summary-grid compact">
+    <article class="summary-card">
+      <p class="summary-label">Gesamt</p>
+      <p class="summary-value" id="stat-total">0</p>
+    </article>
+    <article class="summary-card status-open-card">
+      <p class="summary-label">Abgeschlossen</p>
+      <p class="summary-value" id="stat-completed">0</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">In Bearbeitung</p>
+      <p class="summary-value" id="stat-processing">0</p>
+    </article>
+    <article class="summary-card status-overdue-card">
+      <p class="summary-label">Fehler</p>
+      <p class="summary-value" id="stat-error">0</p>
+    </article>
+    <article class="summary-card">
+      <p class="summary-label">Duplikate</p>
+      <p class="summary-value" id="stat-duplicate">0</p>
+    </article>
+  </div>
+
+  <div id="batch-alert" style="display:none" class="flash-msg flash-warn"></div>
+
+  <table id="batch-items-table">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Dateiname</th>
+        <th>Vorgang</th>
+        <th>Konfidenz</th>
+        <th>Hinweis</th>
+      </tr>
+    </thead>
+    <tbody id="batch-items-body"></tbody>
+  </table>
+
+  <div class="upload-actions">
+    <button type="button" id="new-upload-btn" class="btn-secondary">Weiteres Upload starten</button>
+  </div>
+</section>
+
+<!-- ── Batch-Historie ────────────────────────────────────────────────── -->
+<section id="history-section">
+  <div class="section-head">
+    <h2>Letzte Uploads</h2>
+    <button type="button" id="refresh-history-btn" class="btn-secondary">Aktualisieren</button>
+  </div>
+  <div id="history-list">
+    <p class="muted">Wird geladen…</p>
+  </div>
+</section>
+
+<style>
+.drop-zone {
+  border: 2px dashed #aaa;
+  border-radius: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  background: #fafafa;
+  margin-bottom: 16px;
+}
+.drop-zone.drag-over {
+  border-color: #4a90e2;
+  background: #eef4ff;
+}
+.drop-zone-icon { font-size: 2.5rem; margin: 0 0 8px; }
+.drop-zone-text { font-size: 1.1rem; margin: 0 0 4px; }
+.drop-zone-hint { font-size: 0.85rem; color: #888; margin: 0; }
+.upload-actions { margin-top: 16px; display: flex; gap: 12px; align-items: center; }
+.mono-hint { font-family: monospace; font-size: 0.85rem; color: #888; }
+.flash-warn { background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 10px 14px; border-radius: 4px; }
+.status-icon { font-size: 1.1rem; }
+#batch-items-table td { vertical-align: middle; }
+.confidence-badge {
+  display: inline-block; padding: 2px 7px; border-radius: 10px;
+  font-size: 0.78rem; font-weight: 600;
+}
+.conf-certain { background:#d4edda; color:#155724; }
+.conf-high { background:#cce5ff; color:#004085; }
+.conf-medium { background:#fff3cd; color:#856404; }
+.conf-low { background:#f8d7da; color:#721c24; }
+.history-batch {
+  border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px 16px;
+  margin-bottom: 10px; cursor: pointer; transition: background 0.15s;
+}
+.history-batch:hover { background: #f0f4ff; }
+.history-batch .hb-meta { font-size: 0.82rem; color: #888; margin-top: 4px; }
+.history-batch .hb-status { font-weight: 600; }
+</style>
+
+<script>
+(function() {
+  'use strict';
+
+  const CSRF_TOKEN = {{ csrf_token | tojson }};
+  const MAX_FILES = 50;
+  const MAX_BYTES = 20 * 1024 * 1024;
+  const ALLOWED_TYPES = new Set(['application/pdf','image/png','image/jpeg','image/tiff','image/tif']);
+  const POLL_INTERVAL = 5000;
+
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+  const fileListContainer = document.getElementById('file-list-container');
+  const fileListBody = document.getElementById('file-list-body');
+  const fileWarnings = document.getElementById('file-warnings');
+  const uploadBtn = document.getElementById('upload-btn');
+  const uploadBtnLabel = document.getElementById('upload-btn-label');
+  const clearBtn = document.getElementById('clear-btn');
+  const uploadSection = document.getElementById('upload-section');
+  const batchSection = document.getElementById('batch-status-section');
+  const newUploadBtn = document.getElementById('new-upload-btn');
+  const batchIdDisplay = document.getElementById('batch-id-display');
+  const batchItemsBody = document.getElementById('batch-items-body');
+  const batchAlert = document.getElementById('batch-alert');
+
+  let selectedFiles = [];
+  let currentBatchId = null;
+  let pollTimer = null;
+
+  // ── Drag & Drop ─────────────────────────────────────────────────────────
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    handleFiles(Array.from(e.dataTransfer.files));
+  });
+  fileInput.addEventListener('change', () => {
+    handleFiles(Array.from(fileInput.files));
+    fileInput.value = '';
+  });
+
+  // ── File handling ────────────────────────────────────────────────────────
+  function handleFiles(newFiles) {
+    selectedFiles = selectedFiles.concat(newFiles);
+    renderFileList();
+  }
+
+  function renderFileList() {
+    fileListBody.innerHTML = '';
+    fileWarnings.innerHTML = '';
+    let valid = 0;
+    const warnings = [];
+    const filenameCounts = {};
+
+    for (const f of selectedFiles) {
+      filenameCounts[f.name] = (filenameCounts[f.name] || 0) + 1;
+    }
+
+    selectedFiles.forEach((f, idx) => {
+      const tooBig = f.size > MAX_BYTES;
+      const wrongType = !ALLOWED_TYPES.has(f.type);
+      const isDup = filenameCounts[f.name] > 1;
+
+      let statusHtml = '';
+      if (tooBig) {
+        statusHtml = '<span style="color:red">❌ Zu groß</span>';
+        warnings.push(`"${f.name}" ist zu groß (${_fmt(f.size)}). Max. 20 MB.`);
+      } else if (wrongType) {
+        statusHtml = '<span style="color:red">❌ Falscher Typ</span>';
+        warnings.push(`"${f.name}" hat einen nicht erlaubten Dateityp (${f.type || 'unbekannt'}).`);
+      } else if (isDup) {
+        statusHtml = '<span style="color:orange">⚠️ Doppelt (Name)</span>';
+      } else {
+        statusHtml = '<span style="color:green">✓</span>';
+        valid++;
+      }
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${_esc(f.name)}</td>
+        <td>${_fmt(f.size)}</td>
+        <td>${_esc(f.type || '?')}</td>
+        <td>${statusHtml} <button type="button" data-idx="${idx}" class="remove-btn btn-secondary" style="padding:1px 7px;font-size:0.8rem">×</button></td>
+      `;
+      fileListBody.appendChild(tr);
+    });
+
+    // Attach remove listeners
+    fileListBody.querySelectorAll('.remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.idx);
+        selectedFiles.splice(idx, 1);
+        renderFileList();
+      });
+    });
+
+    if (warnings.length) {
+      fileWarnings.innerHTML = warnings.map(w => `<p style="color:red;font-size:0.85rem">⚠️ ${_esc(w)}</p>`).join('');
+    }
+
+    const tooMany = selectedFiles.length > MAX_FILES;
+    if (tooMany) {
+      fileWarnings.innerHTML += `<p style="color:red;font-size:0.85rem">⚠️ Zu viele Dateien (${selectedFiles.length}). Max. ${MAX_FILES}.</p>`;
+    }
+
+    const canUpload = valid > 0 && !tooMany && warnings.length === 0;
+    uploadBtn.disabled = !canUpload;
+    uploadBtnLabel.textContent = `${valid} Dokument${valid !== 1 ? 'e' : ''} hochladen`;
+    fileListContainer.style.display = selectedFiles.length > 0 ? '' : 'none';
+  }
+
+  clearBtn.addEventListener('click', () => {
+    selectedFiles = [];
+    renderFileList();
+  });
+
+  // ── Upload ───────────────────────────────────────────────────────────────
+  uploadBtn.addEventListener('click', async () => {
+    if (uploadBtn.disabled) return;
+    uploadBtn.disabled = true;
+    uploadBtnLabel.textContent = 'Wird hochgeladen…';
+
+    const formData = new FormData();
+    for (const f of selectedFiles) formData.append('files', f, f.name);
+
+    try {
+      const res = await fetch('/api/documents/bulk-upload', {
+        method: 'POST',
+        headers: { 'x-frya-csrf-token': CSRF_TOKEN },
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({detail: res.statusText}));
+        throw new Error(err.detail || 'Unbekannter Fehler');
+      }
+
+      const data = await res.json();
+      currentBatchId = data.batch_id;
+      showBatchStatus(currentBatchId);
+      startPolling(currentBatchId);
+
+    } catch (err) {
+      uploadBtn.disabled = false;
+      uploadBtnLabel.textContent = `${selectedFiles.length} Dokumente hochladen`;
+      alert('Upload fehlgeschlagen: ' + err.message);
+    }
+  });
+
+  // ── Batch Status ─────────────────────────────────────────────────────────
+  function showBatchStatus(batchId) {
+    uploadSection.style.display = 'none';
+    batchSection.style.display = '';
+    batchIdDisplay.textContent = 'Batch: ' + batchId;
+    selectedFiles = [];
+    loadBatchDetail(batchId);
+  }
+
+  async function loadBatchDetail(batchId) {
+    try {
+      const res = await fetch(`/api/documents/batches/${batchId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      renderBatchStatus(data);
+    } catch (e) {
+      console.warn('Failed to load batch detail:', e);
+    }
+  }
+
+  function renderBatchStatus(data) {
+    const summary = data.summary || {};
+    const total = data.file_count || 0;
+    const completed = summary.completed || 0;
+    const processing = (summary.processing || 0) + (summary.uploaded || 0) + (summary.uploading || 0);
+    const errors = (summary.error || 0) + (summary.stuck || 0);
+    const dups = summary.duplicate_skipped || 0;
+
+    document.getElementById('stat-total').textContent = total;
+    document.getElementById('stat-completed').textContent = completed;
+    document.getElementById('stat-processing').textContent = processing;
+    document.getElementById('stat-error').textContent = errors;
+    document.getElementById('stat-duplicate').textContent = dups;
+
+    // Alert for completed_with_errors
+    if (data.status === 'completed_with_errors') {
+      batchAlert.style.display = '';
+      batchAlert.textContent = `${errors} Dokument${errors !== 1 ? 'e' : ''} konnte${errors !== 1 ? 'n' : ''} nicht zugeordnet werden — bitte manuell prüfen.`;
+    } else {
+      batchAlert.style.display = 'none';
+    }
+
+    // Items table
+    batchItemsBody.innerHTML = '';
+    for (const item of (data.items || [])) {
+      const tr = document.createElement('tr');
+      tr.id = 'item-' + item.id;
+      tr.innerHTML = _renderItemRow(item);
+      batchItemsBody.appendChild(tr);
+    }
+  }
+
+  function _renderItemRow(item) {
+    const icon = _statusIcon(item.status);
+    let caseCell = '—';
+    if (item.case_id) {
+      const label = item.case_number || item.case_id;
+      caseCell = `<a href="/ui/vorgaenge/${item.case_id}">${_esc(label)}</a>`;
+      if (item.case_title) caseCell += ` <span class="muted">${_esc(item.case_title)}</span>`;
+    }
+    let confBadge = '';
+    if (item.assignment_confidence) {
+      const cls = {CERTAIN:'conf-certain',HIGH:'conf-high',MEDIUM:'conf-medium',LOW:'conf-low'}[item.assignment_confidence] || '';
+      confBadge = `<span class="confidence-badge ${cls}">${item.assignment_confidence}</span>`;
+    }
+    const hint = item.error_message ? `<span style="color:red;font-size:0.85rem">${_esc(item.error_message)}</span>` : '';
+    return `<td class="status-icon">${icon}</td><td>${_esc(item.filename)}</td><td>${caseCell}</td><td>${confBadge}</td><td>${hint}</td>`;
+  }
+
+  function _statusIcon(status) {
+    const icons = {
+      uploading: '⏳', uploaded: '⬆️', processing: '🔄',
+      completed: '✅', error: '❌', stuck_timeout: '⏱️',
+      duplicate_skipped: '🔁',
+    };
+    return icons[status] || '❓';
+  }
+
+  // ── Polling ───────────────────────────────────────────────────────────────
+  function startPolling(batchId) {
+    stopPolling();
+    pollTimer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/documents/batches/${batchId}/refresh`, {
+          method: 'POST',
+          headers: { 'x-frya-csrf-token': CSRF_TOKEN },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        renderBatchStatus(data);
+        if (data.status === 'completed' || data.status === 'completed_with_errors') {
+          stopPolling();
+          loadHistory();
+        }
+      } catch (e) {
+        console.warn('Polling error:', e);
+      }
+    }, POLL_INTERVAL);
+  }
+
+  function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  newUploadBtn.addEventListener('click', () => {
+    stopPolling();
+    currentBatchId = null;
+    batchSection.style.display = 'none';
+    uploadSection.style.display = '';
+    selectedFiles = [];
+    renderFileList();
+    loadHistory();
+  });
+
+  // ── History ───────────────────────────────────────────────────────────────
+  async function loadHistory() {
+    const el = document.getElementById('history-list');
+    try {
+      const res = await fetch('/api/documents/batches?limit=5');
+      if (!res.ok) { el.innerHTML = '<p class="muted">Fehler beim Laden.</p>'; return; }
+      const data = await res.json();
+      if (!data.batches || data.batches.length === 0) {
+        el.innerHTML = '<p class="muted">Noch keine Uploads.</p>';
+        return;
+      }
+      el.innerHTML = data.batches.map(b => {
+        const s = b.summary || {};
+        const ts = b.created_at ? new Date(b.created_at).toLocaleString('de-DE') : '—';
+        const statusLabel = {
+          uploading:'Lädt hoch',processing:'Wird verarbeitet',
+          reevaluating:'Wird re-evaluiert',completed:'Abgeschlossen',
+          completed_with_errors:'Abgeschlossen (mit Fehlern)',error:'Fehler',
+        }[b.status] || b.status;
+        return `<div class="history-batch" data-batch-id="${b.batch_id}" role="button" tabindex="0">
+          <div><strong>${b.file_count} Dokumente</strong> &nbsp;<span class="hb-status">${_esc(statusLabel)}</span></div>
+          <div class="hb-meta">${ts} &bull; ${s.completed||0} zugeordnet, ${s.error||0} Fehler, ${s.duplicate_skipped||0} Duplikate</div>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('.history-batch').forEach(el => {
+        el.addEventListener('click', () => {
+          const bid = el.dataset.batchId;
+          currentBatchId = bid;
+          showBatchStatus(bid);
+        });
+        el.addEventListener('keydown', e => { if (e.key === 'Enter') el.click(); });
+      });
+    } catch (e) {
+      el.innerHTML = '<p class="muted">Fehler beim Laden der Historie.</p>';
+    }
+  }
+
+  document.getElementById('refresh-history-btn').addEventListener('click', loadHistory);
+
+  // ── Utils ─────────────────────────────────────────────────────────────────
+  function _fmt(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1024/1024).toFixed(1) + ' MB';
+  }
+  function _esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Init
+  loadHistory();
+})();
+</script>
+{% endblock %}

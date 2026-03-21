@@ -578,7 +578,11 @@ async def finalize_document_review(state: AgentState) -> AgentState:
             _currency = result.currency.value if result.currency.status == 'FOUND' else None
             _doc_date = result.document_date.value if result.document_date.status == 'FOUND' else None
             _due_date = result.due_date.value if result.due_date.status == 'FOUND' else None
-            _refs = [r.value for r in result.references if r.status == 'FOUND' and r.value]
+            _refs = [
+                (r.label or 'invoice_number', r.value)
+                for r in result.references
+                if r.status == 'FOUND' and r.value
+            ]
             _filename = _meta.get('filename') or _meta.get('original_file_name')
             _doc_type = result.document_type.value if result.document_type.status in ('FOUND', 'UNCERTAIN') else None
             state['case_engine_result'] = await integrate_document_analysis(

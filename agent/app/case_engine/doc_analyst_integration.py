@@ -73,6 +73,37 @@ def _confidence_from_float(score: float) -> str:
     return 'LOW'
 
 
+# ── reference type mapping ────────────────────────────────────────────────────
+
+_KNOWN_REF_TYPES: frozenset[str] = frozenset({
+    'invoice_number',
+    'customer_number',
+    'reference_number',
+    'dunning_number',
+    'order_number',
+    'contract_number',
+})
+
+_REF_TYPE_ALIASES: dict[str, str] = {
+    'reference': 'reference_number',
+    'reminder_number': 'dunning_number',
+    'ref': 'reference_number',
+    'order': 'order_number',
+    'contract': 'contract_number',
+}
+
+
+def map_reference_type(raw_type: str) -> str:
+    """Normalise an analysis reference type to a canonical case_references.reference_type.
+
+    Unknown types are stored as 'other' — never silently dropped.
+    """
+    normalized = raw_type.lower().strip().replace(' ', '_')
+    if normalized in _KNOWN_REF_TYPES:
+        return normalized
+    return _REF_TYPE_ALIASES.get(normalized, 'other')
+
+
 # ── main entry point ──────────────────────────────────────────────────────────
 
 async def integrate_document_analysis(
@@ -86,7 +117,7 @@ async def integrate_document_analysis(
     currency: str | None,
     document_date: date | None,
     due_date: date | None,
-    reference_values: list[str],
+    reference_values: list[tuple[str, str]],
     filename: str | None,
     overall_confidence: float,
     orchestration_case_id: str,
@@ -107,8 +138,8 @@ async def integrate_document_analysis(
         currency:               Extracted currency code ('EUR', …).
         document_date:          Extracted document date.
         due_date:               Extracted due date.
-        reference_values:       List of extracted reference strings (e.g. invoice
-                                numbers).  Each is stored as 'invoice_number'.
+        reference_values:       List of (reference_type, reference_value) tuples.
+                                Types are normalised via map_reference_type().
         filename:               Original filename if available.
         overall_confidence:     Overall extraction confidence (0.0–1.0).
         orchestration_case_id:  The orchestration-layer case_id for audit logs.
@@ -129,9 +160,11 @@ async def integrate_document_analysis(
     document_source = _map_source(event_source)
     doc_source_id = document_ref or orchestration_case_id
 
-    # References are stored as 'invoice_number' type (the most common label)
+    # Normalise reference types and filter empty values
     ref_tuples: list[tuple[str, str]] = [
-        ('invoice_number', v) for v in reference_values if v
+        (map_reference_type(ref_type), ref_value)
+        for ref_type, ref_value in reference_values
+        if ref_value
     ]
 
     # total_amount must be float for the assignment engine's amount matcher

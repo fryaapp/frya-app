@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     # use the first active tenant from the DB.
     default_tenant_id: str | None = None
 
+    # Bootstrap admin — set these in .env to seed a permanent admin account on first startup.
+    # On subsequent restarts the existing DB row is never overwritten (idempotent).
+    # FRYA_INITIAL_ADMIN_USERNAME, FRYA_INITIAL_ADMIN_EMAIL, FRYA_INITIAL_ADMIN_PASSWORD
+    initial_admin_username: str | None = None
+    initial_admin_email: str | None = None
+    initial_admin_password: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

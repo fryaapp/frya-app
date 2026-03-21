@@ -1,0 +1,35 @@
+http:
+  middlewares:
+    frya-security-headers:
+      headers:
+        # HSTS: 1 year, includeSubDomains
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        # Framing
+        frameDeny: true
+        # Content type sniffing
+        contentTypeNosniff: true
+        # Referrer
+        referrerPolicy: "strict-origin-when-cross-origin"
+        # CSP: allow self-hosted assets only; no inline scripts
+        contentSecurityPolicy: >-
+          default-src 'self';
+          script-src 'self';
+          style-src 'self' 'unsafe-inline';
+          img-src 'self' data: blob:;
+          font-src 'self';
+          connect-src 'self';
+          object-src 'none';
+          frame-ancestors 'none';
+          base-uri 'self';
+          form-action 'self';
+        # Additional custom headers
+        customResponseHeaders:
+          Permissions-Policy: "camera=(), microphone=(), geolocation=(), payment=()"
+          X-Robots-Tag: "noindex, nofollow"
+
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true

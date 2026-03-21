@@ -11,8 +11,7 @@ router = APIRouter(tags=['health'])
 
 @router.get('/health')
 async def health() -> dict:
-    settings = get_settings()
-    return {'status': 'ok', 'service': 'frya-agent', 'llm_model': settings.llm_model}
+    return {'status': 'ok', 'service': 'frya-agent'}
 
 
 @router.get('/status')

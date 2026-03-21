@@ -8,6 +8,8 @@ services:
       - --entrypoints.websecure.address=:443
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --certificatesresolvers.le.acme.email=admin@myfrya.de
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.le.acme.httpchallenge=true
@@ -18,6 +20,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./letsencrypt:/letsencrypt
+      - ./traefik:/etc/traefik/dynamic:ro
     restart: unless-stopped
     networks:
       - frya-internal
@@ -26,16 +29,22 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Bootstrap admin: add these to your .env file to seed a permanent admin account on first start.
+    # FRYA_INITIAL_ADMIN_USERNAME=admin
+    # FRYA_INITIAL_ADMIN_EMAIL=admin@myfrya.de
+    # FRYA_INITIAL_ADMIN_PASSWORD=<your-strong-password>
+    # The account is created once in the DB and never overwritten on restart.
+    env_file: .env
     labels:
       - traefik.enable=true
       - traefik.http.routers.frya-backend.rule=Host(`api.staging.myfrya.de`)
       - traefik.http.routers.frya-backend.entrypoints=websecure
       - traefik.http.routers.frya-backend.tls=true
       - traefik.http.routers.frya-backend.tls.certresolver=le
+      - traefik.http.routers.frya-backend.middlewares=frya-security-headers@file
       - traefik.http.routers.frya-backend-http.rule=Host(`api.staging.myfrya.de`)
       - traefik.http.routers.frya-backend-http.entrypoints=web
-      - traefik.http.routers.frya-backend-http.middlewares=redirect-to-https
-      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.routers.frya-backend-http.middlewares=redirect-to-https@file
       - traefik.http.services.frya-backend.loadbalancer.server.port=8000
       - com.centurylinklabs.watchtower.enable=true
     restart: unless-stopped

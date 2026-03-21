@@ -24,6 +24,7 @@ class ExtractedField(BaseModel, Generic[T]):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     source_kind: SourceKind = 'NONE'
     evidence_excerpt: str | None = None
+    label: str | None = None  # Optional type label, e.g. 'invoice_number' for references
 
 
 class DetectedAmount(BaseModel):

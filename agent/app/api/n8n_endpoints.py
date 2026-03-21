@@ -207,8 +207,11 @@ async def frist_eskalation(body: N8NTenantRequest) -> dict[str, Any]:
 @router.post('/paperless-post-consumption', dependencies=[Depends(require_n8n_token)])
 async def paperless_post_consumption(body: PaperlessPostConsumptionRequest) -> dict[str, Any]:
     """Forward a Paperless-ngx post-consumption event to the case assignment engine."""
+    import logging as _logging
     from app.case_engine.assignment import CaseAssignmentEngine, DocumentData
+    from app.dependencies import get_bulk_upload_repository
 
+    _log = _logging.getLogger(__name__)
     tid = _parse_tenant_uuid(body.tenant_id)
     repo = get_case_repository()
     engine = CaseAssignmentEngine(repo)
@@ -225,19 +228,70 @@ async def paperless_post_consumption(body: PaperlessPostConsumptionRequest) -> d
     )
 
     result = await engine.assign_document(tenant_id=tid, doc=doc)
-    if result is None:
-        return {'assigned': False, 'case_id': None, 'confidence': None, 'method': None}
+    assigned_case_id: str | None = None
+    assignment_confidence: str | None = None
 
-    # Persist document-case link
-    await repo.add_document_to_case(
-        case_id=result.case_id,
-        document_source=doc.document_source,
-        document_source_id=doc.document_source_id,
-        assignment_confidence=result.confidence,
-        assignment_method=result.method,
-        filename=doc.filename,
-    )
-    return {'assigned': True, **result.model_dump(mode='json')}
+    if result is None:
+        response_body: dict[str, Any] = {
+            'assigned': False, 'case_id': None, 'confidence': None, 'method': None,
+        }
+    else:
+        # Persist document-case link
+        await repo.add_document_to_case(
+            case_id=result.case_id,
+            document_source=doc.document_source,
+            document_source_id=doc.document_source_id,
+            assignment_confidence=result.confidence,
+            assignment_method=result.method,
+            filename=doc.filename,
+        )
+        assigned_case_id = str(result.case_id)
+        assignment_confidence = result.confidence
+        response_body = {'assigned': True, **result.model_dump(mode='json')}
+
+    # ── Bulk-Upload Bridge 2: document_id → case_id ────────────────────────────
+    # If this document came from a bulk-upload, update the upload item status.
+    # ALWAYS use tenant_id in the lookup (never without).
+    try:
+        paperless_doc_id_str = body.document_source_id
+        paperless_doc_id_int: int | None = None
+        try:
+            paperless_doc_id_int = int(paperless_doc_id_str)
+        except (ValueError, TypeError):
+            pass
+
+        if paperless_doc_id_int is not None:
+            bulk_repo = get_bulk_upload_repository()
+            upload_item = await bulk_repo.find_item_by_paperless_doc(
+                body.tenant_id, paperless_doc_id_int
+            )
+            if upload_item is not None:
+                # Store doc_data in metadata for potential re-evaluate
+                doc_data = {
+                    'document_source': body.document_source,
+                    'document_source_id': body.document_source_id,
+                    'reference_values': body.reference_values,
+                    'vendor_name': body.vendor_name,
+                    'total_amount': body.total_amount,
+                    'currency': body.currency,
+                    'filename': body.filename,
+                }
+                await bulk_repo.update_item_case(
+                    upload_item['id'],
+                    case_id=assigned_case_id,
+                    confidence=assignment_confidence,
+                    doc_data=doc_data,
+                )
+                await bulk_repo.update_item_status(upload_item['id'], 'completed')
+                _log.info(
+                    'Bulk-Upload Bridge 2: item %s → case %s (tenant %s)',
+                    upload_item['id'], assigned_case_id, body.tenant_id,
+                )
+    except Exception as exc:
+        # Bridge 2 failure must NOT break the existing case assignment flow
+        _log.warning('Bulk-Upload Bridge 2 failed: %s', exc)
+
+    return response_body
 
 
 # ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
@@ -34,6 +35,7 @@ from app.api.proposal_views import router as proposal_router
 from app.api.rules_views import router as rules_router
 from app.api.verfahrensdoku_views import router as verfahrensdoku_router
 from app.api.e_invoice_views import router as e_invoice_router
+from app.api.bulk_upload import router as bulk_upload_router
 from app.api.webhooks import router as webhooks_router
 from app.api.ws import router as ws_router
 from app.approvals.service import ApprovalService
@@ -68,6 +70,22 @@ from app.ui.router import router as ui_router
 AUTH_TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / 'ui' / 'templates'))
 
 
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add defensive HTTP security headers to every response."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault('X-Frame-Options', 'DENY')
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-XSS-Protection', '1; mode=block')
+        response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+        response.headers.setdefault(
+            'Strict-Transport-Security',
+            'max-age=31536000; includeSubDomains',
+        )
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     audit_service: AuditService = get_audit_service()
@@ -94,6 +112,36 @@ async def lifespan(app: FastAPI):
 
     user_repo = get_user_repository()
     await user_repo.initialize()
+
+    # ── Bootstrap admin ───────────────────────────────────────────────────────
+    # If FRYA_INITIAL_ADMIN_USERNAME + FRYA_INITIAL_ADMIN_PASSWORD are set and
+    # the user does not yet exist in the DB, create it now.  Idempotent: the
+    # existing row is never touched on subsequent restarts.
+    _boot_settings = get_settings()
+    _boot_username = _boot_settings.initial_admin_username
+    _boot_password = _boot_settings.initial_admin_password
+    if _boot_username and _boot_password:
+        _existing_admin = await user_repo.find_by_username(_boot_username)
+        if _existing_admin is None:
+            from app.auth.service import hash_password_pbkdf2
+            from app.auth.user_repository import UserRecord as _UserRecord
+            await user_repo.create_user(_UserRecord(
+                username=_boot_username,
+                email=_boot_settings.initial_admin_email,
+                role='admin',
+                password_hash=hash_password_pbkdf2(_boot_password),
+                is_active=True,
+            ))
+            await audit_service.log_event({
+                'event_id': str(uuid.uuid4()),
+                'case_id': 'system-bootstrap',
+                'source': 'system',
+                'agent_name': 'frya-bootstrap',
+                'approval_status': 'NOT_REQUIRED',
+                'action': 'ADMIN_BOOTSTRAP_CREATED',
+                'result': _boot_username,
+                'llm_output': {'username': _boot_username},
+            })
 
     tenant_repo = get_tenant_repository()
     await tenant_repo.initialize()
@@ -148,6 +196,7 @@ app.add_middleware(
     https_only=settings.auth_cookie_secure,
     domain=settings.auth_cookie_domain,
 )
+app.add_middleware(_SecurityHeadersMiddleware)
 
 
 @app.exception_handler(HTTPException)
@@ -194,6 +243,7 @@ app.include_router(rules_router)
 app.include_router(approval_router)
 app.include_router(verfahrensdoku_router)
 app.include_router(e_invoice_router)
+app.include_router(bulk_upload_router)
 app.include_router(agent_config_router)
 app.include_router(case_engine_router)
 app.include_router(deadlines_router)

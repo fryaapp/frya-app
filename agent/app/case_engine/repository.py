@@ -446,6 +446,14 @@ class CaseRepository:
         now = datetime.utcnow()
 
         if self.is_memory:
+            # Dedup: skip if this (case_id, reference_type, reference_value) already exists
+            for existing in self._references.values():
+                if (
+                    existing.case_id == case_id
+                    and existing.reference_type == reference_type
+                    and existing.reference_value == reference_value
+                ):
+                    return existing
             record = CaseReferenceRecord(
                 case_id=case_id,
                 reference_type=reference_type,
@@ -466,12 +474,18 @@ class CaseRepository:
                 (id, case_id, reference_type, reference_value,
                  extracted_from_document_id, created_at)
                 VALUES ($1,$2,$3,$4,$5,$6)
+                ON CONFLICT ON CONSTRAINT case_references_unique DO NOTHING
                 """,
                 row_id, case_id, reference_type, reference_value,
                 extracted_from_document_id, now,
             )
         finally:
             await conn.close()
+        # Fetch the actual record (may have been inserted or already existed)
+        existing_refs = await self.get_case_references(case_id)
+        for ref in existing_refs:
+            if ref.reference_type == reference_type and ref.reference_value == reference_value:
+                return ref
         return CaseReferenceRecord(
             id=row_id,
             case_id=case_id,

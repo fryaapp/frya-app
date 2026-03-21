@@ -1,8 +1,13 @@
 ﻿from __future__ import annotations
 
+import asyncio
+import logging
+
 import httpx
 
 from app.connectors.contracts import DMSConnector
+
+logger = logging.getLogger(__name__)
 
 
 class PaperlessConnector(DMSConnector):
@@ -45,3 +50,80 @@ class PaperlessConnector(DMSConnector):
                 json={'tags': new_tags},
             )
             response.raise_for_status()
+
+    async def upload_document(
+        self, file_bytes: bytes, filename: str, title: str | None = None
+    ) -> dict:
+        """Upload a document to Paperless via POST /api/documents/post_document/.
+
+        Returns: {'task_id': 'uuid-string'}
+        Raises: httpx.HTTPStatusError on HTTP 4xx/5xx, httpx.TimeoutException on timeout.
+        """
+        files = {'document': (filename, file_bytes, 'application/octet-stream')}
+        data: dict[str, str] = {}
+        if title:
+            data['title'] = title
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
+                f'{self.base_url}/api/documents/post_document/',
+                headers=self._headers(),
+                files=files,
+                data=data,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_task_status(self, task_id: str) -> dict:
+        """Query the processing status of an upload task.
+
+        GET /api/tasks/?task_id={task_id}
+        Returns task dict with keys: id, task_id, status, result, related_document, acknowledged
+        Raises: httpx.HTTPStatusError on HTTP error.
+        """
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(
+                f'{self.base_url}/api/tasks/',
+                params={'task_id': task_id},
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            # Paperless returns a list; pick the matching task
+            if isinstance(payload, list) and payload:
+                return payload[0]
+            if isinstance(payload, list) and not payload:
+                return {'task_id': task_id, 'status': 'PENDING', 'result': None, 'related_document': None}
+            return payload
+
+    async def upload_documents_batch(
+        self,
+        files: list[tuple[bytes, str]],
+        max_concurrent: int = 5,
+    ) -> list[dict]:
+        """Upload multiple documents with concurrency limit.
+
+        Uses asyncio.Semaphore(max_concurrent) to avoid overloading Paperless/Tika.
+        Server has only 8GB RAM — do NOT fire all uploads in parallel.
+
+        Args:
+            files: List of (file_bytes, filename) tuples.
+            max_concurrent: Max simultaneous uploads (default 5).
+
+        Returns:
+            List of {'filename': str, 'task_id': str|None, 'error': str|None}
+        """
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def _upload_one(file_bytes: bytes, filename: str) -> dict:
+            async with semaphore:
+                try:
+                    result = await self.upload_document(file_bytes, filename)
+                    task_id = result.get('task_id') if isinstance(result, dict) else str(result)
+                    return {'filename': filename, 'task_id': task_id, 'error': None}
+                except Exception as exc:
+                    logger.warning('Paperless upload failed for %s: %s', filename, exc)
+                    return {'filename': filename, 'task_id': None, 'error': str(exc)}
+
+        tasks = [_upload_one(fb, fn) for fb, fn in files]
+        return list(await asyncio.gather(*tasks))

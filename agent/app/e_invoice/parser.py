@@ -154,8 +154,15 @@ def parse_xrechnung(xml_bytes: bytes) -> EInvoiceData:
     except ImportError as exc:
         raise ImportError('lxml required: pip install lxml') from exc
 
+    # Hardened parser: no external DTDs, no network access, no entity expansion.
+    # This explicitly prevents XXE (XML External Entity) attacks.
+    _safe_parser = etree.XMLParser(
+        load_dtd=False,
+        no_network=True,
+        resolve_entities=False,
+    )
     try:
-        root = etree.fromstring(xml_bytes)
+        root = etree.fromstring(xml_bytes, _safe_parser)
     except etree.XMLSyntaxError as exc:
         raise ValueError(f'Invalid XML: {exc}') from exc
 
@@ -381,9 +388,9 @@ def e_invoice_to_document_analysis_result(
 
     references: list[ExtractedField] = []
     if data.invoice_number:
-        references.append(ExtractedField(value=data.invoice_number, status='FOUND', confidence=1.0, source_kind='OCR_TEXT', evidence_excerpt='e-invoice XML'))
+        references.append(ExtractedField(value=data.invoice_number, status='FOUND', confidence=1.0, source_kind='OCR_TEXT', evidence_excerpt='e-invoice XML', label='invoice_number'))
     if data.reference and data.reference != data.invoice_number:
-        references.append(ExtractedField(value=data.reference, status='FOUND', confidence=1.0, source_kind='OCR_TEXT', evidence_excerpt='e-invoice XML'))
+        references.append(ExtractedField(value=data.reference, status='FOUND', confidence=1.0, source_kind='OCR_TEXT', evidence_excerpt='e-invoice XML', label='reference_number'))
 
     return DocumentAnalysisResult(
         analysis_version='e-invoice-v1',

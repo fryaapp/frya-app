@@ -1,8 +1,12 @@
 """E-Rechnung API: parse ZUGFeRD/XRechnung + generate ZUGFeRD PDF / XRechnung XML."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
+
+logger = logging.getLogger(__name__)
 
 from app.auth.dependencies import require_operator
 from app.auth.models import AuthUser
@@ -32,7 +36,11 @@ async def parse_e_invoice(
         if content[:4] == b'%PDF':
             return parse_zugferd(content)
         return parse_xrechnung(content)
-    except (ValueError, ImportError) as exc:
+    except ImportError as exc:
+        logger.warning('E-invoice parse failed (missing library): %s', exc)
+        raise HTTPException(status_code=503, detail='Erforderliche Bibliothek nicht installiert.') from exc
+    except ValueError as exc:
+        # ValueError from parser = user-facing parse error (malformed XML etc.) — safe to show
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -46,9 +54,11 @@ async def generate_zugferd(
         from app.e_invoice.generator import generate_zugferd_pdf
         pdf_bytes = generate_zugferd_pdf(invoice_data)
     except ImportError as exc:
-        raise HTTPException(status_code=503, detail=f'factur-x nicht installiert: {exc}') from exc
+        logger.warning('ZUGFeRD generation failed (missing library): %s', exc)
+        raise HTTPException(status_code=503, detail='factur-x Bibliothek nicht installiert.') from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception('ZUGFeRD generation failed for invoice %s', invoice_data.invoice_number)
+        raise HTTPException(status_code=500, detail='ZUGFeRD-Generierung fehlgeschlagen.') from exc
 
     filename = f'rechnung-{invoice_data.invoice_number or "export"}.pdf'
     return Response(
@@ -68,7 +78,8 @@ async def generate_xrechnung(
         from app.e_invoice.generator import generate_xrechnung_xml
         xml_bytes = generate_xrechnung_xml(invoice_data)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception('XRechnung generation failed for invoice %s', invoice_data.invoice_number)
+        raise HTTPException(status_code=500, detail='XRechnung-Generierung fehlgeschlagen.') from exc
 
     filename = f'xrechnung-{invoice_data.invoice_number or "export"}.xml'
     return Response(

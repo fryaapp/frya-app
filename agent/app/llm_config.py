@@ -20,7 +20,7 @@ IONOS_BASE_URL = 'https://openai.inference.de-txl.ionos.com/v1'
 #   - LightOnOCR: IONOS id is "lightonai/LightOnOCR-2-1B" (org name differs from HF listing)
 #   - Mistral-Small-24B-Instruct-2501: IONOS lists without version suffix
 #   - GPT-OSS 120B: IONOS id is "openai/gpt-oss-120b"
-#   - communicator targets Bedrock (not on IONOS) — openai/claude as interim fallback
+#   - communicator: Anthropic direct (claude-sonnet-4-6) via FRYA_ANTHROPIC_API_KEY
 AGENT_CATALOG: dict[str, dict] = {
     'orchestrator': {
         'label': 'Orchestrator',
@@ -32,11 +32,11 @@ AGENT_CATALOG: dict[str, dict] = {
     },
     'communicator': {
         'label': 'Kommunikator',
-        'provider': 'ionos',
-        'target_model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8',
-        'base_url': IONOS_BASE_URL,
+        'provider': 'anthropic',
+        'target_model': 'claude-sonnet-4-6',
+        'base_url': None,
         'agent_status': 'active',
-        'note': 'IONOS DE — Llama-3.1-405B-Instruct-FP8 (aufgewertet von gpt-4o-mini)',
+        'note': 'Anthropic — Claude Sonnet 4.6 (direkter Anthropic-Key via FRYA_ANTHROPIC_API_KEY)',
     },
     'document_analyst': {
         'label': 'Document Analyst (OCR)',
