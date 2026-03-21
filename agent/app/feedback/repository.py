@@ -9,8 +9,8 @@ import asyncpg
 _ENSURE_TABLE = """\
 CREATE TABLE IF NOT EXISTS frya_alpha_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    user_id UUID NOT NULL,
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
     page VARCHAR(255),
     description TEXT NOT NULL,
     screenshot_path VARCHAR(500),
@@ -44,7 +44,7 @@ class FeedbackRepository:
         try:
             row = await conn.fetchrow(
                 """INSERT INTO frya_alpha_feedback (tenant_id, user_id, page, description, screenshot_path)
-                   VALUES ($1::uuid, $2::uuid, $3, $4, $5)
+                   VALUES ($1, $2, $3, $4, $5)
                    RETURNING id::text""",
                 tenant_id, user_id, page, description, screenshot_path,
             )
@@ -68,7 +68,7 @@ class FeedbackRepository:
         conn = await self._conn()
         try:
             await conn.execute(
-                "UPDATE frya_alpha_feedback SET status = $2 WHERE id = $1::uuid",
+                "UPDATE frya_alpha_feedback SET status = $2 WHERE id = $1",
                 feedback_id, status,
             )
         finally:

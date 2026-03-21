@@ -1,8 +1,8 @@
 -- Migration 0016: User Preferences + Alpha Feedback
 CREATE TABLE IF NOT EXISTS frya_user_preferences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES frya_tenants(id),
-    user_id UUID NOT NULL REFERENCES frya_users(id),
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
     key VARCHAR(100) NOT NULL,
     value TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -13,8 +13,8 @@ CREATE INDEX IF NOT EXISTS idx_user_prefs_lookup ON frya_user_preferences(tenant
 
 CREATE TABLE IF NOT EXISTS frya_alpha_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES frya_tenants(id),
-    user_id UUID NOT NULL REFERENCES frya_users(id),
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
     page VARCHAR(255),
     description TEXT NOT NULL,
     screenshot_path VARCHAR(500),

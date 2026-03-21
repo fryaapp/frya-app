@@ -7,8 +7,8 @@ import asyncpg
 _ENSURE_TABLE = """\
 CREATE TABLE IF NOT EXISTS frya_user_preferences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    user_id UUID NOT NULL,
+    tenant_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
     key VARCHAR(100) NOT NULL,
     value TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -33,7 +33,7 @@ class UserPreferencesRepository:
         conn = await self._conn()
         try:
             row = await conn.fetchrow(
-                'SELECT value FROM frya_user_preferences WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND key = $3',
+                'SELECT value FROM frya_user_preferences WHERE tenant_id = $1 AND user_id = $2 AND key = $3',
                 tenant_id, user_id, key,
             )
             return row['value'] if row else None
@@ -45,7 +45,7 @@ class UserPreferencesRepository:
         try:
             await conn.execute(
                 """INSERT INTO frya_user_preferences (tenant_id, user_id, key, value, updated_at)
-                   VALUES ($1::uuid, $2::uuid, $3, $4, now())
+                   VALUES ($1, $2, $3, $4, now())
                    ON CONFLICT (tenant_id, user_id, key) DO UPDATE SET value = $4, updated_at = now()""",
                 tenant_id, user_id, key, value,
             )
@@ -56,7 +56,7 @@ class UserPreferencesRepository:
         conn = await self._conn()
         try:
             rows = await conn.fetch(
-                'SELECT key, value FROM frya_user_preferences WHERE tenant_id = $1::uuid AND user_id = $2::uuid',
+                'SELECT key, value FROM frya_user_preferences WHERE tenant_id = $1 AND user_id = $2',
                 tenant_id, user_id,
             )
             return {r['key']: r['value'] for r in rows}
