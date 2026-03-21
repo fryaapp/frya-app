@@ -49,31 +49,18 @@ def _pdf_to_images_b64(pdf_bytes: bytes, max_pages: int = 3) -> list[str]:
     return images
 
 
-async def run_lightocr(
-    pdf_bytes: bytes,
+async def _ocr_single_page(
+    b64: str,
     *,
     model: str,
     api_key: str | None,
     base_url: str | None,
-    max_pages: int = 3,
 ) -> str:
-    """Call LightOnOCR-2-1B to extract text from a PDF.
-
-    Returns the extracted text or raises on hard failure.
-    The caller should handle exceptions and fall back gracefully.
-    """
-    images_b64 = _pdf_to_images_b64(pdf_bytes, max_pages=max_pages)
-    if not images_b64:
-        raise ValueError('Could not render any PDF pages to images.')
-
-    content: list[dict] = []
-    for b64 in images_b64:
-        content.append({
-            'type': 'image_url',
-            'image_url': {'url': f'data:image/png;base64,{b64}'},
-        })
-    content.append({'type': 'text', 'text': _OCR_PROMPT})
-
+    """Call LightOnOCR for a single page image. Returns extracted text."""
+    content: list[dict] = [
+        {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{b64}'}},
+        {'type': 'text', 'text': _OCR_PROMPT},
+    ]
     call_kwargs: dict = {
         'model': model,
         'messages': [{'role': 'user', 'content': content}],
@@ -87,9 +74,43 @@ async def run_lightocr(
         call_kwargs['api_base'] = base_url
 
     completion = await acompletion(**call_kwargs)
-    text = (completion.choices[0].message.content or '').strip()
-    logger.info('LightOnOCR extracted %d chars from %d page(s)', len(text), len(images_b64))
-    return text
+    return (completion.choices[0].message.content or '').strip()
+
+
+async def run_lightocr(
+    pdf_bytes: bytes,
+    *,
+    model: str,
+    api_key: str | None,
+    base_url: str | None,
+    max_pages: int = 3,
+) -> str:
+    """Call LightOnOCR-2-1B to extract text from a PDF.
+
+    Each page is processed in a separate API call (model accepts 1 image/call).
+    Returns the combined text of all processed pages, or raises on hard failure.
+    The caller should handle exceptions and fall back gracefully.
+    """
+    images_b64 = _pdf_to_images_b64(pdf_bytes, max_pages=max_pages)
+    if not images_b64:
+        raise ValueError('Could not render any PDF pages to images.')
+
+    page_texts: list[str] = []
+    for page_idx, b64 in enumerate(images_b64):
+        try:
+            page_text = await _ocr_single_page(b64, model=model, api_key=api_key, base_url=base_url)
+            page_texts.append(page_text)
+            logger.debug('LightOnOCR page %d: %d chars', page_idx + 1, len(page_text))
+        except Exception as page_exc:
+            logger.warning('LightOnOCR page %d failed: %s', page_idx + 1, page_exc)
+            # Continue with remaining pages — partial OCR is better than none
+
+    if not page_texts:
+        raise RuntimeError('LightOnOCR failed on all pages.')
+
+    combined = '\n\n'.join(page_texts)
+    logger.info('LightOnOCR extracted %d chars from %d/%d page(s)', len(combined), len(page_texts), len(images_b64))
+    return combined
 
 
 def read_pdf_from_local_path(

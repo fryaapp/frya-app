@@ -150,27 +150,27 @@ def test_regex_netto_extraction_from_full_text():
     assert Decimal('1.36') in tax_values
 
 
-# ── Test 5: max_pages=3 in OCR call (AST check) ──────────────────────────────
+# ── Test 5: OCR processes each page in a separate API call ──────────────────
 
-def test_multipage_ocr_uses_max_pages_3():
-    """run_lightocr must be called with max_pages=3 (not 1)."""
-    import ast
-    import pathlib
+@pytest.mark.asyncio
+async def test_multipage_ocr_calls_api_per_page():
+    """run_lightocr must call the API once per page (not all pages at once)."""
+    from unittest.mock import patch, AsyncMock
+    from app.document_analysis.ocr_service import run_lightocr
 
-    nodes_src = pathlib.Path('agent/app/orchestration/nodes.py').read_text(encoding='utf-8-sig')
-    tree = ast.parse(nodes_src)
+    page_calls: list[int] = []
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func_name = ''
-            if isinstance(node.func, ast.Name):
-                func_name = node.func.id
-            elif isinstance(node.func, ast.Attribute):
-                func_name = node.func.attr
-            if func_name == 'run_lightocr':
-                for kw in node.keywords:
-                    if kw.arg == 'max_pages':
-                        assert isinstance(kw.value, ast.Constant), 'max_pages must be a literal'
-                        assert kw.value.value == 3, f'max_pages should be 3, got {kw.value.value}'
-                        return
-    pytest.fail('run_lightocr call with max_pages keyword not found in nodes.py')
+    async def fake_ocr_single_page(b64, *, model, api_key, base_url):
+        page_calls.append(len(page_calls) + 1)
+        return f'Page text {len(page_calls)}'
+
+    # Mock _pdf_to_images_b64 to return 2 fake image strings (no fitz needed)
+    fake_images = ['aGVsbG8=', 'd29ybGQ=']  # base64 "hello", "world"
+
+    with patch('app.document_analysis.ocr_service._pdf_to_images_b64', return_value=fake_images), \
+         patch('app.document_analysis.ocr_service._ocr_single_page', side_effect=fake_ocr_single_page):
+        result = await run_lightocr(b'fakepdf', model='openai/test', api_key='key', base_url=None, max_pages=3)
+
+    assert len(page_calls) == 2, f'Expected 2 API calls (one per page), got {len(page_calls)}'
+    assert 'Page text 1' in result
+    assert 'Page text 2' in result
