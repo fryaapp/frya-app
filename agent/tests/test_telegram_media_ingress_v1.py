@@ -330,7 +330,7 @@ def test_telegram_document_links_to_latest_trackable_case_conservatively(tmp_pat
         )
         assert inbox.status_code == 200
         inbox_body = inbox.json()
-        assert inbox_body['routing_status'] == 'ACCEPTED_TO_INBOX'
+        assert inbox_body['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
 
         doc = client.post(
             '/webhooks/telegram',

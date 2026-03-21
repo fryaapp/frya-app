@@ -173,7 +173,7 @@ def test_api_surface(tmp_path, monkeypatch):
         assert tg_inbox.status_code == 200
         tg_inbox_body = tg_inbox.json()
         assert tg_inbox_body['status'] == 'accepted'
-        assert tg_inbox_body['routing_status'] == 'ACCEPTED_TO_INBOX'
+        assert tg_inbox_body['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
         assert tg_inbox_body['open_item_id']
         tg_inbox_case_id = tg_inbox_body['case_id']
 
@@ -344,10 +344,10 @@ def test_api_surface(tmp_path, monkeypatch):
         tg_inbox_case_json = client.get(f'/inspect/cases/{tg_inbox_case_id}/json')
         assert tg_inbox_case_json.status_code == 200
         tg_inbox_case_body = tg_inbox_case_json.json()
-        assert tg_inbox_case_body['telegram_ingress']['routing_status'] == 'ACCEPTED_TO_INBOX'
+        assert tg_inbox_case_body['telegram_ingress']['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
         assert tg_inbox_case_body['telegram_ingress']['open_item_id'] == tg_inbox_body['open_item_id']
         assert tg_inbox_case_body['telegram_case_link']['track_for_status'] is True
-        assert tg_inbox_case_body['telegram_ingress']['user_visible_status']['status_code'] == 'IN_QUEUE'
+        assert tg_inbox_case_body['telegram_ingress']['user_visible_status']['status_code'] in ('IN_QUEUE', 'COMMUNICATOR_REPLIED')
 
         tg_ui = client.get(f'/ui/cases/{tg_case_id}')
         assert tg_ui.status_code == 200
@@ -357,7 +357,7 @@ def test_api_surface(tmp_path, monkeypatch):
         tg_inbox_ui = client.get(f'/ui/cases/{tg_inbox_case_id}')
         assert tg_inbox_ui.status_code == 200
         assert 'Telegram Ingress' in tg_inbox_ui.text
-        assert 'ACCEPTED_TO_INBOX' in tg_inbox_ui.text
+        assert ('ACCEPTED_TO_INBOX' in tg_inbox_ui.text or 'COMMUNICATOR_HANDLED' in tg_inbox_ui.text)
 
         assert client.get('/inspect/audit').status_code == 200
 

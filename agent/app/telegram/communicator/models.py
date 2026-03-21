@@ -11,6 +11,7 @@ CommunicatorIntentCode = Literal[
     'DOCUMENT_ARRIVAL_CHECK',
     'LAST_CASE_EXPLANATION',
     'GENERAL_SAFE_HELP',
+    'GENERAL_CONVERSATION',
     'UNSUPPORTED_OR_RISKY',
 ]
 

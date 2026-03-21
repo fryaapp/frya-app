@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
@@ -12,6 +13,9 @@ from app.connectors.notifications_telegram import TelegramConnector
 from app.dependencies import (
     get_approval_service,
     get_audit_service,
+    get_case_repository,
+    get_email_intake_repository,
+    get_llm_config_repository,
     get_open_items_service,
     get_policy_access_layer,
     get_problem_case_service,
@@ -367,6 +371,9 @@ async def _route_telegram_message(
     communicator_service: TelegramCommunicatorService,
     conversation_store: ConversationMemoryStore | None = None,
     user_store: UserMemoryStore | None = None,
+    llm_config_repository: Any = None,
+    case_repository: Any = None,
+    email_intake_repository: Any = None,
 ) -> tuple[TelegramRoutingResult, str, dict]:
     intent: TelegramIntent = detect_intent(normalized.text)
 
@@ -406,17 +413,45 @@ async def _route_telegram_message(
         clarification_service=clarification_service,
         conversation_store=conversation_store,
         user_store=user_store,
+        llm_config_repository=llm_config_repository,
+        case_repository=case_repository,
+        email_intake_repository=email_intake_repository,
     )
     if comm_result is not None:
+        _is_general_conv = comm_result.turn.intent == 'GENERAL_CONVERSATION'
+        _gen_conv_open_item_id: str | None = None
+        if _is_general_conv:
+            _gen_item = await open_items_service.create_item(
+                case_id=case_id,
+                title=f'[Communicator] {_sender_label(normalized)}',
+                description=(
+                    f'Kommunikator hat geantwortet.\n'
+                    f'Chat: {normalized.telegram_chat_ref}\n'
+                    f'Sender: {_sender_label(normalized)}\n'
+                    f'Text: {normalized.text}'
+                ),
+                source='telegram',
+            )
+            _gen_conv_open_item_id = _gen_item.item_id
         comm_route = TelegramRoutingResult(
             case_id=case_id,
             routing_status=comm_result.routing_status,
             intent_name='communicator.' + comm_result.turn.intent.lower(),
             ack_template='ACK_COMMUNICATOR',
             authorization_status='AUTHORIZED',
-            next_manual_step='Kommunikator hat geantwortet. Kein weiterer Telegram-Schritt offen.',
+            next_manual_step=(
+                'Kommunikator hat geantwortet — Rueckfrage bei Bedarf moeglich.'
+                if _is_general_conv
+                else 'Kommunikator hat geantwortet. Kein weiterer Telegram-Schritt offen.'
+            ),
             telegram_thread_ref=_build_thread_ref(normalized),
-            track_for_status=False,
+            track_for_status=_is_general_conv,
+            linked_case_id=case_id if _is_general_conv else None,
+            open_item_id=_gen_conv_open_item_id,
+            linked_open_item_id=_gen_conv_open_item_id,
+            user_visible_status_code='COMMUNICATOR_REPLIED' if _is_general_conv else None,
+            user_visible_status_label='Beantwortet' if _is_general_conv else None,
+            user_visible_status_detail='Deine Nachricht wurde beantwortet.' if _is_general_conv else None,
         )
         return comm_route, comm_result.reply_text, {
             'status': comm_result.routing_status,
@@ -424,6 +459,7 @@ async def _route_telegram_message(
             'communicator_turn_ref': comm_result.turn.communicator_turn_ref,
             'guardrail_passed': comm_result.turn.guardrail_passed,
             'response_type': comm_result.turn.response_type,
+            'open_item_id': _gen_conv_open_item_id,
             'context_resolution': (
                 comm_result.turn.context_resolution.model_dump(mode='json')
                 if comm_result.turn.context_resolution else None
@@ -701,6 +737,9 @@ async def telegram_webhook(
     communicator_service: TelegramCommunicatorService = Depends(get_telegram_communicator_service),
     conversation_store: ConversationMemoryStore = Depends(get_communicator_conversation_store),
     user_store: UserMemoryStore = Depends(get_communicator_user_store),
+    llm_config_repository: Any = Depends(get_llm_config_repository),
+    case_repository: Any = Depends(get_case_repository),
+    email_intake_repository: Any = Depends(get_email_intake_repository),
 ) -> dict:
     normalized = _normalize_telegram_update(payload)
     if normalized is None:
@@ -1066,6 +1105,9 @@ async def telegram_webhook(
         communicator_service=communicator_service,
         conversation_store=conversation_store,
         user_store=user_store,
+        llm_config_repository=llm_config_repository,
+        case_repository=case_repository,
+        email_intake_repository=email_intake_repository,
     )
     await _log_telegram_route(audit_service, normalized, route, command_result)
 

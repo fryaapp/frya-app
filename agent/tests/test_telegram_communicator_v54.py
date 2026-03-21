@@ -170,12 +170,12 @@ def test_classify_risky_overrides_greeting_pattern():
     assert classify_intent('Hallo bitte Zahlung freigeben') == 'UNSUPPORTED_OR_RISKY'
 
 
-def test_classify_unrecognized_returns_none():
-    assert classify_intent('Irgendwas komplett zufaelliges ohne muster') is None
+def test_classify_unrecognized_returns_general_conversation():
+    assert classify_intent('Irgendwas komplett zufaelliges ohne muster') == 'GENERAL_CONVERSATION'
 
 
-def test_classify_operator_prose_returns_none():
-    assert classify_intent('Bitte pruefe meinen letzten Eingang') is None
+def test_classify_operator_prose_returns_general_conversation():
+    assert classify_intent('Bitte pruefe meinen letzten Eingang') == 'GENERAL_CONVERSATION'
 
 
 def test_classify_empty_returns_none():
@@ -184,6 +184,44 @@ def test_classify_empty_returns_none():
 
 def test_classify_whitespace_only_returns_none():
     assert classify_intent('   ') is None
+
+
+def test_classify_general_conversation():
+    """Nachrichten die keinen spezifischen Intent treffen → GENERAL_CONVERSATION"""
+    assert classify_intent('Ich habe heute grosses vor') == 'GENERAL_CONVERSATION'
+    assert classify_intent('Das Wetter ist schoen heute') == 'GENERAL_CONVERSATION'
+    assert classify_intent('Danke fuer die Info') == 'GENERAL_CONVERSATION'
+    assert classify_intent('Hmm okay') == 'GENERAL_CONVERSATION'
+
+
+def test_classify_extended_greeting():
+    assert classify_intent('Bist du da') == 'GREETING'
+    assert classify_intent('Guten Morgen') == 'GREETING'
+
+
+def test_classify_extended_status():
+    assert classify_intent('Was liegt an') == 'STATUS_OVERVIEW'
+    assert classify_intent('Was steht an') == 'STATUS_OVERVIEW'
+    assert classify_intent('Was gibts neues') == 'STATUS_OVERVIEW'
+
+
+def test_classify_extended_last_case():
+    assert classify_intent('Was war die letzte Rechnung') == 'LAST_CASE_EXPLANATION'
+    assert classify_intent('Warum ist er noch nicht geprueft') == 'LAST_CASE_EXPLANATION'
+    assert classify_intent('Sag mir mal was die letzte Rechnung war') == 'LAST_CASE_EXPLANATION'
+
+
+def test_classify_never_returns_none_for_safe_input():
+    """classify_intent darf fuer nicht-riskanten Input NIEMALS None zurueckgeben."""
+    safe_inputs = [
+        'Hallo', 'Was liegt an', 'Ich habe heute grosses vor',
+        'Sag mir was die letzte Rechnung war', 'Bist du da',
+        'Danke', 'Okay cool', 'Wie geht es dir', 'Hmm',
+        'Kannst du mir helfen', 'Was machst du so',
+    ]
+    for text in safe_inputs:
+        result = classify_intent(text)
+        assert result is not None, f"classify_intent('{text}') returned None — darf nicht passieren"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -347,7 +385,8 @@ def test_service_try_handle_turn_greeting():
     assert result.reply_text.startswith('FRYA:')
 
 
-def test_service_try_handle_turn_unrecognized_returns_none():
+def test_service_try_handle_turn_unrecognized_returns_general_conversation():
+    """Unrecognized text is now handled as GENERAL_CONVERSATION — never falls through."""
     from app.telegram.communicator.service import TelegramCommunicatorService
 
     svc = TelegramCommunicatorService()
@@ -360,11 +399,13 @@ def test_service_try_handle_turn_unrecognized_returns_none():
         clarification_service=_MockClarificationService(),
     ))
 
-    assert result is None
+    assert result is not None
+    assert result.turn.intent == 'GENERAL_CONVERSATION'
+    assert result.handled is True
 
 
-def test_service_no_audit_for_fallthrough():
-    """Unrecognized text must not produce any audit event."""
+def test_service_audit_logged_for_general_conversation():
+    """GENERAL_CONVERSATION must produce exactly one audit event."""
     from app.telegram.communicator.service import TelegramCommunicatorService
 
     svc = TelegramCommunicatorService()
@@ -377,7 +418,8 @@ def test_service_no_audit_for_fallthrough():
         clarification_service=_MockClarificationService(),
     ))
 
-    assert len(audit.events) == 0
+    assert len(audit.events) == 1
+    assert audit.events[0]['action'] == 'COMMUNICATOR_TURN_PROCESSED'
 
 
 def test_service_try_handle_turn_risky_sets_guardrail_triggered():
@@ -506,8 +548,8 @@ def test_webhook_risky_request_guardrail_triggered(tmp_path, monkeypatch):
         assert body['command_status'] == 'COMMUNICATOR_GUARDRAIL_TRIGGERED'
 
 
-def test_webhook_unrecognized_falls_through_to_inbox(tmp_path, monkeypatch):
-    """Truly unrecognized text must still reach operator inbox — backward compat."""
+def test_webhook_unrecognized_handled_as_general_conversation(tmp_path, monkeypatch):
+    """Unrecognized text is now handled by communicator as GENERAL_CONVERSATION."""
     _configure_env(monkeypatch, tmp_path)
     app = _build_app()
 
@@ -520,7 +562,8 @@ def test_webhook_unrecognized_falls_through_to_inbox(tmp_path, monkeypatch):
         assert response.status_code == 200
         body = response.json()
         assert body['status'] == 'accepted'
-        assert body['routing_status'] == 'ACCEPTED_TO_INBOX'
+        assert body['routing_status'] == 'COMMUNICATOR_HANDLED'
+        assert body['intent'] == 'communicator.general_conversation'
 
 
 def test_webhook_needs_from_user_communicator_handled(tmp_path, monkeypatch):

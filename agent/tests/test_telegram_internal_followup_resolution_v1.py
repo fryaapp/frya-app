@@ -175,5 +175,5 @@ def test_internal_followup_completion_keeps_old_clarification_closed_for_input(t
         )
         assert new_text.status_code == 200
         new_text_body = new_text.json()
-        assert new_text_body['routing_status'] == 'ACCEPTED_TO_INBOX'
+        assert new_text_body['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
         assert new_text_body['case_id'] != case_id

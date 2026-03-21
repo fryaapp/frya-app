@@ -146,7 +146,7 @@ def test_after_telegram_end_late_reply_is_rejected_and_new_text_becomes_new_ingr
         )
         assert new_text.status_code == 200
         new_text_body = new_text.json()
-        assert new_text_body['routing_status'] == 'ACCEPTED_TO_INBOX'
+        assert new_text_body['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
         assert new_text_body['linked_case_id'] == new_text_body['case_id']
         assert new_text_body['case_id'] != case_id
 

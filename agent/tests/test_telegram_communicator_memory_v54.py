@@ -578,8 +578,8 @@ async def test_service_updates_user_memory_after_turn(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_service_fall_through_does_not_update_memory(monkeypatch):
-    """Unrecognized text → None returned, no memory update."""
+async def test_service_general_conversation_updates_memory(monkeypatch):
+    """Unrecognized text → GENERAL_CONVERSATION handled, memory IS updated."""
     svc = TelegramCommunicatorService()
     audit, open_items, clarification = _mock_services()
     conv_store = _mem_conv_store()
@@ -594,9 +594,10 @@ async def test_service_fall_through_does_not_update_memory(monkeypatch):
         conversation_store=conv_store,
         user_store=user_store,
     )
-    assert result is None
-    # No user memory was created
-    assert await user_store.load('user-1') is None
+    assert result is not None
+    assert result.turn.intent == 'GENERAL_CONVERSATION'
+    # User memory was updated
+    assert await user_store.load('user-1') is not None
 
 
 @pytest.mark.asyncio

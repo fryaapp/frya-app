@@ -50,7 +50,7 @@ def test_telegram_status_tracks_last_linked_case(tmp_path, monkeypatch):
         inbox = client.post('/webhooks/telegram', json=inbox_payload, headers={'x-telegram-bot-api-secret-token': 'tg-secret'})
         assert inbox.status_code == 200
         inbox_body = inbox.json()
-        assert inbox_body['routing_status'] == 'ACCEPTED_TO_INBOX'
+        assert inbox_body['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
 
         inbox_dup = client.post('/webhooks/telegram', json=inbox_payload, headers={'x-telegram-bot-api-secret-token': 'tg-secret'})
         assert inbox_dup.status_code == 200

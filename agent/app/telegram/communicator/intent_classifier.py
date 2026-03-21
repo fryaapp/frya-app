@@ -38,7 +38,7 @@ _RISKY_SUBSTRINGS: tuple[str, ...] = (
 
 # ── Greeting ──────────────────────────────────────────────────────────────────
 _GREETING_TOKENS: frozenset[str] = frozenset({
-    'hallo', 'hi', 'hey', 'servus', 'moin',
+    'hallo', 'hi', 'hey', 'servus', 'moin', 'na', 'jo',
 })
 _GREETING_PHRASES: tuple[str, ...] = (
     'guten morgen',
@@ -47,6 +47,10 @@ _GREETING_PHRASES: tuple[str, ...] = (
     'hi frya',
     'hallo frya',
     'hey frya',
+    'bist du da',
+    'grüß dich',
+    'gruess dich',
+    'grüezi',
 )
 
 # ── Status Overview ───────────────────────────────────────────────────────────
@@ -62,6 +66,20 @@ _STATUS_PHRASES: tuple[str, ...] = (
     'neuigkeiten',
     'was passiert',
     'wie geht es meinem',
+    'was liegt an',
+    'was steht an',
+    'was gibt es neues',
+    'was gibts neues',
+    'was gibts',
+    'was gibt es',
+    'ueberblick',
+    'überblick',
+    'zusammenfassung',
+    'was hab ich verpasst',
+    'was ist passiert',
+    'was tut sich',
+    'was geht ab',
+    'kurzes update',
 )
 
 # ── Needs from User ───────────────────────────────────────────────────────────
@@ -97,6 +115,21 @@ _CASE_EXPLANATION_PHRASES: tuple[str, ...] = (
     'was ist mein vorgang',
     'was wird bei mir bearbeitet',
     'was bearbeitest du fuer mich',
+    'letzte rechnung',
+    'letzter beleg',
+    'letztes dokument',
+    'was war die letzte rechnung',
+    'was war das letzte',
+    'zeig mir die letzte',
+    'was kam zuletzt',
+    'letzter vorgang',
+    'was ist mit der rechnung',
+    'warum ist er noch nicht',
+    'warum ist sie noch nicht',
+    'warum wurde das noch nicht',
+    'warum nicht geprueft',
+    'warum nicht geprüft',
+    'noch nicht verarbeitet',
 )
 
 # ── General Safe Help ─────────────────────────────────────────────────────────
@@ -107,6 +140,14 @@ _SAFE_HELP_PHRASES: tuple[str, ...] = (
     'kannst du mir helfen',
     'was kann frya',
     'wie kann ich',
+    'was kannst du alles',
+    'wie funktionierst du',
+    'erklaer mir',
+    'erklär mir',
+    'erklaer mal',
+    'erklär mal',
+    'wie geht das',
+    'anleitung',
 )
 
 
@@ -162,4 +203,5 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
         if phrase in t:
             return 'GENERAL_SAFE_HELP'
 
-    return None
+    # 8. GENERAL_CONVERSATION — catch-all for any non-risky unrecognized text
+    return 'GENERAL_CONVERSATION'

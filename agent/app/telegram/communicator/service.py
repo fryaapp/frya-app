@@ -47,7 +47,17 @@ _INTENT_RESPONSE_TYPES: dict[str, str] = {
     'DOCUMENT_ARRIVAL_CHECK': 'COMMUNICATOR_REPLY_EXPLANATION',
     'LAST_CASE_EXPLANATION': 'COMMUNICATOR_REPLY_EXPLANATION',
     'GENERAL_SAFE_HELP': 'COMMUNICATOR_REPLY_SAFE_HELP',
+    'GENERAL_CONVERSATION': 'COMMUNICATOR_REPLY_GENERAL',
 }
+
+_GENERAL_CONVERSATION_PERSONALITY = (
+    '\n[KOMMUNIKATIONSSTIL]\n'
+    'Antworte freundlich, kompetent und direkt auf Deutsch. Sprich den User mit "du" an.\n'
+    'Bei Buchhaltungsthemen: beziehe dich auf verfuegbare Daten — wenn keine vorhanden, sage es ehrlich.\n'
+    'Bei Small Talk: kurz und natuerlich antworten (1-2 Saetze). Du bist eine Kollegin, kein Chatbot.\n'
+    'Wenn unklar ist was der User will: kurz nachfragen.\n'
+    '[/KOMMUNIKATIONSSTIL]'
+)
 
 
 def build_llm_context_payload(
@@ -315,6 +325,13 @@ class TelegramCommunicatorService:
 
                 try:
                     api_key = _repo.decrypt_key_for_call(llm_config) if _repo else None
+                    # Fall back to FRYA_ANTHROPIC_API_KEY env var when no per-agent key is stored
+                    if not api_key and provider == 'anthropic':
+                        try:
+                            from app.dependencies import get_settings as _get_settings
+                            api_key = _get_settings().anthropic_api_key or None
+                        except Exception:
+                            pass
                     base_url = llm_config.get('base_url') or None
 
                     # Resolve case_repository from dependencies if not passed
@@ -343,6 +360,8 @@ class TelegramCommunicatorService:
                         audit_service=audit_service,
                         user_memory=prev_user_memory,
                     )
+                    if intent == 'GENERAL_CONVERSATION':
+                        sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
 
                     payload = build_llm_context_payload(
                         intent=intent,
@@ -412,10 +431,16 @@ class TelegramCommunicatorService:
                         response_source = 'LLM'
 
                 except Exception as exc:
-                    reply_text = (
-                        'FRYA: Ich bin gerade nicht erreichbar. '
-                        'Bitte versuche es in einem Moment erneut.'
-                    )
+                    if intent == 'GENERAL_CONVERSATION':
+                        reply_text = (
+                            'FRYA: Ich konnte deine Nachricht gerade nicht verarbeiten. '
+                            'Versuch es in ein paar Sekunden nochmal.'
+                        )
+                    else:
+                        reply_text = (
+                            'FRYA: Ich bin gerade nicht erreichbar. '
+                            'Bitte versuche es in einem Moment erneut.'
+                        )
                     response_type = 'COMMUNICATOR_REPLY_FALLBACK'
                     response_source = 'FALLBACK'
                     logger.warning('LLM call failed for communicator turn: %s', exc)
