@@ -22,6 +22,7 @@ from decimal import Decimal, InvalidOperation
 from litellm import acompletion
 
 _LLM_TIMEOUT = float(os.environ.get('FRYA_LLM_TIMEOUT', '120'))
+_OWN_COMPANY_NAME: str | None = os.environ.get('FRYA_OWN_COMPANY_NAME') or None
 
 from app.document_analysis.models import (
     AnalysisDecision,
@@ -63,6 +64,19 @@ REGELN
    Nur Fragmente → 0.2-0.49. Fast nichts → 0.0-0.19.
 8. Referenzen (Rechnungsnummer, Aktenzeichen, Kundennummer) sind KRITISCH für die
    Vorgangszuordnung. Extrahiere ALLE die du findest.
+9. ABSENDER vs. EMPFÄNGER auf deutschen Rechnungen:
+   Der ABSENDER (Rechnungssteller/Vendor/Lieferant) ist die Firma die die Rechnung AUSSTELLT:
+   - Hat die USt-IDNr. / Steuernummer auf der Rechnung
+   - Steht in der Fußzeile (Impressum) mit HRB, Geschäftsführer, Bankverbindung
+   - Steht oft RECHTS OBEN oder im Briefkopf/Logo-Bereich
+   - Hat die Gläubiger-Identifikationsnummer bei SEPA-Mandaten
+   Der EMPFÄNGER (Rechnungsempfänger/Kunde) ist die Firma die die Rechnung BEKOMMT:
+   - Steht im Adressfeld (oft LINKS OBEN, größer gedruckt)
+   - Hat KEINE USt-IDNr. auf dieser Rechnung (außer bei Reverse Charge)
+   - Steht NICHT in der Fußzeile
+   REGEL: Wenn zwei Firmennamen auf der Rechnung stehen, ist die Firma mit USt-IDNr.
+   und Fußzeilen-Impressum der ABSENDER ("sender"). Die Firma im Adressfeld ist
+   der EMPFÄNGER ("recipient"). Extrahiere als "sender" IMMER den Rechnungssteller.
 
 ═══════════════════════════════════════
 DOKUMENTTYPEN
@@ -219,6 +233,12 @@ class DocumentAnalystSemanticService:
         user_content = f'Dokumenttext:\n{truncated}'
         if metadata.get('title'):
             user_content = f'Titel: {metadata["title"]}\n\n{user_content}'
+        if _OWN_COMPANY_NAME:
+            user_content = (
+                f'Hinweis: Der aktuelle Nutzer/Tenant ist "{_OWN_COMPANY_NAME}". '
+                f'Wenn dieser Name im Dokument vorkommt, ist er der EMPFÄNGER, nicht der Absender.\n\n'
+                + user_content
+            )
 
         call_kwargs: dict = {
             'model': self._model,
