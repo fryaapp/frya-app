@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-OpenItemStatus = Literal['OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED', 'COMPLETED', 'CANCELLED']
+OpenItemStatus = Literal['OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED', 'COMPLETED', 'CANCELLED', 'PENDING_APPROVAL']
 
 
 class OpenItem(BaseModel):

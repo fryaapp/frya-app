@@ -15,6 +15,7 @@ from app.accounting_analysis.models import AccountingAnalysisInput, AccountingAn
 from app.accounting_review.models import AccountingReviewDraft
 from app.dependencies import (
     get_accounting_analysis_service,
+    get_akaunting_connector,
     get_approval_service,
     get_audit_service,
     get_case_repository,
@@ -23,13 +24,14 @@ from app.dependencies import (
     get_paperless_connector,
     get_policy_access_layer,
     get_problem_case_service,
+    get_telegram_connector,
 )
 from app.document_analysis.models import DocumentAnalysisInput, DocumentAnalysisResult
 from app.open_items.models import OpenItemStatus
 from app.orchestration.state import AgentState
 
 
-_ACTIVE_ITEM_STATUSES: set[OpenItemStatus] = {'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED'}
+_ACTIVE_ITEM_STATUSES: set[OpenItemStatus] = {'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED', 'PENDING_APPROVAL'}
 
 
 async def classify_intent(state: AgentState) -> AgentState:
@@ -610,14 +612,36 @@ async def finalize_document_review(state: AgentState) -> AgentState:
     # ── Annotation action handling (handwritten notes from Der Kopf) ──────────
     for _ann in result.annotations:
         if _ann.action_suggested == 'CHECK_PAYMENT_EXISTS':
+            # Check Akaunting for existing payment matching vendor + amount
+            _payment_found = False
+            try:
+                _vendor_hint = result.sender.value if result.sender.status == 'FOUND' else None
+                _total_hint = next(
+                    (a.amount for a in result.amounts if a.label == 'TOTAL' and a.status == 'FOUND'),
+                    None,
+                )
+                if _vendor_hint or _total_hint:
+                    _txs = await get_akaunting_connector().search_transactions(
+                        contact_name=_vendor_hint,
+                        amount=float(_total_hint) if _total_hint is not None else None,
+                    )
+                    _payment_found = bool(_txs)
+            except Exception as _ak_exc:
+                _logger.debug('CHECK_PAYMENT_EXISTS Akaunting lookup failed: %s', _ak_exc)
+
+            _description = (
+                f'Handschriftlicher Zahlungsvermerk erkannt: "{_ann.raw_text}"\n'
+                f'Interpretation: {_ann.interpreted}\n'
+            )
+            if _payment_found:
+                _description += 'Zahlungseingang in Akaunting gefunden — Beleg möglicherweise bereits gebucht.'
+            else:
+                _description += 'Bitte pruefen ob Zahlungseingang in der Buchhaltung erfasst ist.'
+
             await _ensure_case_open_item(
                 case_id,
                 title='Zahlungsvermerk pruefen',
-                description=(
-                    f'Handschriftlicher Zahlungsvermerk erkannt: "{_ann.raw_text}"\n'
-                    f'Interpretation: {_ann.interpreted}\n'
-                    f'Bitte pruefen ob Zahlungseingang in der Buchhaltung erfasst ist.'
-                ),
+                description=_description,
                 source='document_analyst_annotation',
                 desired_status='OPEN',
                 document_ref=document_ref,
@@ -646,6 +670,12 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                 document_ref=document_ref,
             )
         elif _ann.action_suggested == 'FLAG_FOR_TAX_ADVISOR':
+            # Tag document in Paperless as "steuerberater"
+            if document_ref and document_ref.isdigit():
+                try:
+                    await get_paperless_connector().add_tag(document_ref, 'steuerberater')
+                except Exception as _tag_exc:
+                    _logger.warning('Could not add steuerberater tag to doc %s: %s', document_ref, _tag_exc)
             await get_audit_service().log_event({
                 'event_id': str(uuid.uuid4()),
                 'case_id': case_id,
@@ -843,13 +873,14 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
 
     output = dict(state.get('output', {}))
     open_item_id = output.get('open_item_id')
+    approval_id: str | None = None
     if accounting_analysis.global_decision == 'PROPOSED':
         open_item_id = await _ensure_case_open_item(
             review.case_id,
             title=_accounting_analysis_open_item_title(accounting_analysis),
             description=accounting_analysis.analysis_summary,
             source='accounting_analyst',
-            desired_status='OPEN',
+            desired_status='PENDING_APPROVAL',
             document_ref=review.document_ref,
             accounting_ref=review_ref,
         )
@@ -859,7 +890,79 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
             titles={'Accounting Review durchfuehren'},
             final_status='COMPLETED',
         )
+
+        # ── Request user approval (booking_finalize = REQUIRE_USER_APPROVAL) ──
+        try:
+            _approval_ctx = {
+                'accounting_analysis': accounting_analysis.model_dump(mode='json'),
+                'document_ref': review.document_ref,
+                'accounting_ref': review_ref,
+                'source_channel': state.get('source', 'UNKNOWN'),
+            }
+            _approval = await get_approval_service().request_approval(
+                case_id=review.case_id,
+                action_type='booking_finalize',
+                requested_by='accounting-analyst',
+                scope_ref=review_ref,
+                reason='Buchungsvorschlag wartet auf Nutzer-Freigabe.',
+                policy_refs=policy_refs,
+                required_mode='REQUIRE_USER_APPROVAL',
+                approval_context=_approval_ctx,
+                open_item_id=open_item_id,
+                source='accounting_analyst',
+            )
+            approval_id = _approval.approval_id
+        except Exception as _appr_exc:
+            _logger.warning('Could not create approval for case %s: %s', review.case_id, _appr_exc)
+
+        # ── Proactive Telegram notification (channel-agnostic) ───────────────
+        # Only send if we can find the Telegram chat_id in the case's audit trail.
+        try:
+            from app.booking.approval_service import format_booking_proposal_message
+            _doc_analysis = state.get('document_analysis') or {}
+            _annotations_raw = _doc_analysis.get('annotations') or [] if isinstance(_doc_analysis, dict) else []
+            from app.document_analysis.models import Annotation as _AnnModel
+            _annotations = [_AnnModel.model_validate(a) for a in _annotations_raw if isinstance(a, dict)]
+            _proposal_text = format_booking_proposal_message(
+                accounting_analysis,
+                annotations=_annotations,
+                source_channel=state.get('source', 'UNKNOWN'),
+            )
+            # Append approval_id so user/channel can reference it
+            if approval_id:
+                _proposal_text += f'\n\n[Ref: {review.case_id} | Freigabe: {approval_id[:8]}]'
+            # Look up telegram chat_id from audit events
+            _tg_events = await get_audit_service().by_case(review.case_id, limit=200)
+            import json as _json
+            _chat_id: str | None = None
+            for _ev in _tg_events:
+                _meta = _ev.llm_output
+                if isinstance(_meta, str):
+                    try:
+                        _meta = _json.loads(_meta)
+                    except Exception:
+                        _meta = {}
+                if isinstance(_meta, dict) and _meta.get('telegram_chat_id'):
+                    _chat_id = str(_meta['telegram_chat_id'])
+                    break
+            if _chat_id:
+                from app.connectors.contracts import NotificationMessage
+                await get_telegram_connector().send(
+                    NotificationMessage(
+                        target=_chat_id,
+                        text=_proposal_text,
+                        metadata={
+                            'case_id': review.case_id,
+                            'approval_id': approval_id,
+                            'intent': 'booking.proposal',
+                        },
+                    )
+                )
+        except Exception as _notify_exc:
+            _logger.warning('Booking proposal notification failed for case %s: %s', review.case_id, _notify_exc)
+
         output['status'] = 'ACCOUNTING_ANALYST_READY'
+        output['approval_id'] = approval_id
     else:
         output['status'] = accounting_analysis.global_decision
 

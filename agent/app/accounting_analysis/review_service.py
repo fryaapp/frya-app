@@ -24,7 +24,7 @@ from app.open_items.models import OpenItem, OpenItemStatus
 from app.open_items.service import OpenItemsService
 from app.problems.service import ProblemCaseService
 
-_ACTIVE_ITEM_STATUSES: set[OpenItemStatus] = {'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED'}
+_ACTIVE_ITEM_STATUSES: set[OpenItemStatus] = {'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED', 'PENDING_APPROVAL'}
 
 
 class AccountingOperatorReviewService:

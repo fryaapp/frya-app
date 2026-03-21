@@ -26,6 +26,7 @@ from app.api.user_views import router as user_router
 from app.api.tenant_views import router as tenant_router
 from app.api.gdpr_views import router as gdpr_router
 from app.api.approval_views import router as approval_router
+from app.api.booking_approval import router as booking_approval_router
 from app.api.audit_views import router as audit_router
 from app.api.case_views import router as case_router
 from app.api.health import router as health_router
@@ -241,6 +242,7 @@ app.include_router(problem_router)
 app.include_router(proposal_router)
 app.include_router(rules_router)
 app.include_router(approval_router)
+app.include_router(booking_approval_router)
 app.include_router(verfahrensdoku_router)
 app.include_router(e_invoice_router)
 app.include_router(bulk_upload_router)

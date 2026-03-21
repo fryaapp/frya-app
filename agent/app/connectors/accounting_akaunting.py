@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
 
 from app.connectors.contracts import AccountingConnector
 
 _PROBE_TIMEOUT = 8.0
+_WRITE_TIMEOUT = 30.0
+
+logger = logging.getLogger(__name__)
 
 
 class AkauntingConnector(AccountingConnector):
@@ -55,6 +60,145 @@ class AkauntingConnector(AccountingConnector):
             'message': 'create_booking_draft ist als sicherer Stub implementiert und fuehrt keine Buchung aus.',
             'payload': payload,
         }
+
+    async def get_categories(self, category_type: str | None = None) -> list[dict]:
+        """Read-only: return Akaunting categories, optionally filtered by type.
+
+        GET /api/categories?type=expense|income
+        """
+        params: dict[str, str] = {}
+        if category_type:
+            params['type'] = category_type
+        try:
+            async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT, auth=self._auth()) as client:
+                response = await client.get(
+                    f'{self.base_url}/api/categories',
+                    headers=self._headers(),
+                    params=params,
+                )
+                response.raise_for_status()
+                data = response.json()
+                items: list[dict] = data.get('data', data) if isinstance(data, dict) else data
+                return items if isinstance(items, list) else []
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            logger.warning('get_categories failed: %s', exc)
+            return []
+
+    async def search_or_create_contact(
+        self,
+        name: str,
+        contact_type: str = 'vendor',
+        email: str | None = None,
+    ) -> dict:
+        """Find an existing contact by name or create a new vendor contact.
+
+        Returns the contact dict (with at least 'id').
+        Raises on HTTP error from create call.
+        """
+        existing = await self.search_contacts(name=name)
+        if existing:
+            return existing[0]
+
+        # Create new contact
+        payload: dict = {
+            'type': contact_type,
+            'name': name,
+            'currency_code': 'EUR',
+            'enabled': True,
+        }
+        if email:
+            payload['email'] = email
+
+        async with httpx.AsyncClient(timeout=_WRITE_TIMEOUT, auth=self._auth()) as client:
+            response = await client.post(
+                f'{self.base_url}/api/contacts',
+                headers={**self._headers(), 'Content-Type': 'application/json'},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get('data', data) if isinstance(data, dict) else data
+
+    async def create_bill_draft(
+        self,
+        data: dict,
+        company_id: int = 1,
+    ) -> dict:
+        """Create an Eingangsrechnung (Bill) in Akaunting as 'draft' status.
+
+        ALWAYS creates as draft — never as received or paid. This is PROPOSE_ONLY.
+
+        data = {
+            'vendor_name': str,               # required
+            'bill_number': str | None,
+            'billed_at': 'YYYY-MM-DD',
+            'due_at': 'YYYY-MM-DD' | None,
+            'amount': float,                  # gross total
+            'currency_code': 'EUR',
+            'category_name': str | None,      # matched against Akaunting categories
+            'items': [{'name': str, 'quantity': 1, 'price': float}],
+        }
+
+        Returns: {'bill_id': int|None, 'contact_id': int|None, 'status': 'draft', ...}
+        Raises: httpx.HTTPStatusError on API error.
+        """
+        vendor_name = str(data.get('vendor_name') or 'Unbekannter Lieferant')
+
+        # 1. Find or create vendor contact
+        contact = await self.search_or_create_contact(vendor_name, contact_type='vendor')
+        contact_id = contact.get('id')
+
+        # 2. Build bill payload
+        items_raw = data.get('items') or []
+        if not items_raw:
+            # Build single item from amount
+            items_raw = [{'name': vendor_name, 'quantity': 1, 'price': float(data.get('amount', 0))}]
+
+        bill_items = [
+            {
+                'name': str(it.get('name') or vendor_name),
+                'quantity': int(it.get('quantity') or 1),
+                'price': float(it.get('price') or 0),
+            }
+            for it in items_raw
+        ]
+
+        bill_payload: dict = {
+            'type': 'bill',
+            'document_number': data.get('bill_number') or '',
+            'status': 'draft',
+            'issued_at': data.get('billed_at') or '',
+            'due_at': data.get('due_at') or data.get('billed_at') or '',
+            'currency_code': data.get('currency_code') or 'EUR',
+            'currency_rate': 1,
+            'contact_id': contact_id,
+            'contact_name': vendor_name,
+            'items': bill_items,
+            'company_id': company_id,
+        }
+
+        if data.get('category_name'):
+            bill_payload['category_name'] = data['category_name']
+
+        async with httpx.AsyncClient(timeout=_WRITE_TIMEOUT, auth=self._auth()) as client:
+            response = await client.post(
+                f'{self.base_url}/api/documents',
+                headers={**self._headers(), 'Content-Type': 'application/json'},
+                json=bill_payload,
+            )
+            response.raise_for_status()
+            resp_data = response.json()
+            result = resp_data.get('data', resp_data) if isinstance(resp_data, dict) else resp_data
+            bill_id = result.get('id') if isinstance(result, dict) else None
+            logger.info('Akaunting bill draft created: id=%s vendor=%s', bill_id, vendor_name)
+            return {
+                'bill_id': bill_id,
+                'contact_id': contact_id,
+                'status': 'draft',
+                'vendor_name': vendor_name,
+                'currency_code': data.get('currency_code') or 'EUR',
+                'raw': result,
+            }
 
     async def search_bills(
         self,
