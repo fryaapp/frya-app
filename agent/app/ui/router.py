@@ -1647,7 +1647,7 @@ async def ui_open_items(
             rows=filtered,
             selected_status=status_norm,
             selected_priority=priority_norm,
-            statuses=['ALL', 'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED', 'COMPLETED', 'CANCELLED'],
+            statuses=['ALL', 'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED', 'PENDING_APPROVAL', 'COMPLETED', 'CANCELLED'],
             priorities=['ALL', 'HIGH', 'MEDIUM', 'LOW', 'UNSET'],
             priority_note='Priority wird in V1 transparent aus due_at abgeleitet (HIGH/MEDIUM/LOW/UNSET).',
             status_counts=dict(status_counts),
