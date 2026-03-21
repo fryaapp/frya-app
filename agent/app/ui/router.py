@@ -80,6 +80,15 @@ from app.telegram.service import TelegramCaseLinkService
 from app.case_engine.status import StatusTransitionError, allowed_transitions
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / 'templates'))
+
+from app.utils.translations import t, t_confidence, t_status, t_doc_type, t_risk, t_agent
+TEMPLATES.env.globals['t'] = t
+TEMPLATES.env.globals['t_confidence'] = t_confidence
+TEMPLATES.env.globals['t_status'] = t_status
+TEMPLATES.env.globals['t_doc_type'] = t_doc_type
+TEMPLATES.env.globals['t_risk'] = t_risk
+TEMPLATES.env.globals['t_agent'] = t_agent
+
 router = APIRouter(prefix='/ui', tags=['ui'], dependencies=[Depends(require_operator)])
 
 
@@ -2702,6 +2711,18 @@ async def ui_services(request: Request) -> HTMLResponse:
         request,
         'services.html',
         _ctx(request, title='Services', services=services),
+    )
+
+
+@router.get('/feedback', response_class=HTMLResponse)
+async def ui_feedback(request: Request, auth_user: AuthUser = Depends(require_admin)):
+    from app.feedback.repository import FeedbackRepository
+    repo = FeedbackRepository(get_settings().database_url)
+    items = await repo.list_all()
+    return TEMPLATES.TemplateResponse(
+        request,
+        'feedback.html',
+        _ctx(request, title='Feedback', auth_user=auth_user, items=items),
     )
 
 

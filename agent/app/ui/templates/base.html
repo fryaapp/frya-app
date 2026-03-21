@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FRYA UI - {{ title or 'UI' }}</title>
   <link rel="stylesheet" href="/ui/static/ui.css" />
+  <meta name="csrf-token" content="{{ csrf_token or '' }}" />
 </head>
 <body>
   {% set path = request.url.path %}
@@ -42,6 +43,7 @@
         <a class="{% if path.startswith('/ui/system') %}active{% endif %}" href="/ui/system">System</a>
         <a class="{% if path.startswith('/ui/services') %}active{% endif %}" href="/ui/services">Services</a>
         <a class="{% if path.startswith('/ui/legal') %}active{% endif %}" href="/ui/legal">Rechtliches <span class="en-hint">(Legal)</span></a>
+        <a class="{% if path.startswith('/ui/feedback') %}active{% endif %}" href="/ui/feedback">Feedback</a>
       </nav>
     </aside>
 
@@ -49,6 +51,7 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script src="/ui/static/feedback.js"></script>
 </body>
 </html>
 

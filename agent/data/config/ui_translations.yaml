@@ -1,0 +1,85 @@
+# FRYA UI-Uebersetzungsverzeichnis
+# Alle internen Bezeichnungen -> deutsche UI-Labels
+
+confidence:
+  CERTAIN: "Sicher"
+  HIGH: "Hoch"
+  MEDIUM: "Mittel"
+  LOW: "Niedrig"
+  UNKNOWN: "Unbekannt"
+
+case_status:
+  DRAFT: "Entwurf"
+  OPEN: "Offen"
+  ANALYZED: "Analysiert"
+  PROPOSED: "Vorgeschlagen"
+  APPROVED: "Freigegeben"
+  REJECTED: "Abgelehnt"
+  BOOKED: "Gebucht"
+  PAID: "Bezahlt"
+  CLOSED: "Abgeschlossen"
+  ARCHIVED: "Archiviert"
+
+item_status:
+  OPEN: "Offen"
+  WAITING_USER: "Wartet auf User"
+  WAITING_DATA: "Wartet auf Daten"
+  SCHEDULED: "Geplant"
+  PENDING_APPROVAL: "Wartet auf Freigabe"
+  COMPLETED: "Erledigt"
+  CANCELLED: "Abgebrochen"
+
+approval_mode:
+  AUTO: "Automatisch"
+  PROPOSE_ONLY: "Vorschlag"
+  REQUIRE_USER_APPROVAL: "Freigabe noetig"
+  BLOCK_ESCALATE: "Gesperrt (Eskalation)"
+
+document_type:
+  INVOICE: "Rechnung"
+  REMINDER: "Mahnung"
+  CONTRACT: "Vertrag"
+  NOTICE: "Bescheid"
+  TAX_DOCUMENT: "Steuerdokument"
+  RECEIPT: "Quittung"
+  BANK_STATEMENT: "Kontoauszug"
+  SALARY: "Lohnabrechnung"
+  INSURANCE: "Versicherung"
+  DUNNING: "Inkasso"
+  CORRESPONDENCE: "Korrespondenz"
+  OTHER: "Sonstiges"
+  LETTER: "Brief"
+
+risk_flags:
+  duplicate_detection: "Moegliches Duplikat"
+  amount_consistency: "Betragsabweichung"
+  tax_plausibility: "Steuersatz pruefen"
+  vendor_mismatch: "Lieferant unklar"
+  date_anomaly: "Datumsauffaelligkeit"
+  missing_fields: "Fehlende Pflichtfelder"
+
+agents:
+  orchestrator: "Orchestrator"
+  communicator: "Kommunikator"
+  document_analyst: "Dokumentenanalyse"
+  document_analyst_semantic: "Semantische Analyse"
+  accounting_analyst: "Buchhaltungsanalyse"
+  deadline_analyst: "Fristenanalyse"
+  risk_consistency: "Risiko & Konsistenz"
+  memory_curator: "Gedaechtnis"
+
+dunning_level:
+  0: "Keine Mahnung"
+  1: "Zahlungserinnerung"
+  2: "1. Mahnung"
+  3: "2. Mahnung"
+  4: "Inkasso-Warnung"
+
+ui:
+  OVERDUE: "Ueberfaellig"
+  DUE_SOON: "Bald faellig"
+  ON_TIME: "Im Zeitplan"
+  NO_DEADLINE: "Keine Frist"
+  ACTIVE: "Aktiv"
+  INACTIVE: "Inaktiv"
+  DRAFT: "Entwurf"

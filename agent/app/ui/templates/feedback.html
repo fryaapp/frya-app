@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Alpha-Feedback</h1>
+<p class="page-lead">Alle gemeldeten Probleme und Verbesserungsvorschlaege.</p>
+
+{% if items %}
+<table>
+  <thead>
+    <tr>
+      <th>Datum</th>
+      <th>User</th>
+      <th>Seite</th>
+      <th>Beschreibung</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td>{{ item.created_at.strftime('%d.%m.%Y %H:%M') if item.created_at else '-' }}</td>
+      <td>{{ item.user_id[:8] }}...</td>
+      <td><code>{{ item.page or '-' }}</code></td>
+      <td>{{ item.description[:200] }}</td>
+      <td>
+        {% if item.status == 'NEW' %}
+        <span class="state-badge state-warn">Neu</span>
+        {% elif item.status == 'IN_PROGRESS' %}
+        <span class="state-badge">In Bearbeitung</span>
+        {% elif item.status == 'RESOLVED' %}
+        <span class="state-badge state-ok">Erledigt</span>
+        {% else %}
+        <span class="state-badge">{{ item.status }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-sub">Noch kein Feedback eingegangen.</p>
+{% endif %}
+{% endblock %}

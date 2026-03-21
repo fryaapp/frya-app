@@ -132,6 +132,51 @@ _CASE_EXPLANATION_PHRASES: tuple[str, ...] = (
     'noch nicht verarbeitet',
 )
 
+# ── Financial Query ───────────────────────────────────────────────────────────
+_FINANCIAL_QUERY_PHRASES: tuple[str, ...] = (
+    'wie viel hab ich', 'wie viel habe ich',
+    'ausgaben diesen monat', 'ausgaben diese woche', 'monatliche ausgaben',
+    'offene rechnungen', 'offene posten', 'was schuldet mir',
+    'was schulde ich', 'kontostand', 'einnahmen',
+    'was steht offen', 'ausstehende zahlungen',
+    'unbezahlte rechnungen', 'forderungen', 'verbindlichkeiten',
+)
+
+# ── Create Invoice ───────────────────────────────────────────────────────────
+_CREATE_INVOICE_PHRASES: tuple[str, ...] = (
+    'erstelle eine rechnung', 'rechnung erstellen', 'rechnung schreiben',
+    'schreib eine rechnung', 'neue rechnung', 'ausgangsrechnung erstellen',
+    'rechnung an', 'fakturiere', 'invoice erstellen',
+)
+
+# ── Booking Request ──────────────────────────────────────────────────────────
+_BOOKING_REQUEST_PHRASES: tuple[str, ...] = (
+    'bitte buchen', 'kannst du das buchen', 'buchung durchfuehren',
+    'diesen beleg buchen', 'rechnung buchen', 'verbuchen',
+    'buchungsvorschlag', 'buchung erstellen',
+)
+
+# ── Export Request ───────────────────────────────────────────────────────────
+_EXPORT_REQUEST_PHRASES: tuple[str, ...] = (
+    'datev export', 'datev-export', 'exportiere',
+    'daten exportieren', 'buchungen exportieren', 'fuer den steuerberater',
+    'steuerberater export', 'gdpdu', 'betriebspruefung',
+)
+
+# ── Reminder Request ─────────────────────────────────────────────────────────
+_REMINDER_REQUEST_PHRASES: tuple[str, ...] = (
+    'erinnere mich', 'erinnerung setzen', 'frist setzen',
+    'deadline setzen', 'nicht vergessen', 'erinnere mich an',
+)
+
+# ── Create Customer ──────────────────────────────────────────────────────────
+_CREATE_CUSTOMER_PHRASES: tuple[str, ...] = (
+    'kunden anlegen', 'neuen kunden', 'kunde anlegen',
+    'kontakt anlegen', 'lieferant anlegen', 'firma anlegen',
+    'leg mal an', 'neuer kontakt', 'neuer lieferant',
+    'als kunden an', 'als lieferant an',
+)
+
 # ── General Safe Help ─────────────────────────────────────────────────────────
 _SAFE_HELP_PHRASES: tuple[str, ...] = (
     'was kannst du',
@@ -198,10 +243,40 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
         if phrase in t:
             return 'LAST_CASE_EXPLANATION'
 
-    # 7. GENERAL_SAFE_HELP
+    # 7. FINANCIAL_QUERY
+    for phrase in _FINANCIAL_QUERY_PHRASES:
+        if phrase in t:
+            return 'FINANCIAL_QUERY'
+
+    # 8. CREATE_INVOICE
+    for phrase in _CREATE_INVOICE_PHRASES:
+        if phrase in t:
+            return 'CREATE_INVOICE'
+
+    # 9. BOOKING_REQUEST
+    for phrase in _BOOKING_REQUEST_PHRASES:
+        if phrase in t:
+            return 'BOOKING_REQUEST'
+
+    # 10. EXPORT_REQUEST
+    for phrase in _EXPORT_REQUEST_PHRASES:
+        if phrase in t:
+            return 'EXPORT_REQUEST'
+
+    # 11. REMINDER_REQUEST
+    for phrase in _REMINDER_REQUEST_PHRASES:
+        if phrase in t:
+            return 'REMINDER_REQUEST'
+
+    # 12. CREATE_CUSTOMER
+    for phrase in _CREATE_CUSTOMER_PHRASES:
+        if phrase in t:
+            return 'CREATE_CUSTOMER'
+
+    # 13. GENERAL_SAFE_HELP
     for phrase in _SAFE_HELP_PHRASES:
         if phrase in t:
             return 'GENERAL_SAFE_HELP'
 
-    # 8. GENERAL_CONVERSATION — catch-all for any non-risky unrecognized text
+    # 14. GENERAL_CONVERSATION — catch-all for any non-risky unrecognized text
     return 'GENERAL_CONVERSATION'

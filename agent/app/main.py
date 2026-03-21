@@ -25,6 +25,8 @@ from app.api.email_intake_views import router as email_intake_router
 from app.api.user_views import router as user_router
 from app.api.tenant_views import router as tenant_router
 from app.api.gdpr_views import router as gdpr_router
+from app.api.preferences_views import router as preferences_router
+from app.api.feedback_views import router as feedback_router
 from app.api.approval_views import router as approval_router
 from app.api.booking_approval import router as booking_approval_router
 from app.api.audit_views import router as audit_router
@@ -257,6 +259,8 @@ app.include_router(email_intake_router)
 app.include_router(user_router)
 app.include_router(tenant_router)
 app.include_router(gdpr_router)
+app.include_router(preferences_router)
+app.include_router(feedback_router)
 app.include_router(ui_router)
 
 
