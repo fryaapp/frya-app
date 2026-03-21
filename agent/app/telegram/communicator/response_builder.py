@@ -138,12 +138,66 @@ def build_response(
         body = ' '.join(parts) if parts else 'Dein Fall wird bearbeitet.'
         return _wrap(body, uncertain=uncertain), 'COMMUNICATOR_REPLY_EXPLANATION'
 
+    # ── FINANCIAL_QUERY ───────────────────────────────────────────────────────
+    if intent == 'FINANCIAL_QUERY':
+        return (
+            'FRYA: Ich pruefe deine Finanzdaten. '
+            'Offene Posten und Monatsauswertungen kann ich direkt aus Akaunting holen. '
+            'Was genau moechtest du wissen — offene Rechnungen, Ausgaben diesen Monat, oder Forderungen?',
+            'COMMUNICATOR_REPLY_FINANCIAL_QUERY',
+        )
+
+    # ── CREATE_INVOICE ───────────────────────────────────────────────────────
+    if intent == 'CREATE_INVOICE':
+        return (
+            'FRYA: Rechnung erstellen — ich brauche folgende Angaben:\n'
+            '- Kundenname (Pflicht)\n'
+            '- Leistung / Beschreibung (Pflicht)\n'
+            '- Betrag in EUR (Pflicht)\n'
+            '- Faelligkeitsdatum (optional, Standard: 30 Tage)\n\n'
+            'Schreib mir die Details in einer Nachricht.',
+            'COMMUNICATOR_REPLY_CREATE_INVOICE',
+        )
+
+    # ── BOOKING_REQUEST ──────────────────────────────────────────────────────
+    if intent == 'BOOKING_REQUEST':
+        return (
+            'FRYA: Ich pruefe ob ein offener Buchungsvorschlag vorliegt. '
+            'Falls ja, zeige ich dir die Details mit Freigabe-Buttons.',
+            'COMMUNICATOR_REPLY_BOOKING_REQUEST',
+        )
+
+    # ── EXPORT_REQUEST ───────────────────────────────────────────────────────
+    if intent == 'EXPORT_REQUEST':
+        return (
+            'FRYA: DATEV-Export ist aktuell noch in Entwicklung. '
+            'Ich melde mich, sobald diese Funktion verfuegbar ist.',
+            'COMMUNICATOR_REPLY_EXPORT_REQUEST',
+        )
+
+    # ── REMINDER_REQUEST ─────────────────────────────────────────────────────
+    if intent == 'REMINDER_REQUEST':
+        return (
+            'FRYA: Erinnerung — woran soll ich dich erinnern und wann? '
+            'Nenne mir Datum und Beschreibung, z.B. "15. April USt-Voranmeldung".',
+            'COMMUNICATOR_REPLY_REMINDER_REQUEST',
+        )
+
+    # ── CREATE_CUSTOMER ──────────────────────────────────────────────────────
+    if intent == 'CREATE_CUSTOMER':
+        return (
+            'FRYA: Kontakt anlegen — wie heisst die Firma? '
+            'Ich lege sie als Kunden in Akaunting an. '
+            'Optional: Adresse, E-Mail, USt-ID.',
+            'COMMUNICATOR_REPLY_CREATE_CUSTOMER',
+        )
+
     # ── GENERAL_SAFE_HELP ─────────────────────────────────────────────────────
     if intent == 'GENERAL_SAFE_HELP':
         return (
             'FRYA: Ich bin FRYA, dein digitaler Assistent fuer Dokument- und Buchungsprozesse. '
-            'Du kannst mich nach dem Status deines Falls, offenen Punkten oder eingegangenen '
-            'Dokumenten fragen.',
+            'Du kannst mich nach dem Status deines Falls, offenen Punkten, eingegangenen '
+            'Dokumenten fragen, oder Rechnungen erstellen, Finanzdaten abfragen und Erinnerungen setzen.',
             'COMMUNICATOR_REPLY_SAFE_HELP',
         )
 

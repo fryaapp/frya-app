@@ -1,9 +1,34 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
+from typing import Any
 
 from app.telegram.communicator.memory.models import UserMemory
+
+# ── Flow State (in-memory, TTL-based) ────────────────────────────────────────
+_FLOW_TTL = 1800  # 30 minutes
+_flow_store: dict[str, tuple[dict[str, Any], float]] = {}
+
+
+def set_active_flow(chat_id: str, flow: dict[str, Any]) -> None:
+    _flow_store[chat_id] = (flow, time.time())
+
+
+def get_active_flow(chat_id: str) -> dict[str, Any] | None:
+    entry = _flow_store.get(chat_id)
+    if entry is None:
+        return None
+    flow, ts = entry
+    if time.time() - ts > _FLOW_TTL:
+        _flow_store.pop(chat_id, None)
+        return None
+    return flow
+
+
+def clear_active_flow(chat_id: str) -> None:
+    _flow_store.pop(chat_id, None)
 
 
 class UserMemoryStore:

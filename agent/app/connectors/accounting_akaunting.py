@@ -401,6 +401,154 @@ class AkauntingConnector(AccountingConnector):
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError):
             return []
 
+    async def create_invoice_draft(
+        self,
+        data: dict,
+        company_id: int = 1,
+    ) -> dict:
+        """Create an Ausgangsrechnung (Invoice) in Akaunting as 'draft' status.
+
+        data = {
+            'customer_name': str,
+            'invoice_number': str | None,
+            'invoiced_at': 'YYYY-MM-DD',
+            'due_at': 'YYYY-MM-DD' | None,
+            'amount': float,
+            'currency_code': 'EUR',
+            'items': [{'name': str, 'quantity': 1, 'price': float}],
+        }
+        """
+        customer_name = str(data.get('customer_name') or 'Unbekannter Kunde')
+        contact = await self.search_or_create_contact(customer_name, contact_type='customer')
+        contact_id = contact.get('id')
+
+        items_raw = data.get('items') or []
+        if not items_raw:
+            items_raw = [{'name': data.get('service') or customer_name, 'quantity': 1, 'price': float(data.get('amount', 0))}]
+
+        invoice_items = [
+            {
+                'name': str(it.get('name') or customer_name),
+                'quantity': int(it.get('quantity') or 1),
+                'price': float(it.get('price') or 0),
+            }
+            for it in items_raw
+        ]
+
+        payload: dict = {
+            'type': 'invoice',
+            'document_number': data.get('invoice_number') or '',
+            'status': 'draft',
+            'issued_at': data.get('invoiced_at') or '',
+            'due_at': data.get('due_at') or data.get('invoiced_at') or '',
+            'currency_code': data.get('currency_code') or 'EUR',
+            'currency_rate': 1,
+            'contact_id': contact_id,
+            'contact_name': customer_name,
+            'items': invoice_items,
+            'company_id': company_id,
+        }
+
+        async with httpx.AsyncClient(timeout=_WRITE_TIMEOUT, auth=self._auth()) as client:
+            response = await client.post(
+                f'{self.base_url}/api/documents',
+                headers={**self._headers(), 'Content-Type': 'application/json'},
+                json=payload,
+            )
+            response.raise_for_status()
+            resp_data = response.json()
+            result = resp_data.get('data', resp_data) if isinstance(resp_data, dict) else resp_data
+            invoice_id = result.get('id') if isinstance(result, dict) else None
+            doc_number = result.get('document_number', '') if isinstance(result, dict) else ''
+            logger.info('Akaunting invoice draft created: id=%s customer=%s', invoice_id, customer_name)
+            return {
+                'invoice_id': invoice_id,
+                'document_number': doc_number,
+                'contact_id': contact_id,
+                'status': 'draft',
+                'customer_name': customer_name,
+            }
+
+    async def get_open_items_summary(self) -> dict:
+        """Aggregate unpaid invoices (receivables) and bills (payables)."""
+        result: dict = {
+            'receivables': [],
+            'payables': [],
+            'total_receivable': 0.0,
+            'total_payable': 0.0,
+        }
+        try:
+            # Unpaid invoices (Ausgangsrechnungen)
+            invoices = await self.search_invoices()
+            for inv in invoices:
+                status = (inv.get('status') or '').lower()
+                if status in ('draft', 'sent', 'viewed', 'partial'):
+                    amount = float(inv.get('amount', inv.get('total', 0)) or 0)
+                    due = inv.get('due_at') or ''
+                    result['receivables'].append({
+                        'contact': inv.get('contact_name') or '?',
+                        'amount': amount,
+                        'due_at': due,
+                        'status': status,
+                    })
+                    result['total_receivable'] += amount
+
+            # Unpaid bills (Eingangsrechnungen)
+            bills = await self.search_bills()
+            for bill in bills:
+                status = (bill.get('status') or '').lower()
+                if status in ('draft', 'received', 'partial'):
+                    amount = float(bill.get('amount', bill.get('total', 0)) or 0)
+                    due = bill.get('due_at') or ''
+                    result['payables'].append({
+                        'contact': bill.get('contact_name') or '?',
+                        'amount': amount,
+                        'due_at': due,
+                        'status': status,
+                    })
+                    result['total_payable'] += amount
+        except Exception as exc:
+            logger.warning('get_open_items_summary failed: %s', exc)
+        return result
+
+    async def get_monthly_summary(self, year: int, month: int) -> dict:
+        """Income and expense totals for a given month."""
+        from calendar import monthrange
+        last_day = monthrange(year, month)[1]
+        date_from = f'{year:04d}-{month:02d}-01'
+        date_to = f'{year:04d}-{month:02d}-{last_day:02d}'
+
+        result: dict = {
+            'month': f'{year:04d}-{month:02d}',
+            'total_income': 0.0,
+            'total_expense': 0.0,
+            'profit': 0.0,
+            'top_expenses': [],
+        }
+        try:
+            txns = await self.search_transactions(date_from=date_from, date_to=date_to)
+            expense_by_category: dict[str, float] = {}
+            for tx in txns:
+                tx_type = (tx.get('type') or '').lower()
+                amount = float(tx.get('amount', 0) or 0)
+                if tx_type == 'income':
+                    result['total_income'] += amount
+                elif tx_type == 'expense':
+                    result['total_expense'] += amount
+                    cat = tx.get('category', {})
+                    cat_name = cat.get('name', 'Sonstiges') if isinstance(cat, dict) else 'Sonstiges'
+                    expense_by_category[cat_name] = expense_by_category.get(cat_name, 0.0) + amount
+
+            result['profit'] = round(result['total_income'] - result['total_expense'], 2)
+            result['top_expenses'] = sorted(
+                [{'category': k, 'amount': round(v, 2)} for k, v in expense_by_category.items()],
+                key=lambda x: x['amount'],
+                reverse=True,
+            )[:5]
+        except Exception as exc:
+            logger.warning('get_monthly_summary failed: %s', exc)
+        return result
+
     async def get_feed_status(self) -> dict:
         """Read-only: probe feed health — account count + total transaction count.
 
