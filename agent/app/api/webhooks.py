@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -27,8 +28,10 @@ from app.dependencies import (
     get_telegram_connector,
     get_telegram_deduplicator,
     get_telegram_media_ingress_service,
+    get_telegram_document_analyst_start_service,
 )
 from app.open_items.service import OpenItemsService
+from app.telegram.document_analyst_start_service import TelegramDocumentAnalystStartService
 from app.problems.service import ProblemCaseService
 from app.telegram.clarification_service import TelegramClarificationService
 from app.telegram.communicator.memory.conversation_store import ConversationMemoryStore
@@ -740,6 +743,7 @@ async def telegram_webhook(
     llm_config_repository: Any = Depends(get_llm_config_repository),
     case_repository: Any = Depends(get_case_repository),
     email_intake_repository: Any = Depends(get_email_intake_repository),
+    document_analyst_start_service: TelegramDocumentAnalystStartService = Depends(get_telegram_document_analyst_start_service),
 ) -> dict:
     normalized = _normalize_telegram_update(payload)
     if normalized is None:
@@ -995,6 +999,37 @@ async def telegram_webhook(
                 },
             }
         )
+        # ── Auto-trigger Document Analyst ────────────────────────────────────
+        # If FRYA_AUTO_TRIGGER_DOCUMENT_ANALYST=true and the document was accepted,
+        # start the Document Analyst immediately in the background.
+        # Falls back silently to the existing Open Item if the analyst fails.
+        _analyst_ctx = command_result.get('document_analyst_context') or {}
+        _analyst_ctx_case_id = _analyst_ctx.get('target_case_id') or case_id
+        if (
+            get_settings().auto_trigger_document_analyst
+            and route.routing_status == 'DOCUMENT_ACCEPTED'
+            and _analyst_ctx.get('analyst_context_status') in {
+                'DOCUMENT_ANALYST_PENDING',
+                'DOCUMENT_ANALYST_CONTEXT_READY',
+                'DOCUMENT_ANALYST_CONTEXT_ATTACHED',
+            }
+        ):
+            _graph = request.app.state.graph
+
+            async def _auto_start_analyst(_case_id: str = _analyst_ctx_case_id) -> None:
+                try:
+                    await document_analyst_start_service.start_runtime(
+                        _case_id,
+                        actor='system',
+                        note='Automatisch gestartet nach Telegram-Dokumenteingang.',
+                        trigger='auto_telegram_ingress',
+                        graph=_graph,
+                    )
+                except Exception:
+                    pass  # Open Item bleibt als Fallback bestehen
+
+            asyncio.create_task(_auto_start_analyst())
+
         return {
             'status': 'accepted' if route.routing_status in {'MEDIA_ACCEPTED', 'DOCUMENT_ACCEPTED'} else 'ignored',
             'case_id': case_id,

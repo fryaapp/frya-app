@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     # use the first active tenant from the DB.
     default_tenant_id: str | None = None
 
+    # Document Analyst auto-trigger: set FRYA_AUTO_TRIGGER_DOCUMENT_ANALYST=true to have every
+    # accepted Telegram PDF immediately start the Document Analyst in the background.
+    # Falls back to the existing Open Item if the analyst fails.  Off by default.
+    auto_trigger_document_analyst: bool = False
+
     # Bootstrap admin — set these in .env to seed a permanent admin account on first startup.
     # On subsequent restarts the existing DB row is never overwritten (idempotent).
     # FRYA_INITIAL_ADMIN_USERNAME, FRYA_INITIAL_ADMIN_EMAIL, FRYA_INITIAL_ADMIN_PASSWORD
