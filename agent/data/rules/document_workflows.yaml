@@ -1,227 +1,125 @@
-# document_workflows.yaml
-# Zentrale Konfiguration: Dokumenttyp → Agenten-Kette → Approval-Default
-# Pfad: app/data/rules/document_workflows.yaml
-# Änderbar ohne Code-Deployment.
-#
-# ZUORDNUNGSLOGIK (CaseEngine):
-# Jedes neue Dokument durchläuft den CaseEngine-Zuordnungsalgorithmus:
-#   Schicht 1: Hard Reference Match (Rechnungsnr, Aktenzeichen) → CERTAIN
-#   Schicht 2: Entity + Amount + Date Match → HIGH
-#   Schicht 3: Cluster-Heuristik (Gläubiger + Betrag + Zeitfenster) → MEDIUM
-#   Schicht 4: LLM-Inferenz (nur V2, max MEDIUM)
-#   Kein Match: Neuer Case (DRAFT)
-#   Mehrere Matches: CaseConflict → Operator-Eskalation
-# NACH der Zuordnung läuft die unten definierte Agenten-Kette.
+# Dokumenttypen-Workflows
+# Pro Typ: Indikatoren, Agenten-Kette, Approval, Feld-Prioritaeten
 
-document_types:
+eingangsrechnung:
+  indicators: ["Rechnung", "Invoice", "Rechnungsnummer", "Rechnungsbetrag"]
+  agent_chain: [document_analyst, document_analyst_semantic, accounting_analyst, risk_consistency]
+  approval_default: PROPOSE_ONLY
+  field_priority:
+    gross_amount: high
+    net_amount: high
+    tax_amount: high
+    tax_rate: high
+    due_date: high
+    invoice_number: high
+    vendor_name: high
+    iban: normal
+    payment_reference: normal
+    line_items: low
 
-  incoming_invoice:
-    indicators:
-      keywords: ["Rechnung", "Invoice", "Rechnungsnummer", "Rechnungs-Nr", "Nettobetrag"]
-      has_amount: true
-      has_tax_info: true
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - accounting_analyst
-      - risk_consistency
-      - deadline_analyst
-      - communicator
-    approval_default: PROPOSE_ONLY
-    auto_conditions:
-      recurring_vendor: true
-      confidence_gte: 0.85
-      no_anomaly_flag: true
-      no_case_conflict: true
-    case_type: incoming_invoice
-    priority: NORMAL
+ausgangsrechnung:
+  indicators: ["Ausgangsrechnung", "an Kunde"]
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: AUTO
+  field_priority:
+    gross_amount: high
+    customer_name: high
+    invoice_number: high
+    service_description: normal
+    due_date: normal
 
-  outgoing_invoice:
-    indicators:
-      keywords: ["Ausgangsrechnung", "Rechnungsstellung"]
-      source: operator_request
-    chain:
-      - communicator
-      - accounting_analyst
-      - risk_consistency
-      - case_engine_assign
-      - deadline_analyst
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: outgoing_invoice
-    priority: NORMAL
+gutschrift:
+  indicators: ["Gutschrift", "Credit Note", "Stornorechnung"]
+  agent_chain: [document_analyst, document_analyst_semantic, accounting_analyst, risk_consistency]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    gross_amount: high
+    reference_invoice: high
+    vendor_name: high
+    reason: normal
 
-  dunning_incoming:
-    indicators:
-      keywords: ["Mahnung", "Zahlungserinnerung", "letzte Aufforderung", "Mahngebühr"]
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - deadline_analyst
-      - risk_consistency
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: incoming_invoice
-    priority: HIGH
+mahnung:
+  indicators: ["Mahnung", "Zahlungserinnerung", "Mahngebuehr"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    gross_amount: high
+    due_date: high
+    dunning_level: high
+    original_invoice: high
+    vendor_name: high
 
-  dunning_outgoing:
-    indicators:
-      trigger: n8n_cron
-    chain:
-      - accounting_analyst
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: outgoing_invoice
-    priority: HIGH
+vertrag:
+  indicators: ["Vertrag", "Vereinbarung", "Laufzeit", "Kuendigungsfrist"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    contract_start: high
+    contract_end: high
+    cancellation_deadline: high
+    monthly_amount: high
+    parties: high
+    notice_period: normal
 
-  contract:
-    indicators:
-      keywords: ["Vertrag", "Vereinbarung", "Laufzeit", "Kündigungsfrist"]
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - deadline_analyst
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: contract
-    priority: NORMAL
+bescheid:
+  indicators: ["Bescheid", "Finanzamt", "Steuerbescheid"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    amount: high
+    due_date: high
+    tax_year: high
+    authority: high
+    appeal_deadline: high
 
-  notice:
-    indicators:
-      keywords: ["Bescheid", "Finanzamt", "Einspruch", "Festsetzung", "Steuerbescheid"]
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - deadline_analyst
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: notice
-    priority: CRITICAL
+kontoauszug:
+  indicators: ["Kontoauszug", "Auszug", "Saldo"]
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: AUTO
+  field_priority:
+    balance: high
+    statement_date: high
+    account_number: normal
+    transactions: low
 
-  tax_document:
-    indicators:
-      keywords: ["Steuererklärung", "Voranmeldung", "USt-Voranmeldung", "Lohnsteuer"]
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - deadline_analyst
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: tax_document
-    priority: HIGH
+angebot:
+  indicators: ["Angebot", "Kostenvoranschlag", "Quotation"]
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: AUTO
+  field_priority:
+    gross_amount: high
+    valid_until: high
+    vendor_name: high
+    items: normal
 
-  bank_statement:
-    indicators:
-      keywords: ["Kontoauszug", "Kontostand", "Buchungstag", "Saldo"]
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - accounting_analyst
-      - communicator
-    approval_default: PROPOSE_ONLY
-    auto_conditions:
-      confidence_gte: 0.90
-      no_anomaly_flag: true
-    case_type: bank_statement
-    priority: NORMAL
+lohn:
+  indicators: ["Lohnabrechnung", "Gehaltsabrechnung", "Bruttolohn", "Nettolohn"]
+  agent_chain: [document_analyst, document_analyst_semantic, accounting_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    gross_salary: high
+    net_salary: high
+    employee_name: high
+    pay_period: high
+    social_contributions: normal
+    tax_deductions: normal
 
-  receipt:
-    indicators:
-      keywords: ["Quittung", "Kassenbon", "Beleg", "Barverkauf"]
-      has_amount: true
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - accounting_analyst
-      - communicator
-    approval_default: PROPOSE_ONLY
-    auto_conditions:
-      confidence_gte: 0.85
-      amount_below: 250.00
-      no_anomaly_flag: true
-    case_type: receipt
-    priority: LOW
+versicherung:
+  indicators: ["Versicherung", "Police", "Versicherungsnummer", "Beitrag"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: AUTO
+  field_priority:
+    premium: high
+    policy_number: high
+    coverage_period: high
+    insurer: high
+    type_of_insurance: normal
 
-  salary:
-    indicators:
-      keywords: ["Gehaltsabrechnung", "Lohnabrechnung", "Brutto", "Netto", "Arbeitgeber"]
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - accounting_analyst
-      - communicator
-    approval_default: PROPOSE_ONLY
-    auto_conditions:
-      recurring_vendor: true
-      confidence_gte: 0.85
-    case_type: salary
-    priority: NORMAL
-
-  insurance:
-    indicators:
-      keywords: ["Versicherung", "Police", "Versicherungsschein", "Beitrag", "Prämie"]
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - deadline_analyst
-      - accounting_analyst
-      - communicator
-    approval_default: PROPOSE_ONLY
-    auto_conditions:
-      recurring_vendor: true
-      confidence_gte: 0.85
-    case_type: insurance
-    priority: NORMAL
-
-  correspondence:
-    indicators:
-      keywords: ["Sehr geehrte", "Schreiben", "Mitteilung"]
-      fallback: true
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: correspondence
-    priority: LOW
-
-  other:
-    indicators:
-      fallback: true
-    chain:
-      - doc_analyst_ocr
-      - doc_analyst_semantic
-      - case_engine_assign
-      - communicator
-    approval_default: REQUIRE_USER_APPROVAL
-    auto_conditions: {}
-    case_type: other
-    priority: LOW
-
-# Globale Regeln
-global_rules:
-  case_assignment_position: after_doc_analyst_semantic
-  confidence_escalation:
-    below_0_45: BLOCK_ESCALATE
-    below_0_75: +1_stufe
-  anomaly_escalation: +1_stufe
-  case_conflict_escalation: REQUIRE_USER_APPROVAL
-  llm_assignment_confidence_cap: MEDIUM
-  closed_case_match: reopen_and_notify
+sonstiges:
+  indicators: []
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    amount: normal
+    date: normal
+    counterparty: normal

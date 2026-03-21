@@ -1,0 +1,68 @@
+# Chart-Templates fuer konsistentes Dashboard-Design
+
+defaults:
+  font_family: "system-ui, -apple-system, sans-serif"
+  border_radius: 8
+  animation_duration: 300
+
+color_palette:
+  primary: "#2563eb"
+  success: "#16a34a"
+  warning: "#d97706"
+  danger: "#dc2626"
+  info: "#0891b2"
+  muted: "#6b7280"
+
+category_colors:
+  telekommunikation: "#3b82f6"
+  hosting: "#8b5cf6"
+  miete: "#ef4444"
+  bueromaterial: "#f59e0b"
+  versicherung: "#10b981"
+  lohn: "#ec4899"
+  reise: "#06b6d4"
+  marketing: "#f97316"
+  sonstiges: "#6b7280"
+
+confidence_colors:
+  CERTAIN: "#16a34a"
+  HIGH: "#2563eb"
+  MEDIUM: "#d97706"
+  LOW: "#dc2626"
+
+chart_types:
+  monthly_expense:
+    type: "bar"
+    x_axis: "Monat"
+    y_axis: "Betrag (EUR)"
+    stacked: false
+
+  category_distribution:
+    type: "doughnut"
+    show_legend: true
+    show_percentage: true
+
+  cashflow_timeline:
+    type: "line"
+    x_axis: "Datum"
+    y_axis: "Betrag (EUR)"
+    datasets:
+      income:
+        color: "#16a34a"
+        label: "Einnahmen"
+      expense:
+        color: "#dc2626"
+        label: "Ausgaben"
+      balance:
+        color: "#2563eb"
+        label: "Saldo"
+        dashed: true
+
+  open_items_status:
+    type: "bar"
+    horizontal: true
+    colors_by_status: true
+
+  confidence_distribution:
+    type: "doughnut"
+    use_confidence_colors: true
