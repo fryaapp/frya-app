@@ -33,3 +33,18 @@ agent/.pytest_cache/
 **/__pycache__/
 **/*.pyc
 claude.exe
+
+# Build / Deploy Artefakte
+*.tgz
+*.tar.gz
+live_proof_*.py
+
+# Credentials & Secrets
+PW.txt
+keys/
+brevo.txt
+cloudeapi.txt
+xyz/
+
+# Lokale n8n-Instanz (nicht agent/n8n/ Workflow-Templates)
+/n8n/
