@@ -1876,7 +1876,7 @@ async def ui_system(
     required_ok, required_missing = policy_access.required_policies_loaded()
 
     connectors = [
-        {'name': 'paperless', 'base_url': settings.paperless_base_url, 'configured': bool(settings.paperless_base_url)},
+        {'name': 'paperless', 'base_url': settings.paperless_public_url or settings.paperless_base_url, 'configured': bool(settings.paperless_base_url)},
         {'name': 'akaunting', 'base_url': settings.akaunting_base_url, 'configured': bool(settings.akaunting_base_url)},
         {'name': 'n8n', 'base_url': settings.n8n_base_url, 'configured': bool(settings.n8n_base_url)},
     ]
