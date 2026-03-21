@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
 
     paperless_base_url: str
+    paperless_public_url: str | None = None
     paperless_token: str | None = None
 
     akaunting_base_url: str

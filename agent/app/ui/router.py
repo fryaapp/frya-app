@@ -2100,7 +2100,7 @@ async def vorgang_detail(
             allowed_next=allowed_next,
             timeline=timeline,
             tenant_id=tenant_id or '',
-            paperless_url=settings.paperless_base_url.rstrip('/') if settings.paperless_base_url else '',
+            paperless_url=(settings.paperless_public_url or settings.paperless_base_url).rstrip('/') if settings.paperless_base_url else '',
             msg=msg or '',
         ),
     )
@@ -2606,10 +2606,10 @@ async def ui_services(request: Request) -> HTMLResponse:
             'kind': 'web',
             'name': 'Paperless-ngx',
             'description': 'Dokumenten-Archiv — empfaengt und indexiert alle eingehenden Dokumente',
-            'url': settings.paperless_base_url,
+            'url': settings.paperless_public_url or settings.paperless_base_url,
             'status': paperless_status,
             'credentials': {
-                'URL': settings.paperless_base_url or '(nicht gesetzt)',
+                'URL': settings.paperless_public_url or settings.paperless_base_url or '(nicht gesetzt)',
                 'Token': _mask(settings.paperless_token),
             },
         },
