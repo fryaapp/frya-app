@@ -150,7 +150,7 @@ services:
       - traefik.http.routers.paperless.tls.certresolver=le
       - traefik.http.services.paperless.loadbalancer.server.port=8000
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8000 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ > /dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 10
