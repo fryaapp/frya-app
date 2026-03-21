@@ -812,6 +812,20 @@ async def finalize_document_review(state: AgentState) -> AgentState:
             document_ref=document_ref,
         )
 
+    # ── AUTO mode: close Telegram intake open items when pipeline runs automatically ──
+    # When Paperless fires the webhook (source=paperless_webhook), the Telegram
+    # [Dokumenteingang pruefen] open item should be auto-completed — no manual trigger needed.
+    if state.get('source') == 'paperless_webhook':
+        _open_items_svc = get_open_items_service()
+        _all_items = await _open_items_svc.list_by_case(case_id)
+        for _item in _all_items:
+            if (
+                _item.source == 'telegram'
+                and _item.status in _ACTIVE_ITEM_STATUSES
+                and 'Dokumenteingang' in (_item.title or '')
+            ):
+                await _open_items_svc.update_status(_item.item_id, 'COMPLETED')
+
     state['policy_refs_consulted'] = policy_refs
     if accounting_review is not None:
         state['accounting_review'] = accounting_review.model_dump(mode='json')
