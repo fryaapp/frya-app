@@ -38,7 +38,7 @@
   {% else %}
 
   <label>Provider
-    <select class="cfg-provider" onchange="onProviderChange(this)">
+    <select class="cfg-provider">
       <option value="anthropic" {% if agent.provider == 'anthropic' %}selected{% endif %}>anthropic</option>
       <option value="openai" {% if agent.provider == 'openai' %}selected{% endif %}>openai</option>
       <option value="ionos" {% if agent.provider == 'ionos' %}selected{% endif %}>IONOS AI Hub</option>
@@ -73,8 +73,8 @@
   </label>
 
   <div class="card-actions">
-    <button class="btn btn-save" onclick="saveConfig('{{ agent.agent_id }}')">Speichern</button>
-    <button class="btn btn-check" onclick="checkHealth('{{ agent.agent_id }}')">Jetzt pruefen</button>
+    <button class="btn btn-save" data-action="save">Speichern</button>
+    <button class="btn btn-check" data-action="check">Jetzt pruefen</button>
   </div>
 
   {% if agent.from_env %}
@@ -176,98 +176,6 @@
 .planned-note { font-size: 0.75rem; color: #6b7280; margin: 0.3rem 0; font-style: italic; }
 </style>
 
-<script>
-const CSRF = '{{ csrf_token }}';
-const HDR = {'Content-Type': 'application/json', 'X-Frya-Csrf-Token': CSRF};
-const IONOS_BASE_URL = 'https://openai.inference.de-txl.ionos.com/v1';
-
-function getCard(agentId) {
-  return document.querySelector('[data-agent-id="' + agentId + '"]');
-}
-
-function onProviderChange(selectEl) {
-  const card = selectEl.closest('.agent-card');
-  const baseUrlInput = card.querySelector('.cfg-base-url');
-  const modelInput = card.querySelector('.cfg-model');
-  if (selectEl.value === 'ionos') {
-    if (!baseUrlInput.value) {
-      baseUrlInput.value = IONOS_BASE_URL;
-    }
-    modelInput.placeholder = 'z.B. meta-llama/Llama-3.3-70B-Instruct';
-  } else if (baseUrlInput.value === IONOS_BASE_URL) {
-    baseUrlInput.value = '';
-    modelInput.placeholder = 'z.B. gpt-4o-mini';
-  }
-}
-
-async function saveConfig(agentId) {
-  const card = getCard(agentId);
-  const btn = card.querySelector('.btn-save');
-  btn.disabled = true;
-  btn.textContent = '...';
-  try {
-    const body = {
-      provider: card.querySelector('.cfg-provider').value,
-      model: card.querySelector('.cfg-model').value,
-      api_key: card.querySelector('.cfg-api-key').value,
-      base_url: card.querySelector('.cfg-base-url').value,
-    };
-    const resp = await fetch('/api/agent-config/' + agentId, {
-      method: 'POST', headers: HDR, body: JSON.stringify(body),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      alert('Fehler: ' + (data.detail || resp.status));
-      return;
-    }
-    btn.textContent = 'Gespeichert!';
-    if (data.api_key_set) {
-      card.querySelector('.cfg-api-key').placeholder = '(gesetzt)';
-      card.querySelector('.cfg-api-key').value = '';
-    }
-  } catch (e) {
-    alert('Netzwerkfehler: ' + e);
-  } finally {
-    setTimeout(function() { btn.disabled = false; btn.textContent = 'Speichern'; }, 1500);
-  }
-}
-
-async function checkHealth(agentId) {
-  const card = getCard(agentId);
-  const btn = card.querySelector('.btn-check');
-  const badge = card.querySelector('.state-badge');
-  const detail = card.querySelector('.health-detail');
-  btn.disabled = true;
-  btn.textContent = 'Pruefe...';
-  badge.className = 'state-badge';
-  badge.textContent = 'Pruefe...';
-  try {
-    const resp = await fetch('/api/agent-config/' + agentId + '/check', {
-      method: 'POST', headers: HDR,
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      badge.className = 'state-badge state-error';
-      badge.textContent = 'Fehler';
-      detail.textContent = data.detail || resp.status;
-      return;
-    }
-    if (data.status.startsWith('ok')) {
-      badge.className = 'state-badge state-ok';
-      badge.textContent = 'Aktiv — ' + card.querySelector('.cfg-model').value;
-    } else {
-      badge.className = 'state-badge state-error';
-      badge.textContent = 'Fehler';
-    }
-    detail.textContent = data.status;
-  } catch (e) {
-    badge.className = 'state-badge state-error';
-    badge.textContent = 'Netzwerkfehler';
-    detail.textContent = String(e);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Jetzt pruefen';
-  }
-}
-</script>
+<meta name="csrf-token" content="{{ csrf_token }}">
+<script src="/ui/static/agent_config.js"></script>
 {% endblock %}

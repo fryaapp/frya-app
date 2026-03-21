@@ -119,12 +119,14 @@ async def require_authenticated(
 ) -> AuthUser:
     payload = _get_session_user_payload(request)
     if payload is None:
+        _logger.warning('AUTH 401: no session payload — path=%s cookie=%s', request.url.path, bool(request.cookies.get('frya_session')))
         _raise_unauthorized()
 
     user = auth_service.resolve_session_user(payload)
     if user is None:
         user = await _resolve_db_user(payload)
     if user is None:
+        _logger.warning('AUTH 401: user not resolved — path=%s payload_user=%s', request.url.path, payload.get('username'))
         request.session.clear()
         _raise_unauthorized()
 
