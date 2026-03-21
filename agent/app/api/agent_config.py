@@ -191,10 +191,11 @@ async def health_check(
     else:
         litellm_model = model_id
 
+    import time as _time
     kwargs: dict = {
         'model': litellm_model,
-        'messages': [{'role': 'user', 'content': 'ping'}],
-        'max_tokens': 5,
+        'messages': [{'role': 'user', 'content': 'Antworte mit genau einem Wort: OK'}],
+        'max_tokens': 10,
         'timeout': 20.0,
     }
     if api_key:
@@ -202,16 +203,22 @@ async def health_check(
     if base_url:
         kwargs['api_base'] = base_url
 
+    actual_model = ''
+    elapsed_ms = 0
+    t0 = _time.time()
     try:
         resp = await acompletion(**kwargs)
-        status = f'ok — {resp.model}'
+        elapsed_ms = int((_time.time() - t0) * 1000)
+        actual_model = getattr(resp, 'model', '') or ''
+        status = f'ok — {actual_model}'
     except Exception as exc:
+        elapsed_ms = int((_time.time() - t0) * 1000)
         logger.warning('Health check failed for agent %s: %s: %s', agent_id, type(exc).__name__, exc)
         msg = str(exc)
         if 'credit balance' in msg or 'billing' in msg.lower():
             status = 'error — kein Guthaben (Anthropic Billing)'
         elif 'invalid x-api-key' in msg or 'authentication' in msg.lower():
-            status = 'error — API-Key ungültig'
+            status = 'error — API-Key ungueltig'
         elif 'rate limit' in msg.lower():
             status = 'error — Rate Limit erreicht'
         elif 'model_not_found' in msg or 'not found' in msg.lower():
@@ -224,4 +231,7 @@ async def health_check(
     return {
         'status': status,
         'agent_id': agent_id,
+        'configured_model': model_id,
+        'actual_model': actual_model,
+        'response_time_ms': elapsed_ms,
     }

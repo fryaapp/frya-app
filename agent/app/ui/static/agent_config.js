@@ -66,6 +66,8 @@
         return;
       }
       btn.textContent = 'Gespeichert!';
+      // Auto-check after save to verify model swap
+      setTimeout(function () { checkHealth(card); }, 500);
       if (data.api_key_set && isCustom) {
         var keyInput = card.querySelector('.custom-fields .cfg-api-key');
         if (keyInput) {
@@ -103,8 +105,7 @@
       }
       if (data.status.startsWith('ok')) {
         badge.className = 'state-badge state-ok';
-        var modelName = card.querySelector('input[type="hidden"].cfg-model');
-        badge.textContent = 'Aktiv \u2014 ' + (modelName ? modelName.value : '');
+        badge.textContent = 'Getestet \u2014 ' + (data.actual_model || data.configured_model || '?') + ' (' + data.response_time_ms + 'ms)';
       } else {
         badge.className = 'state-badge state-error';
         badge.textContent = 'Fehler';

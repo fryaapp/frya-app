@@ -46,7 +46,7 @@
       <select name="status">
         <option value="">Alle</option>
         {% for s in all_statuses %}
-        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ s }}</option>
+        <option value="{{ s }}" {% if s == selected_status %}selected{% endif %}>{{ t_status(s) }}</option>
         {% endfor %}
       </select>
     </label>
@@ -54,7 +54,7 @@
       <select name="case_type">
         <option value="">Alle</option>
         {% for t in all_types %}
-        <option value="{{ t }}" {% if t == selected_type %}selected{% endif %}>{{ t }}</option>
+        <option value="{{ t }}" {% if t == selected_type %}selected{% endif %}>{{ t_doc_type(t) }}</option>
         {% endfor %}
       </select>
     </label>
@@ -85,17 +85,17 @@
     {% for row in rows %}
     <tr>
       <td><a href="/ui/vorgaenge/{{ row.case.id }}{% if tenant_id %}?tenant_id={{ tenant_id }}{% endif %}">{{ row.case.case_number or row.case.id[:8] }}</a></td>
-      <td><code>{{ row.case.case_type }}</code></td>
-      <td>{{ row.case.vendor_name or '—' }}</td>
-      <td>{% if row.case.total_amount %}{{ row.case.total_amount }} {{ row.case.currency }}{% else %}—{% endif %}</td>
+      <td>{{ t_doc_type(row.case.case_type) }}</td>
+      <td>{{ row.case.vendor_name or '\u2014' }}</td>
+      <td>{% if row.case.total_amount %}{{ row.case.total_amount }} {{ row.case.currency }}{% else %}\u2014{% endif %}</td>
       <td>
-        {% if row.case.status == 'OVERDUE' %}<span class="hint-badge" style="background:#fca5a5;color:#7f1d1d">OVERDUE</span>
-        {% elif row.case.status == 'OPEN' %}<span class="hint-badge" style="background:#fde68a;color:#78350f">OPEN</span>
-        {% elif row.case.status == 'PAID' %}<span class="hint-badge" style="background:#bbf7d0;color:#14532d">PAID</span>
-        {% elif row.case.status == 'CLOSED' %}<span class="hint-badge" style="background:#4ade80;color:#14532d">CLOSED</span>
-        {% elif row.case.status == 'MERGED' %}<span class="hint-badge" style="background:#e2e8f0;color:#334155">MERGED</span>
-        {% elif row.case.status == 'DISCARDED' %}<span class="hint-badge" style="background:#e5e7eb;color:#374151">DISCARDED</span>
-        {% else %}<span class="hint-badge" style="background:#f3f4f6;color:#6b7280">{{ row.case.status }}</span>
+        {% if row.case.status == 'OVERDUE' %}<span class="hint-badge" style="background:#fca5a5;color:#7f1d1d">{{ t_status('OVERDUE') }}</span>
+        {% elif row.case.status == 'OPEN' %}<span class="hint-badge" style="background:#fde68a;color:#78350f">{{ t_status('OPEN') }}</span>
+        {% elif row.case.status == 'PAID' %}<span class="hint-badge" style="background:#bbf7d0;color:#14532d">{{ t_status('PAID') }}</span>
+        {% elif row.case.status == 'CLOSED' %}<span class="hint-badge" style="background:#4ade80;color:#14532d">{{ t_status('CLOSED') }}</span>
+        {% elif row.case.status == 'MERGED' %}<span class="hint-badge" style="background:#e2e8f0;color:#334155">{{ t_status('MERGED') }}</span>
+        {% elif row.case.status == 'DISCARDED' %}<span class="hint-badge" style="background:#e5e7eb;color:#374151">{{ t_status('DISCARDED') }}</span>
+        {% else %}<span class="hint-badge" style="background:#f3f4f6;color:#6b7280">{{ t_status(row.case.status) }}</span>
         {% endif %}
       </td>
       <td>{{ row.case.due_date or '—' }}</td>
