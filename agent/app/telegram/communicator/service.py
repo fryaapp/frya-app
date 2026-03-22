@@ -432,6 +432,23 @@ class TelegramCommunicatorService:
                             call_kwargs['api_base'] = base_url
 
                         resp = await litellm.acompletion(**call_kwargs)
+
+                        # Token tracking
+                        try:
+                            from app.token_tracking import log_token_usage as _log_usage
+                            from app.config import get_settings as _ts
+                            await _log_usage(
+                                database_url=_ts().database_url,
+                                tenant_id='default',
+                                agent_id='communicator',
+                                model=full_model,
+                                provider=provider,
+                                response=resp,
+                                case_id=case_id,
+                            )
+                        except Exception:
+                            pass
+
                         raw_text = (resp.choices[0].message.content or '').strip()
 
                         # Ensure FRYA: prefix
@@ -453,6 +470,29 @@ class TelegramCommunicatorService:
 
                         if chat_history_store is not None and reply_text:
                             await chat_history_store.append(chat_id, normalized.text or '', reply_text)
+
+                        # Save reminder for REMINDER_PERSONAL intent
+                        if intent == 'REMINDER_PERSONAL':
+                            try:
+                                from app.config import get_settings as _rs
+                                from datetime import datetime, timedelta, timezone
+                                import asyncpg as _apg
+                                _db = _rs().database_url
+                                if not _db.startswith('memory://'):
+                                    _remind_at = datetime.now(timezone.utc) + timedelta(days=1)
+                                    _remind_at = _remind_at.replace(hour=9, minute=0, second=0)
+                                    _conn = await _apg.connect(_db)
+                                    try:
+                                        await _conn.execute(
+                                            "INSERT INTO frya_reminders (tenant_id, user_id, chat_id, reminder_text, remind_at) "
+                                            "VALUES ($1, $2, $3, $4, $5)",
+                                            'default', sender_id, chat_id,
+                                            (normalized.text or '')[:500], _remind_at,
+                                        )
+                                    finally:
+                                        await _conn.close()
+                            except Exception as _re:
+                                logger.debug('reminder save failed: %s', _re)
 
                 except Exception as exc:
                     if intent == 'GENERAL_CONVERSATION':

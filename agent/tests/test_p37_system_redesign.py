@@ -3,33 +3,29 @@ import json
 import pytest
 
 
-def test_chat_history_store_append_and_load():
+@pytest.mark.asyncio
+async def test_chat_history_store_append_and_load():
     from app.telegram.communicator.memory.chat_history_store import ChatHistoryStore
-    import asyncio
     store = ChatHistoryStore('memory://')
-    async def _run():
-        await store.append('test-chat-1', 'Hallo', 'FRYA: Hallo!')
-        await store.append('test-chat-1', 'Status?', 'FRYA: Alles gut.')
-        history = await store.load('test-chat-1')
-        assert len(history) == 4
-        assert history[0]['role'] == 'user'
-        assert history[1]['role'] == 'assistant'
-    asyncio.get_event_loop().run_until_complete(_run())
+    await store.append('test-chat-1', 'Hallo', 'FRYA: Hallo!')
+    await store.append('test-chat-1', 'Status?', 'FRYA: Alles gut.')
+    history = await store.load('test-chat-1')
+    assert len(history) == 4
+    assert history[0]['role'] == 'user'
+    assert history[1]['role'] == 'assistant'
 
 
-def test_chat_history_store_max_messages():
+@pytest.mark.asyncio
+async def test_chat_history_store_max_messages():
     from app.telegram.communicator.memory.chat_history_store import ChatHistoryStore
-    import asyncio
     store = ChatHistoryStore('memory://')
     store.MAX_MESSAGES = 4  # 2 pairs
-    async def _run():
-        await store.append('test-chat-2', 'A', 'B')
-        await store.append('test-chat-2', 'C', 'D')
-        await store.append('test-chat-2', 'E', 'F')
-        history = await store.load('test-chat-2')
-        assert len(history) == 4
-        assert history[0]['content'] == 'C'
-    asyncio.get_event_loop().run_until_complete(_run())
+    await store.append('test-chat-2', 'A', 'B')
+    await store.append('test-chat-2', 'C', 'D')
+    await store.append('test-chat-2', 'E', 'F')
+    history = await store.load('test-chat-2')
+    assert len(history) == 4
+    assert history[0]['content'] == 'C'
 
 
 def test_communicator_prompt_has_ich_form():

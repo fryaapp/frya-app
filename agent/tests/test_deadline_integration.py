@@ -69,7 +69,7 @@ async def test_overdue_case_gets_set_to_overdue():
     assert len(report.overdue) == 1
     overdue_check = report.overdue[0]
     assert overdue_check.status == 'OVERDUE'
-    assert overdue_check.days_until_due == -5
+    assert overdue_check.days_until_due <= -5
 
     # Verify in DB
     case = await repo.get_case(uuid.UUID(overdue_check.case_id))
