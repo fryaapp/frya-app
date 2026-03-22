@@ -59,14 +59,24 @@ risk_flags:
   missing_fields: "Fehlende Pflichtfelder"
 
 agents:
-  orchestrator: "Orchestrator"
-  communicator: "Kommunikator"
-  document_analyst: "Dokumentenanalyse"
-  document_analyst_semantic: "Semantische Analyse"
-  accounting_analyst: "Buchhaltungsanalyse"
-  deadline_analyst: "Fristenanalyse"
-  risk_consistency: "Risiko & Konsistenz"
-  memory_curator: "Gedaechtnis"
+  orchestrator: "Orchestrator (Herz)"
+  communicator: "Kommunikator (Mund)"
+  document_analyst: "Document Analyst (Auge)"
+  document_analyst_semantic: "Semantische Analyse (Stirn)"
+  accounting_analyst: "Buchhaltungsanalyse (Hand)"
+  deadline_analyst: "Fristenanalyse (Ohr)"
+  risk_consistency: "Risiko & Konsistenz (Nase)"
+  memory_curator: "Gedaechtnis (Hirn)"
+
+agent_icons:
+  orchestrator: "\U0001FAC0"
+  communicator: "\U0001F444"
+  document_analyst: "\U0001F441"
+  document_analyst_semantic: "\U0001F9E0"
+  accounting_analyst: "\u270B"
+  deadline_analyst: "\U0001F442"
+  risk_consistency: "\U0001F443"
+  memory_curator: "\U0001F9E0"
 
 dunning_level:
   0: "Keine Mahnung"

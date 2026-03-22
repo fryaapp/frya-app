@@ -34,5 +34,5 @@ def test_translations_risk():
 
 def test_translations_agent():
     from app.utils.translations import t_agent
-    assert t_agent('communicator') == 'Kommunikator'
-    assert t_agent('document_analyst') == 'Dokumentenanalyse'
+    assert t_agent('communicator') == 'Kommunikator (Mund)'
+    assert t_agent('document_analyst') == 'Document Analyst (Auge)'

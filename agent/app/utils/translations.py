@@ -43,3 +43,7 @@ def t_risk(flag: str) -> str:
 
 def t_agent(agent_id: str) -> str:
     return t('agents', agent_id)
+
+
+def t_agent_icon(agent_id: str) -> str:
+    return t('agent_icons', agent_id, fallback='')

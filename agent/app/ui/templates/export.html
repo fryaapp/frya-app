@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Datenexport <span class="en-hint">(GoBD / DATEV)</span></h1>
+<p class="page-lead">Exporte fuer Betriebspruefung und Steuerberater-Uebergabe.</p>
+
+<div class="export-grid">
+
+  <section class="export-card">
+    <h2>GoBD Export (Betriebspruefung)</h2>
+    <p>GDPdU-konformer Export: XML-Index + CSV-Dateien mit Buchungen, Belegen, Audit-Trail, Kontakten und offenen Posten.</p>
+    <form action="/api/v1/export/gobd" method="GET">
+      <div class="form-row">
+        <label>Von: <input type="date" name="date_from" value="2026-01-01" required /></label>
+        <label>Bis: <input type="date" name="date_to" value="2026-03-22" required /></label>
+      </div>
+      <button type="submit" class="btn btn-save">GoBD Export herunterladen</button>
+    </form>
+    <p class="export-hint">Enthaelt: index.xml, buchungen.csv, belege.csv, audit_trail.csv, kontakte.csv, offene_posten.csv, verfahrensdokumentation.txt</p>
+  </section>
+
+  <section class="export-card">
+    <h2>DATEV Export (Steuerberater)</h2>
+    <p>DATEV-Buchungsstapel im EXTF-Format: CSV nach DATEV-Spezifikation + Belegverzeichnis.</p>
+    <form action="/api/v1/export/datev" method="GET">
+      <div class="form-row">
+        <label>Von: <input type="date" name="date_from" value="2026-01-01" required /></label>
+        <label>Bis: <input type="date" name="date_to" value="2026-03-22" required /></label>
+      </div>
+      <div class="form-row">
+        <label>Berater-Nr.: <input type="text" name="berater_nr" placeholder="optional" autocomplete="off" /></label>
+        <label>Mandant-Nr.: <input type="text" name="mandant_nr" placeholder="optional" autocomplete="off" /></label>
+      </div>
+      <button type="submit" class="btn btn-save">DATEV Export herunterladen</button>
+    </form>
+    <p class="export-hint">Enthaelt: EXTF_Buchungsstapel.csv, Belegverzeichnis.csv</p>
+  </section>
+
+</div>
+
+<p class="ai-hint">KI-generierte Daten — bitte pruefen. Steuerberater validiert.</p>
+
+<style>
+.export-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
+.export-card { border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; background: #fafafa; }
+.export-card h2 { margin: 0 0 0.6rem; font-size: 1.1rem; }
+.export-card p { font-size: 0.9rem; color: #444; margin-bottom: 1rem; }
+.form-row { display: flex; gap: 1rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+.form-row label { flex: 1; min-width: 150px; font-size: 0.85rem; font-weight: 600; }
+.form-row input { width: 100%; padding: 0.35rem 0.5rem; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9rem; box-sizing: border-box; margin-top: 0.15rem; }
+.export-hint { font-size: 0.75rem; color: #6b7280; margin-top: 0.5rem; font-style: italic; }
+.ai-hint { font-size: 0.8rem; color: #92400e; margin-top: 2rem; padding: 0.5rem 1rem; background: #fffbeb; border: 1px solid #f59e0b; border-radius: 6px; display: inline-block; }
+</style>
+{% endblock %}

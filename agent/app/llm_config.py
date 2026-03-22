@@ -23,7 +23,7 @@ IONOS_BASE_URL = 'https://openai.inference.de-txl.ionos.com/v1'
 #   - communicator: Anthropic direct (claude-sonnet-4-6) via FRYA_ANTHROPIC_API_KEY
 AGENT_CATALOG: dict[str, dict] = {
     'orchestrator': {
-        'label': 'Orchestrator',
+        'label': 'Orchestrator (Herz)',
         'provider': 'ionos',
         'target_model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8',
         'base_url': IONOS_BASE_URL,
@@ -31,7 +31,7 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'IONOS DE — 405B-Instruct-FP8 (FP8-quantised, target: 405B-Instruct)',
     },
     'communicator': {
-        'label': 'Kommunikator',
+        'label': 'Kommunikator (Mund)',
         'provider': 'anthropic',
         'target_model': 'claude-sonnet-4-6',
         'base_url': None,
@@ -39,7 +39,7 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'Anthropic — Claude Sonnet 4.6 (direkter Anthropic-Key via FRYA_ANTHROPIC_API_KEY)',
     },
     'document_analyst': {
-        'label': 'Document Analyst (OCR)',
+        'label': 'Document Analyst (Auge)',
         'provider': 'ionos',
         'target_model': 'lightonai/LightOnOCR-2-1B',
         'base_url': IONOS_BASE_URL,
@@ -47,7 +47,7 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'IONOS DE — LightOnOCR-2-1B (IONOS id differs from HF: LightOn/LightOn-OCR-2-1B)',
     },
     'document_analyst_semantic': {
-        'label': 'Document Analyst (Semantik)',
+        'label': 'Semantische Analyse (Stirn)',
         'provider': 'ionos',
         'target_model': 'mistralai/Mistral-Small-24B-Instruct',
         'base_url': IONOS_BASE_URL,
@@ -55,7 +55,7 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'IONOS DE — Mistral-Small-24B (IONOS ohne -2501 Suffix)',
     },
     'accounting_analyst': {
-        'label': 'Accounting Analyst',
+        'label': 'Buchhaltungsanalyse (Hand)',
         'provider': 'ionos',
         'target_model': 'mistralai/Mistral-Small-24B-Instruct',
         'base_url': IONOS_BASE_URL,
@@ -63,7 +63,7 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'IONOS DE — Mistral-Small-24B (SKR03 Buchungsvorschlaege)',
     },
     'deadline_analyst': {
-        'label': 'Deadline Analyst',
+        'label': 'Fristenanalyse (Ohr)',
         'provider': 'ionos',
         'target_model': 'mistralai/Mistral-Small-24B-Instruct',
         'base_url': IONOS_BASE_URL,
@@ -71,7 +71,7 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'IONOS DE — Mistral-Small-24B (Fristueberwachung, Skonto-Warnung)',
     },
     'risk_consistency': {
-        'label': 'Risk & Konsistenzpruefer',
+        'label': 'Risiko & Konsistenz (Nase)',
         'provider': 'ionos',
         'target_model': 'openai/gpt-oss-120b',
         'base_url': IONOS_BASE_URL,
@@ -79,7 +79,7 @@ AGENT_CATALOG: dict[str, dict] = {
         'note': 'IONOS DE — GPT-OSS 120B (Risikoanalyse, Konsistenzpruefung)',
     },
     'memory_curator': {
-        'label': 'Memory Curator',
+        'label': 'Gedaechtnis (Hirn)',
         'provider': 'ionos',
         'target_model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8',
         'base_url': IONOS_BASE_URL,
