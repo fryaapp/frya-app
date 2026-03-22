@@ -2,8 +2,10 @@
 (function () {
   'use strict';
 
-  var CSRF = document.querySelector('meta[name="csrf-token"]').content;
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  var CSRF = csrfMeta ? csrfMeta.content : '';
   var HDR = {'Content-Type': 'application/json', 'X-Frya-Csrf-Token': CSRF};
+  console.log('[FRYA] agent_config.js loaded, CSRF token:', CSRF ? CSRF.substring(0, 8) + '...' : '(EMPTY!)');
 
   function getCard(el) {
     return el.closest('.agent-card');
@@ -30,6 +32,12 @@
       if (hiddenModel) hiddenModel.value = opt.getAttribute('data-model') || '';
       if (hiddenBaseUrl) hiddenBaseUrl.value = opt.getAttribute('data-base-url') || '';
     }
+    console.log('[FRYA] Dropdown changed:', {
+      agent: getAgentId(card),
+      provider: hiddenProvider ? hiddenProvider.value : '?',
+      model: hiddenModel ? hiddenModel.value : '?',
+      base_url: hiddenBaseUrl ? hiddenBaseUrl.value : '?',
+    });
   }
 
   /* Save config */
@@ -57,10 +65,17 @@
       }
 
       var body = {provider: provider, model: model, base_url: base_url, api_key: api_key};
+      console.log('[FRYA] SAVE request:', {agentId: agentId, body: body, csrf: CSRF ? 'set' : 'MISSING'});
+
       var resp = await fetch('/api/agent-config/' + agentId, {
-        method: 'POST', headers: HDR, body: JSON.stringify(body),
+        method: 'POST',
+        headers: HDR,
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
       });
       var data = await resp.json();
+      console.log('[FRYA] SAVE response:', {status: resp.status, data: data});
+
       if (!resp.ok) {
         alert('Fehler: ' + (data.detail || resp.status));
         return;
@@ -76,6 +91,7 @@
         }
       }
     } catch (e) {
+      console.error('[FRYA] SAVE error:', e);
       alert('Netzwerkfehler: ' + e);
     } finally {
       setTimeout(function () { btn.disabled = false; btn.textContent = 'Speichern'; }, 1500);
@@ -94,9 +110,13 @@
     badge.textContent = 'Pruefe...';
     try {
       var resp = await fetch('/api/agent-config/' + agentId + '/check', {
-        method: 'POST', headers: HDR,
+        method: 'POST',
+        headers: HDR,
+        credentials: 'same-origin',
       });
       var data = await resp.json();
+      console.log('[FRYA] CHECK response:', {agentId: agentId, status: resp.status, data: data});
+
       if (!resp.ok) {
         badge.className = 'state-badge state-error';
         badge.textContent = 'Fehler';
@@ -112,6 +132,7 @@
       }
       detail.textContent = data.status;
     } catch (e) {
+      console.error('[FRYA] CHECK error:', e);
       badge.className = 'state-badge state-error';
       badge.textContent = 'Netzwerkfehler';
       detail.textContent = String(e);

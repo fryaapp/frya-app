@@ -127,6 +127,9 @@ async def save_config(
     api_key = body.get('api_key', '').strip() or None
     base_url = body.get('base_url', '').strip() or None
 
+    logger.info('SAVE CONFIG: agent=%s provider=%s model=%s base_url=%s has_key=%s',
+                agent_id, provider, model, base_url, bool(api_key))
+
     if not provider or not model:
         raise HTTPException(status_code=422, detail='Provider und Modell sind Pflichtfelder')
 
