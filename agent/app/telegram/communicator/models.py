@@ -18,6 +18,7 @@ CommunicatorIntentCode = Literal[
     'BOOKING_REQUEST',
     'EXPORT_REQUEST',
     'REMINDER_REQUEST',
+    'REMINDER_PERSONAL',
     'CREATE_CUSTOMER',
 ]
 

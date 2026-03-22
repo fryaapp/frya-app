@@ -30,7 +30,7 @@ def test_classify_export_request():
 
 def test_classify_reminder():
     from app.telegram.communicator.intent_classifier import classify_intent
-    assert classify_intent('Erinnere mich an die Frist am 15.') == 'REMINDER_REQUEST'
+    assert classify_intent('Erinnere mich an die Frist am 15.') == 'REMINDER_PERSONAL'
     assert classify_intent('Deadline setzen') == 'REMINDER_REQUEST'
 
 

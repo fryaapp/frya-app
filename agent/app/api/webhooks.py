@@ -22,6 +22,7 @@ from app.dependencies import (
     get_problem_case_service,
     get_telegram_case_link_service,
     get_telegram_clarification_service,
+    get_chat_history_store,
     get_communicator_conversation_store,
     get_communicator_user_store,
     get_telegram_communicator_service,
@@ -377,6 +378,7 @@ async def _route_telegram_message(
     llm_config_repository: Any = None,
     case_repository: Any = None,
     email_intake_repository: Any = None,
+    chat_history_store: Any = None,
 ) -> tuple[TelegramRoutingResult, str, dict]:
     intent: TelegramIntent = detect_intent(normalized.text)
 
@@ -419,6 +421,7 @@ async def _route_telegram_message(
         llm_config_repository=llm_config_repository,
         case_repository=case_repository,
         email_intake_repository=email_intake_repository,
+        chat_history_store=chat_history_store,
     )
     if comm_result is not None:
         _is_general_conv = comm_result.turn.intent == 'GENERAL_CONVERSATION'
@@ -1312,6 +1315,7 @@ async def telegram_webhook(
         llm_config_repository=llm_config_repository,
         case_repository=case_repository,
         email_intake_repository=email_intake_repository,
+        chat_history_store=get_chat_history_store(),
     )
     await _log_telegram_route(audit_service, normalized, route, command_result)
 

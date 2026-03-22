@@ -100,7 +100,7 @@ class GoBDExportService:
                            cd.assignment_confidence, c.status
                     FROM case_documents cd
                     JOIN case_cases c ON c.id = cd.case_id
-                    WHERE c.created_at >= $1 AND c.created_at < $2 + INTERVAL '1 day'
+                    WHERE c.created_at >= $1::date AND c.created_at < ($2::date + 1)
                     ORDER BY c.created_at
                     """,
                     date_from, date_to,
@@ -134,7 +134,7 @@ class GoBDExportService:
                     """
                     SELECT event_id, created_at, agent_name, action, result, case_id
                     FROM frya_audit_log
-                    WHERE created_at >= $1 AND created_at < $2 + INTERVAL '1 day'
+                    WHERE created_at >= $1::date AND created_at < ($2::date + 1)
                     ORDER BY created_at
                     """,
                     date_from, date_to,

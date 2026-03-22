@@ -29,7 +29,7 @@ def test_document_analyst_semantic_prompt_not_empty():
 
 def test_document_analyst_semantic_prompt_has_new_types():
     from app.document_analysis.semantic_service import _SYSTEM_PROMPT
-    for doc_type in ('CONTRACT', 'NOTICE', 'TAX_DOCUMENT', 'DUNNING'):
+    for doc_type in ('CONTRACT', 'NOTICE', 'TAX_DOCUMENT', 'REMINDER', 'PRIVATE', 'PAYSLIP'):
         assert doc_type in _SYSTEM_PROMPT, (
             f"New document type '{doc_type}' missing from Doc Analyst Semantic prompt"
         )

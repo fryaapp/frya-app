@@ -48,6 +48,7 @@ _INTENT_RESPONSE_TYPES: dict[str, str] = {
     'LAST_CASE_EXPLANATION': 'COMMUNICATOR_REPLY_EXPLANATION',
     'GENERAL_SAFE_HELP': 'COMMUNICATOR_REPLY_SAFE_HELP',
     'GENERAL_CONVERSATION': 'COMMUNICATOR_REPLY_GENERAL',
+    'REMINDER_PERSONAL': 'COMMUNICATOR_REPLY_GENERAL',
 }
 
 _GENERAL_CONVERSATION_PERSONALITY = (
@@ -69,6 +70,7 @@ def build_llm_context_payload(
     *,
     system_context: str | None = None,
     provider: str | None = None,
+    chat_history: list[dict] | None = None,
 ) -> dict:
     """Build the messages payload for litellm.acompletion."""
     lines = ['[FALLKONTEXT]']
@@ -124,11 +126,13 @@ def build_llm_context_payload(
     else:
         system_msg = {'role': 'system', 'content': system_content}
 
+    messages = [system_msg]
+    if chat_history:
+        messages.extend(chat_history)
+    messages.append({'role': 'user', 'content': '\n'.join(lines)})
+
     return {
-        'messages': [
-            system_msg,
-            {'role': 'user', 'content': '\n'.join(lines)},
-        ],
+        'messages': messages,
     }
 
 
@@ -217,6 +221,7 @@ class TelegramCommunicatorService:
         llm_config_repository: Any = None,
         email_intake_repository: Any = None,
         case_repository: Any = None,
+        chat_history_store: Any = None,
     ) -> CommunicatorResult | None:
         # ── Step 1: classify ────────────────────────────────────────────────
         intent = classify_intent(normalized.text)
@@ -233,6 +238,11 @@ class TelegramCommunicatorService:
         conv_memory = None
         if conversation_store is not None:
             conv_memory = await conversation_store.load(chat_id)
+
+        # ── Step 4b: load ChatHistory ────────────────────────────────────────
+        chat_history: list[dict] = []
+        if chat_history_store is not None:
+            chat_history = await chat_history_store.load(chat_id)
 
         # ── Step 5: load UserMemory ──────────────────────────────────────────
         sender_id = normalized.actor.sender_id or chat_id
@@ -380,6 +390,7 @@ class TelegramCommunicatorService:
                         user_message=normalized.text or '',
                         system_context=sys_ctx,
                         provider=provider,
+                        chat_history=chat_history,
                     )
                     # Prepend email arrival info for DOCUMENT_ARRIVAL_CHECK
                     if email_arrival_info and intent == 'DOCUMENT_ARRIVAL_CHECK':
@@ -439,6 +450,9 @@ class TelegramCommunicatorService:
                         llm_called = True
                         model_used = getattr(resp, 'model', None) or full_model
                         response_source = 'LLM'
+
+                        if chat_history_store is not None and reply_text:
+                            await chat_history_store.append(chat_id, normalized.text or '', reply_text)
 
                 except Exception as exc:
                     if intent == 'GENERAL_CONVERSATION':

@@ -42,123 +42,144 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
 Du bist ein Dokumentenanalyse-Experte für deutschsprachige Geschäftsdokumente.
-Analysiere den gegebenen OCR-Text und extrahiere strukturierte Felder.
+Dein Output ist AUSSCHLIESSLICH ein einzelnes JSON-Objekt. Sonst nichts.
 
 ═══════════════════════════════════════
-REGELN
-═══════════════════════════════════════
-
-1. Antworte AUSSCHLIESSLICH mit validem JSON. Kein Freitext. Kein Markdown.
-2. Fehlende oder nicht erkennbare Felder: null. NIEMALS raten oder erfinden.
-3. OCR-Text ist fehlerbehaftet. Mehrdeutiger Wert → null, confidence senken.
-4. Bei mehreren Beträgen: Wähle den Gesamtbetrag (brutto). Falls unklar: null.
-5. MEHRSEITIGE DOKUMENTE: Lies den GESAMTEN Text, nicht nur den Anfang.
-   Bei Sammelrechnungen und mehrseitigen Rechnungen stehen Nettobetrag, MwSt-Betrag
-   und Steuersatz oft auf einer SPÄTEREN Seite als der Bruttobetrag.
-   Suche gezielt nach: "Zwischensumme Netto", "Nettobetrag", "Mehrwertsteuer",
-   "MwSt", "Umsatzsteuer" — auch wenn diese erst auf Seite 2, 3 oder 4 erscheinen.
-   Wenn Brutto auf Seite 1 steht und Netto/MwSt auf Seite 2: BEIDE extrahieren.
-6. Datumsformat Ausgabe: "TT.MM.JJJJ".
-7. Confidence NIE über 0.95 — OCR hat inhärente Unsicherheit.
-   Alle Kernfelder klar → 0.85-0.95. Felder fehlen → 0.5-0.84.
-   Nur Fragmente → 0.2-0.49. Fast nichts → 0.0-0.19.
-8. Referenzen (Rechnungsnummer, Aktenzeichen, Kundennummer) sind KRITISCH für die
-   Vorgangszuordnung. Extrahiere ALLE die du findest.
-9. ABSENDER vs. EMPFÄNGER auf deutschen Rechnungen:
-   Der ABSENDER (Rechnungssteller/Vendor/Lieferant) ist die Firma die die Rechnung AUSSTELLT:
-   - Hat die USt-IDNr. / Steuernummer auf der Rechnung
-   - Steht in der Fußzeile (Impressum) mit HRB, Geschäftsführer, Bankverbindung
-   - Steht oft RECHTS OBEN oder im Briefkopf/Logo-Bereich
-   - Hat die Gläubiger-Identifikationsnummer bei SEPA-Mandaten
-   Der EMPFÄNGER (Rechnungsempfänger/Kunde) ist die Firma die die Rechnung BEKOMMT:
-   - Steht im Adressfeld (oft LINKS OBEN, größer gedruckt)
-   - Hat KEINE USt-IDNr. auf dieser Rechnung (außer bei Reverse Charge)
-   - Steht NICHT in der Fußzeile
-   REGEL: Wenn zwei Firmennamen auf der Rechnung stehen, ist die Firma mit USt-IDNr.
-   und Fußzeilen-Impressum der ABSENDER ("sender"). Die Firma im Adressfeld ist
-   der EMPFÄNGER ("recipient"). Extrahiere als "sender" IMMER den Rechnungssteller.
-
-═══════════════════════════════════════
-DOKUMENTTYPEN
-═══════════════════════════════════════
-
-INVOICE — Rechnung, Rechnungsnummer, Betrag, MwSt, Fälligkeitsdatum
-REMINDER — Mahnung, Mahngebühr, Zahlungserinnerung
-CONTRACT — Vertrag, Laufzeit, Kündigungsfrist
-NOTICE — Bescheid, Finanzamt, Einspruchsfrist
-TAX_DOCUMENT — Steuererklärung, Voranmeldung
-RECEIPT — Quittung, Kassenbon
-BANK_STATEMENT — Kontoauszug, Buchungstag
-SALARY — Gehaltsabrechnung, Lohn
-INSURANCE — Versicherungspolice, Beitrag
-DUNNING — Inkassoschreiben, Forderungsaufstellung
-CORRESPONDENCE — Brief, Mitteilung (kein klarer Typ)
-OTHER — Nicht klassifizierbar
-
-═══════════════════════════════════════
-OUTPUT
+OUTPUT-FORMAT (IMMER DIESES FORMAT)
 ═══════════════════════════════════════
 
 {
-  "document_type": "INVOICE|REMINDER|CONTRACT|NOTICE|TAX_DOCUMENT|RECEIPT|BANK_STATEMENT|SALARY|INSURANCE|DUNNING|CORRESPONDENCE|OTHER",
-  "sender": "Name des Absenders oder null",
-  "recipient": "Name des Empfängers oder null",
-  "total_amount": Betrag als Dezimalzahl oder null,
+  "document_type": "INVOICE|REMINDER|CONTRACT|NOTICE|TAX_DOCUMENT|RECEIPT|BANK_STATEMENT|PAYSLIP|INSURANCE|OFFER|CREDIT_NOTE|DELIVERY_NOTE|LETTER|PRIVATE|AGB|WIDERRUF|OTHER",
+  "sender": "Firma oder Person die das Dokument erstellt hat oder null",
+  "recipient": "Firma oder Person an die es adressiert ist oder null",
+  "gross_amount": Bruttobetrag als Zahl oder null,
   "net_amount": Nettobetrag oder null,
-  "tax_amount": Steuerbetrag oder null,
-  "tax_rate": Steuersatz (19.0, 7.0, 0.0) oder null,
-  "currency": "EUR|USD|CHF|GBP oder null",
-  "document_date": "TT.MM.JJJJ oder null",
-  "due_date": "TT.MM.JJJJ oder null",
-  "invoice_number": "Rechnungsnummer oder null",
-  "customer_number": "Kundennummer oder null",
-  "file_number": "Aktenzeichen oder null",
+  "tax_amount": MwSt-Betrag oder null,
+  "tax_rate": 19 oder 7 oder 0 oder null,
+  "currency": "EUR",
+  "document_date": "TT.MM.JJJJ" oder null,
+  "due_date": "TT.MM.JJJJ" oder null,
+  "document_number": "Rechnungsnummer oder Aktenzeichen oder null",
   "iban": "IBAN oder null",
-  "tax_id": "Steuernummer oder USt-IdNr oder null",
-  "contract_end_date": "TT.MM.JJJJ oder null",
-  "cancellation_period_days": Kündigungsfrist in Tagen oder null,
-  "references": ["alle gefundenen Referenznummern als Array"],
+  "ust_id": "USt-IDNr. des Absenders oder null",
+  "payment_reference": "Verwendungszweck oder null",
+  "contract_end_date": "TT.MM.JJJJ" oder null,
+  "cancellation_period_days": Zahl oder null,
+  "dunning_level": 1-4 oder null,
+  "references": ["alle Referenznummern"],
+  "has_attachments": true oder false,
+  "is_business_relevant": true oder false,
+  "private_info": "Extrahierte Termine/Infos bei privaten Dokumenten oder null",
   "confidence": 0.0-0.95,
-  "annotations": [
-    {
-      "type": "payment_note|status_note|problem_note|payment_method|correction_note|warning_note|allocation_note|tax_advisor_note|check_mark|date_note|unknown",
-      "raw_text": "exakter Text wie er im OCR vorkommt",
-      "interpreted": "deutsche Beschreibung was dieser Vermerk bedeutet",
-      "confidence": 0.5-0.95,
-      "action_suggested": "CHECK_PAYMENT_EXISTS|FLAG_PROBLEM_CASE|SUGGEST_ALLOCATION|FLAG_FOR_TAX_ADVISOR|NONE"
-    }
-  ]
+  "missing_fields": ["felder die fehlen"],
+  "annotations": []
 }
 
 ═══════════════════════════════════════
-HANDSCHRIFTLICHE VERMERKE UND STEMPEL
+REGELN FÜR GUTEN OUTPUT
 ═══════════════════════════════════════
 
-Prüfe den OCR-Text auf handschriftliche Vermerke, Stempel oder Markierungen.
-Diese stehen oft am Rand, in Ecken, quer über dem Dokument, oder zwischen
-gedruckten Zeilen. Sie sind oft unvollständig, abgekürzt oder schlecht lesbar.
+1. Jedes Feld das du im Text findest: ausfüllen. Jedes Feld das du NICHT findest: null setzen.
 
-Muster und ihre Bedeutungen:
+2. Suche im GESAMTEN Text — Netto, MwSt und Steuersatz stehen oft auf Seite 2, 3 oder 4.
+   Suchwörter: "Zwischensumme Netto", "Nettobetrag", "Mehrwertsteuer", "MwSt", "Umsatzsteuer".
 
-| Muster im OCR-Text | type | action_suggested |
-|---------------------|------|------------------|
-| "bezahlt", "bez.", "gezahlt", "beglichen" + Datum | payment_note | CHECK_PAYMENT_EXISTS |
-| "ERLEDIGT", "erled.", "DONE", "OK" | status_note | NONE |
+3. Confidence-Skala:
+   - 0.85-0.95 = Alle Kernfelder klar gefunden
+   - 0.50-0.84 = Einige Felder fehlen oder sind unsicher
+   - 0.20-0.49 = Nur Fragmente erkennbar
+   - 0.00-0.19 = Fast nichts erkennbar
+   Höchstwert: 0.95 (OCR hat immer eine Rest-Unsicherheit).
+
+4. ABSENDER erkennen — so findest du ihn:
+   Die Firma mit USt-IDNr. oder Steuernummer = ABSENDER
+   Die Firma in der Fußzeile (HRB, Geschäftsführer, Bankverbindung) = ABSENDER
+   Die Firma im Logo/Briefkopf rechts oben = ABSENDER
+   Die Firma im Adressfeld links oben = EMPFÄNGER
+   Beispiel: "1&1 Telecom GmbH" hat USt-IDNr. DE813789825 in der Fußzeile → sender = "1&1 Telecom GmbH"
+   Beispiel: "Fino Versand GbR" steht im Adressfeld → recipient = "Fino Versand GbR"
+
+5. Firmennamen vollständig übernehmen wie im Impressum: "1&1 Telecom GmbH" statt "1&1" oder "1und1".
+
+6. Datumsformat: Immer "TT.MM.JJJJ" ausgeben (z.B. "15.03.2026").
+
+═══════════════════════════════════════
+DOKUMENTTYP ERKENNEN
+═══════════════════════════════════════
+
+Erkenne den Typ anhand dieser Schlüsselwörter:
+
+| Typ | Schlüsselwörter im Text |
+|-----|------------------------|
+| INVOICE | "Rechnung", "Rechnungsnummer", "Invoice", Betrag + Fälligkeitsdatum |
+| REMINDER | "Mahnung", "Zahlungserinnerung", "Mahngebühr", Mahnungsstufe |
+| CONTRACT | "Vertrag", "Laufzeit", "Kündigungsfrist", "Vertragslaufzeit" |
+| NOTICE | "Bescheid", "Finanzamt", "Einspruchsfrist", "Amt", "Behörde" |
+| TAX_DOCUMENT | "Steuererklärung", "Voranmeldung", "Umsatzsteuer-Voranmeldung" |
+| RECEIPT | "Quittung", "Kassenbon", "Barzahlung" |
+| BANK_STATEMENT | "Kontoauszug", "Buchungstag", "Saldo", "Kontobewegungen" |
+| PAYSLIP | "Lohnabrechnung", "Gehaltsabrechnung", "Bruttolohn", "Sozialversicherung" |
+| INSURANCE | "Versicherungspolice", "Versicherungsschein", "Beitrag", "Deckung" |
+| OFFER | "Angebot", "Kostenvoranschlag", "gültig bis", "unverbindlich" |
+| CREDIT_NOTE | "Gutschrift", "Stornorechnung", "Rechnungskorrektur" |
+| DELIVERY_NOTE | "Lieferschein", "Wareneingang", "Lieferung" |
+| LETTER | Geschäftlicher Brief ohne Betrag |
+| PRIVATE | Privater Brief, Einladung, Kita-Brief, kein Geschäftsbezug, kein Betrag |
+| AGB | "Allgemeine Geschäftsbedingungen", "AGB" (als eigenständiges Dokument) |
+| WIDERRUF | "Widerrufsbelehrung", "Widerrufsrecht" |
+| OTHER | Keines der obigen Muster passt |
+
+═══════════════════════════════════════
+MULTI-DOKUMENT-PDFs
+═══════════════════════════════════════
+
+Manche PDFs enthalten eine Rechnung + AGB + Widerrufsbelehrung zusammen.
+Analysiere nur das HAUPTDOKUMENT (die Rechnung).
+Setze has_attachments = true wenn du AGB, Widerrufsbelehrung oder Datenschutzhinweise als Nebendokument erkennst.
+
+═══════════════════════════════════════
+PRIVATE DOKUMENTE
+═══════════════════════════════════════
+
+Wenn das Dokument privat ist (kein Geschäftsbezug, kein Vendor, kein Betrag):
+- document_type = "PRIVATE"
+- is_business_relevant = false
+- Extrahiere trotzdem: sender, document_date, und nützliche Infos in private_info
+- Beispiel Kita-Brief: private_info = "Kinderfest Samstag 15.03.2026, 15:00 Uhr"
+
+═══════════════════════════════════════
+HANDSCHRIFTLICHE VERMERKE
+═══════════════════════════════════════
+
+Suche nach handschriftlichen Vermerken oder Stempeln im OCR-Text:
+
+| Muster | type | action_suggested |
+|--------|------|------------------|
+| "bezahlt", "bez.", "gezahlt" + Datum | payment_note | CHECK_PAYMENT_EXISTS |
+| "ERLEDIGT", "OK", "erled." | status_note | NONE |
 | "Reklamation", "Beschwerde", "MÄNGEL" | problem_note | FLAG_PROBLEM_CASE |
-| "per Nachnahme", "bar", "Überweisung" | payment_method | NONE |
-| Durchgestrichene Beträge (wirre Zeichen über/neben Zahlen) | correction_note | NONE |
-| "Achtung", "VORSICHT", "WICHTIG", "DRINGEND" | warning_note | NONE |
-| "privat", "betrieblich", "50/50", "anteilig" | allocation_note | SUGGEST_ALLOCATION |
-| "StB", "für Steuerberater", "Anlage" | tax_advisor_note | FLAG_FOR_TAX_ADVISOR |
-| Häkchen, Kreuze (✓, ✗, X) als OCR-Artefakte | check_mark | NONE |
-| Datums-Patterns ohne Kontext (3.5.25, 03/05, Mai 25) | date_note | NONE |
+| "bar", "Überweisung", "per Nachnahme" | payment_method | NONE |
+| "privat", "betrieblich", "50/50" | allocation_note | SUGGEST_ALLOCATION |
+| "StB", "für Steuerberater" | tax_advisor_note | FLAG_FOR_TAX_ADVISOR |
 
-Wenn OCR-Text und Handschrift-Vermerk widersprüchlich sind (z.B. Betrag 49,95 EUR
-aber Vermerk "45,00 bezahlt"), setze für das widersprüchliche Feld confidence -0.2
-und füge es zu "missing_fields" hinzu.
+Nur Vermerke die tatsächlich im OCR-Text stehen. Wenn keine → annotations = [].
 
-Wenn kein handschriftlicher Vermerk erkennbar: "annotations": [] (leeres Array).
-Erfinde KEINE Vermerke. Nur was der OCR-Text hergibt."""
+═══════════════════════════════════════
+BEISPIELE
+═══════════════════════════════════════
+
+Beispiel 1 — Vollständige Rechnung:
+Input enthält: "Rechnungsnummer: 151122582904", "Bruttobetrag: 8,54 EUR", "MwSt 19%: 1,36 EUR", "Netto: 7,18 EUR", Fußzeile mit "1&1 Telecom GmbH, USt-ID DE813789825"
+→ {"document_type": "INVOICE", "sender": "1&1 Telecom GmbH", "gross_amount": 8.54, "net_amount": 7.18, "tax_amount": 1.36, "tax_rate": 19, "document_number": "151122582904", "ust_id": "DE813789825", "confidence": 0.92, ...}
+
+Beispiel 2 — Unvollständiges Dokument:
+Input enthält: "Rechnung" aber keinen Betrag, keinen Absender
+→ {"document_type": "INVOICE", "sender": null, "gross_amount": null, "confidence": 0.35, "missing_fields": ["sender", "gross_amount", "document_number"], ...}
+
+Beispiel 3 — Privater Brief:
+Input enthält: "Liebe Eltern, Kinderfest am Samstag 15.03.2026 um 15 Uhr", "Kita Sonnenschein"
+→ {"document_type": "PRIVATE", "sender": "Kita Sonnenschein", "is_business_relevant": false, "private_info": "Kinderfest Samstag 15.03.2026, 15:00 Uhr", "confidence": 0.85, ...}\
+"""
 
 
 class DocumentAnalystSemanticService:
@@ -310,7 +331,8 @@ class DocumentAnalystSemanticService:
         _valid_types = {
             'INVOICE', 'REMINDER', 'LETTER', 'CONTRACT', 'NOTICE', 'TAX_DOCUMENT',
             'RECEIPT', 'BANK_STATEMENT', 'SALARY', 'INSURANCE', 'DUNNING',
-            'CORRESPONDENCE', 'OTHER',
+            'CORRESPONDENCE', 'PAYSLIP', 'OFFER', 'CREDIT_NOTE', 'DELIVERY_NOTE',
+            'PRIVATE', 'AGB', 'WIDERRUF', 'OTHER',
         }
         if raw_type not in _valid_types:
             raw_type = 'OTHER'
@@ -344,7 +366,7 @@ class DocumentAnalystSemanticService:
 
         currency_raw = (data.get('currency') or '').strip().upper() or None
         amounts: list[DetectedAmount] = []
-        total_raw = data.get('total_amount')
+        total_raw = data.get('gross_amount') or data.get('total_amount')
         if total_raw is not None:
             try:
                 total_decimal = Decimal(str(total_raw))
@@ -381,7 +403,7 @@ class DocumentAnalystSemanticService:
         )
 
         references = []
-        inv_num = data.get('invoice_number')
+        inv_num = data.get('document_number') or data.get('invoice_number')
         if inv_num:
             references.append(ExtractedField(
                 value=str(inv_num).strip(),
@@ -389,10 +411,12 @@ class DocumentAnalystSemanticService:
                 confidence=confidence,
                 source_kind='OCR_TEXT',
                 evidence_excerpt=str(inv_num).strip()[:120],
+                label='document_number',
             ))
 
-        # Additional reference fields (new in prompt v2)
-        for ref_val in (data.get('customer_number'), data.get('file_number')):
+        # Additional reference fields
+        for ref_key in ('customer_number', 'file_number', 'payment_reference'):
+            ref_val = data.get(ref_key)
             if ref_val:
                 references.append(ExtractedField(
                     value=str(ref_val).strip(),
@@ -400,7 +424,20 @@ class DocumentAnalystSemanticService:
                     confidence=confidence,
                     source_kind='OCR_TEXT',
                     evidence_excerpt=str(ref_val).strip()[:120],
+                    label=ref_key,
                 ))
+
+        # USt-ID (new field name: ust_id, fallback: tax_id)
+        ust_id = data.get('ust_id') or data.get('tax_id')
+        if ust_id:
+            references.append(ExtractedField(
+                value=str(ust_id).strip(),
+                status='FOUND',
+                confidence=confidence,
+                source_kind='OCR_TEXT',
+                evidence_excerpt=str(ust_id).strip()[:120],
+                label='ust_id',
+            ))
 
         # references[] array — CRITICAL for CaseEngine 4-layer assignment
         for ref in (data.get('references') or []):
@@ -460,6 +497,12 @@ class DocumentAnalystSemanticService:
                 action_suggested=_action,  # type: ignore[arg-type]
             ))
 
+        # ── New fields from prompt v3 ─────────────────────────────────────────
+        has_attachments = bool(data.get('has_attachments', False))
+        is_business_relevant = bool(data.get('is_business_relevant', True))
+        private_info_raw = data.get('private_info')
+        private_info = str(private_info_raw).strip() if private_info_raw else None
+
         # Reuse the regex service's risk/decision logic
         svc = self._fallback
         missing_fields = svc._missing_fields(
@@ -506,6 +549,9 @@ class DocumentAnalystSemanticService:
             global_decision=global_decision,
             ready_for_accounting_review=ready,
             overall_confidence=confidence,
+            has_attachments=has_attachments,
+            is_business_relevant=is_business_relevant,
+            private_info=private_info,
         )
 
 

@@ -235,11 +235,18 @@ class DeadlineAnalystService:
         skonto_expiring: list[DeadlineCheck],
     ) -> str:
         _system = (
-            'Du bist der Frist-Analyst von FRYA. Deine Aufgabe: Fristen und Termine in Dokumenten '
-            'und Vorgängen erkennen, überwachen und rechtzeitig warnen. '
-            'Antworte NUR mit reinem deutschen Text, ohne JSON, ohne Markdown, ohne Aufzählung. '
-            'Einspruchsfristen (OBJECTION) sind IMMER CRITICAL. '
-            'Skonto-Fristen sind HIGH — Geld sparen ist wichtig.'
+            'Du bist der Frist-Analyst von FRYA. Deine Aufgabe: Fristen und Termine in einer kurzen Zusammenfassung darstellen.\n'
+            'Dein Output ist ausschließlich reiner deutscher Text (2 Sätze). Kein JSON, kein Markdown, keine Aufzählung.\n\n'
+            'Prioritäten:\n'
+            '- Einspruchsfristen (OBJECTION) sind IMMER die höchste Priorität. Benenne sie zuerst.\n'
+            '- Skonto-Fristen sind wichtig — Geld sparen ist relevant.\n'
+            '- Überfällige Rechnungen vor bald fälligen.\n\n'
+            'Beispiel 1 — Mehrere Fristen:\n'
+            'Input: 2 überfällig, 1 heute fällig, 3 Skonto läuft ab\n'
+            '→ "Zwei Vorgänge sind überfällig und einer ist heute fällig. Außerdem laufen drei Skonto-Fristen in den nächsten Tagen ab."\n\n'
+            'Beispiel 2 — Alles im grünen Bereich:\n'
+            'Input: 0 überfällig, 0 heute fällig, 0 Skonto\n'
+            '→ "Alle Fristen sind im grünen Bereich."'
         )
         prompt = (
             'Erstelle eine kurze deutsche Zusammenfassung (max 2 Sätze) der Fristensituation:\n'

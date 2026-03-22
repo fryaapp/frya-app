@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 FieldStatus = Literal['FOUND', 'MISSING', 'UNCERTAIN', 'CONFLICT']
 SourceKind = Literal['OCR_TEXT', 'PAPERLESS_METADATA', 'PREVIEW_TEXT', 'CASE_CONTEXT', 'DERIVED', 'NONE']
-DocumentTypeValue = Literal['INVOICE', 'REMINDER', 'LETTER', 'CONTRACT', 'NOTICE', 'TAX_DOCUMENT', 'RECEIPT', 'BANK_STATEMENT', 'SALARY', 'INSURANCE', 'DUNNING', 'CORRESPONDENCE', 'OTHER']
+DocumentTypeValue = Literal['INVOICE', 'REMINDER', 'LETTER', 'CONTRACT', 'NOTICE', 'TAX_DOCUMENT', 'RECEIPT', 'BANK_STATEMENT', 'SALARY', 'INSURANCE', 'DUNNING', 'CORRESPONDENCE', 'PAYSLIP', 'OFFER', 'CREDIT_NOTE', 'DELIVERY_NOTE', 'PRIVATE', 'AGB', 'WIDERRUF', 'OTHER']
 AnalysisDecision = Literal['ANALYZED', 'INCOMPLETE', 'LOW_CONFIDENCE', 'CONFLICT']
 RecommendedNextStep = Literal['ACCOUNTING_REVIEW', 'HUMAN_REVIEW', 'OCR_RECHECK', 'GENERAL_REVIEW']
 RiskSeverity = Literal['INFO', 'WARNING', 'HIGH']
@@ -99,3 +99,6 @@ class DocumentAnalysisResult(BaseModel):
     global_decision: AnalysisDecision
     ready_for_accounting_review: bool = False
     overall_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    has_attachments: bool = False
+    is_business_relevant: bool = True
+    private_info: str | None = None

@@ -27,6 +27,7 @@ from app.rules.loader import RuleLoader
 from app.rules.policy_access import PolicyAccessLayer
 from app.telegram.clarification_repository import TelegramClarificationRepository
 from app.telegram.clarification_service import TelegramClarificationService
+from app.telegram.communicator.memory.chat_history_store import ChatHistoryStore
 from app.telegram.communicator.memory.conversation_store import ConversationMemoryStore
 from app.telegram.communicator.memory.user_store import UserMemoryStore
 from app.telegram.communicator.service import TelegramCommunicatorService
@@ -245,6 +246,12 @@ def get_communicator_conversation_store() -> ConversationMemoryStore:
 def get_communicator_user_store() -> UserMemoryStore:
     settings = get_settings()
     return UserMemoryStore(settings.database_url)
+
+
+@lru_cache
+def get_chat_history_store() -> ChatHistoryStore:
+    settings = get_settings()
+    return ChatHistoryStore(settings.redis_url)
 
 
 @lru_cache

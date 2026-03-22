@@ -141,3 +141,87 @@ class PaperlessConnector(DMSConnector):
 
         tasks = [_upload_one(fb, fn) for fb, fn in files]
         return list(await asyncio.gather(*tasks))
+
+    async def find_or_create_correspondent(self, name: str) -> int | None:
+        """Find correspondent by name or create new one."""
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(
+                    f'{self.base_url}/api/correspondents/',
+                    headers=self._headers(),
+                    params={'name__iexact': name},
+                )
+                resp.raise_for_status()
+                results = resp.json().get('results', [])
+                if results:
+                    return results[0]['id']
+                # Create new
+                resp = await client.post(
+                    f'{self.base_url}/api/correspondents/',
+                    headers=self._headers(),
+                    json={'name': name},
+                )
+                resp.raise_for_status()
+                return resp.json().get('id')
+        except Exception:
+            return None
+
+    async def find_or_create_document_type(self, name: str) -> int | None:
+        """Find document type by name or create new one."""
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(
+                    f'{self.base_url}/api/document_types/',
+                    headers=self._headers(),
+                    params={'name__iexact': name},
+                )
+                resp.raise_for_status()
+                results = resp.json().get('results', [])
+                if results:
+                    return results[0]['id']
+                resp = await client.post(
+                    f'{self.base_url}/api/document_types/',
+                    headers=self._headers(),
+                    json={'name': name},
+                )
+                resp.raise_for_status()
+                return resp.json().get('id')
+        except Exception:
+            return None
+
+    async def find_or_create_tag(self, name: str, color: str = '#2196F3') -> int | None:
+        """Find tag by name or create new one."""
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(
+                    f'{self.base_url}/api/tags/',
+                    headers=self._headers(),
+                    params={'name__iexact': name},
+                )
+                resp.raise_for_status()
+                results = resp.json().get('results', [])
+                if results:
+                    return results[0]['id']
+                resp = await client.post(
+                    f'{self.base_url}/api/tags/',
+                    headers=self._headers(),
+                    json={'name': name, 'color': color},
+                )
+                resp.raise_for_status()
+                return resp.json().get('id')
+        except Exception:
+            return None
+
+    async def update_document_metadata(self, doc_id: int, data: dict) -> bool:
+        """PATCH document metadata (title, correspondent, document_type, tags)."""
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.patch(
+                    f'{self.base_url}/api/documents/{doc_id}/',
+                    headers=self._headers(),
+                    json=data,
+                )
+                resp.raise_for_status()
+                return True
+        except Exception:
+            return False

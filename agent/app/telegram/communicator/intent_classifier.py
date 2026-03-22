@@ -163,10 +163,23 @@ _EXPORT_REQUEST_PHRASES: tuple[str, ...] = (
     'steuerberater export', 'gdpdu', 'betriebspruefung',
 )
 
+# ── Reminder Personal ────────────────────────────────────────────────────────
+_REMINDER_PERSONAL_PHRASES: tuple[str, ...] = (
+    'erinnere mich',
+    'erinnerung',
+    'remind me',
+    'vergiss nicht',
+    'nicht vergessen',
+    'denk dran',
+    'denke daran',
+    'merk dir',
+    'merke dir',
+)
+
 # ── Reminder Request ─────────────────────────────────────────────────────────
 _REMINDER_REQUEST_PHRASES: tuple[str, ...] = (
-    'erinnere mich', 'erinnerung setzen', 'frist setzen',
-    'deadline setzen', 'nicht vergessen', 'erinnere mich an',
+    'erinnerung setzen', 'frist setzen',
+    'deadline setzen', 'erinnere mich an',
 )
 
 # ── Create Customer ──────────────────────────────────────────────────────────
@@ -263,7 +276,12 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
         if phrase in t:
             return 'EXPORT_REQUEST'
 
-    # 11. REMINDER_REQUEST
+    # 11a. REMINDER_PERSONAL
+    for phrase in _REMINDER_PERSONAL_PHRASES:
+        if phrase in t:
+            return 'REMINDER_PERSONAL'
+
+    # 11b. REMINDER_REQUEST
     for phrase in _REMINDER_REQUEST_PHRASES:
         if phrase in t:
             return 'REMINDER_REQUEST'
