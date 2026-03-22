@@ -35,7 +35,11 @@ from app.open_items.service import OpenItemsService
 from app.telegram.document_analyst_start_service import TelegramDocumentAnalystStartService
 from app.problems.service import ProblemCaseService
 from app.telegram.clarification_service import TelegramClarificationService
-from app.telegram.communicator.memory.conversation_store import ConversationMemoryStore
+from app.telegram.communicator.memory.chat_history_store import ChatHistoryStore
+from app.telegram.communicator.memory.conversation_store import (
+    ConversationMemoryStore,
+    build_updated_conversation_memory,
+)
 from app.telegram.communicator.memory.user_store import UserMemoryStore
 from app.telegram.communicator.service import TelegramCommunicatorService
 from app.telegram.dedup import TelegramUpdateDeduplicator
@@ -814,6 +818,8 @@ async def _handle_telegram_callback_query(
     raw_payload: dict,
     audit_service: AuditService,
     telegram_connector: TelegramConnector,
+    conversation_store: ConversationMemoryStore | None = None,
+    chat_history_store: 'ChatHistoryStore | None' = None,
 ) -> dict:
     """Handle Telegram inline keyboard callback_query (booking approval buttons).
 
@@ -893,6 +899,41 @@ async def _handle_telegram_callback_query(
         source='telegram_callback',
     )
 
+    # ── Update ConversationMemory so Frya remembers this approval ──────────
+    if conversation_store is not None and chat_id:
+        try:
+            _prev_mem = await conversation_store.load(chat_id)
+            _updated_mem = build_updated_conversation_memory(
+                chat_id=chat_id,
+                prev_memory=_prev_mem,
+                intent='BOOKING_RESPONSE',
+                resolved_case_ref=case_id,
+                resolved_document_ref=None,
+                resolved_clarification_ref=None,
+                resolved_open_item_id=None,
+                context_resolution_status='FOUND',
+            )
+            await conversation_store.save(_updated_mem)
+        except Exception:
+            pass  # Memory update must not break the approval flow
+
+    # ── Append to ChatHistory so LLM context includes the approval ─────────
+    _action_labels = {
+        'APPROVE': 'Buchung freigegeben',
+        'REJECT': 'Buchung abgelehnt',
+        'CORRECT': 'Korrektur angefordert',
+        'DEFER': 'Buchung zurückgestellt',
+    }
+    if chat_history_store is not None and chat_id:
+        try:
+            await chat_history_store.append(
+                chat_id,
+                f'[User hat {_action_labels.get(action, action)} für {case_id}]',
+                f'FRYA: {_action_labels.get(action, action)}.',
+            )
+        except Exception:
+            pass
+
     # Ack the callback so Telegram removes the loading spinner
     if callback_id and telegram_connector.bot_token:
         import httpx as _httpx
@@ -940,7 +981,11 @@ async def telegram_webhook(
     # ── Inline keyboard callback_query (booking approval buttons) ────────────
     callback_query = payload.get('callback_query')
     if isinstance(callback_query, dict):
-        return await _handle_telegram_callback_query(callback_query, payload, audit_service, telegram_connector)
+        return await _handle_telegram_callback_query(
+            callback_query, payload, audit_service, telegram_connector,
+            conversation_store=conversation_store,
+            chat_history_store=get_chat_history_store(),
+        )
 
     normalized = _normalize_telegram_update(payload)
     if normalized is None:

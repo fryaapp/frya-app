@@ -219,7 +219,12 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
     if not t:
         return None
 
-    # 1. Risky check — overrides everything
+    # 0. REMINDER_PERSONAL — checked BEFORE risky to allow "Erinnere mich an Rechnung bezahlen"
+    for phrase in _REMINDER_PERSONAL_PHRASES:
+        if phrase in t:
+            return 'REMINDER_PERSONAL'
+
+    # 1. Risky check — overrides everything else
     for sub in _RISKY_SUBSTRINGS:
         if sub in t:
             return 'UNSUPPORTED_OR_RISKY'
@@ -275,11 +280,6 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
     for phrase in _EXPORT_REQUEST_PHRASES:
         if phrase in t:
             return 'EXPORT_REQUEST'
-
-    # 11a. REMINDER_PERSONAL
-    for phrase in _REMINDER_PERSONAL_PHRASES:
-        if phrase in t:
-            return 'REMINDER_PERSONAL'
 
     # 11b. REMINDER_REQUEST
     for phrase in _REMINDER_REQUEST_PHRASES:

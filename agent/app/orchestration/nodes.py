@@ -616,6 +616,114 @@ def _accounting_analysis_open_item_title(result: AccountingAnalysisResult) -> st
     return 'Buchungsvorschlag pruefen'
 
 
+_DOCUMENT_TYPE_MAP: dict[str, str] = {
+    'INVOICE': 'Eingangsrechnung',
+    'REMINDER': 'Mahnung',
+    'CONTRACT': 'Vertrag',
+    'NOTICE': 'Bescheid',
+    'TAX_DOCUMENT': 'Steuerdokument',
+    'RECEIPT': 'Quittung',
+    'BANK_STATEMENT': 'Kontoauszug',
+    'PAYSLIP': 'Lohnabrechnung',
+    'INSURANCE': 'Versicherung',
+    'OFFER': 'Angebot',
+    'CREDIT_NOTE': 'Gutschrift',
+    'DELIVERY_NOTE': 'Lieferschein',
+    'LETTER': 'Brief',
+    'PRIVATE': 'Privat',
+    'AGB': 'AGB',
+    'WIDERRUF': 'Sonstiges',
+    'OTHER': 'Sonstiges',
+}
+
+
+async def _writeback_to_paperless(
+    *,
+    document_ref: str,
+    analysis: DocumentAnalysisResult,
+    case_id: str,
+) -> None:
+    """Enrich a Paperless document with analysis metadata.
+
+    Sets correspondent, document type, tags, title, and custom fields.
+    Never raises — errors are logged and swallowed by the caller.
+    """
+    connector = get_paperless_connector()
+    doc_id = int(document_ref)
+    patch_data: dict = {}
+
+    # ── Correspondent ──────────────────────────────────────────────────────
+    vendor = analysis.sender.value if analysis.sender.status == 'FOUND' else None
+    if vendor:
+        corr_id = await connector.find_or_create_correspondent(vendor)
+        if corr_id is not None:
+            patch_data['correspondent'] = corr_id
+
+    # ── Document Type ──────────────────────────────────────────────────────
+    if analysis.document_type.status in ('FOUND', 'UNCERTAIN'):
+        dt_name = _DOCUMENT_TYPE_MAP.get(analysis.document_type.value, 'Sonstiges')
+        dt_id = await connector.find_or_create_document_type(dt_name)
+        if dt_id is not None:
+            patch_data['document_type'] = dt_id
+
+    # ── Tags (merge with existing — never overwrite) ─────────────────────
+    existing_doc = await connector.get_document(document_ref)
+    tag_ids: list[int] = list(existing_doc.get('tags', []))
+    analysiert_id = await connector.find_or_create_tag('frya:analysiert', '#2196F3')
+    if analysiert_id is not None and analysiert_id not in tag_ids:
+        tag_ids.append(analysiert_id)
+    # Add vorsteuer-relevant for invoices
+    if analysis.document_type.status in ('FOUND', 'UNCERTAIN') and analysis.document_type.value == 'INVOICE':
+        vst_id = await connector.find_or_create_tag('vorsteuer-relevant', '#673AB7')
+        if vst_id is not None and vst_id not in tag_ids:
+            tag_ids.append(vst_id)
+    if tag_ids:
+        patch_data['tags'] = tag_ids
+
+    # ── Title: "Vendor — Betrag€ — Datum" ─────────────────────────────────
+    title_parts: list[str] = []
+    if vendor:
+        title_parts.append(vendor)
+    total = next(
+        (a.amount for a in analysis.amounts if a.label == 'TOTAL' and a.status == 'FOUND'),
+        None,
+    )
+    currency = analysis.currency.value if analysis.currency.status == 'FOUND' else 'EUR'
+    if total is not None:
+        title_parts.append(f'{total:.2f}{currency}')
+    if analysis.document_date.status == 'FOUND' and analysis.document_date.value:
+        title_parts.append(analysis.document_date.value.strftime('%b %Y'))
+    if title_parts:
+        patch_data['title'] = ' — '.join(title_parts)
+
+    # ── Custom Fields ──────────────────────────────────────────────────────
+    field_ids = await connector.get_custom_field_ids()
+    custom_fields: list[dict] = []
+
+    if 'frya_case_id' in field_ids:
+        custom_fields.append({'field': field_ids['frya_case_id'], 'value': case_id})
+    if 'frya_status' in field_ids:
+        custom_fields.append({'field': field_ids['frya_status'], 'value': 'analysiert'})
+    if 'confidence' in field_ids:
+        custom_fields.append({'field': field_ids['confidence'], 'value': str(analysis.overall_confidence)})
+    if total is not None and 'betrag_brutto' in field_ids:
+        custom_fields.append({'field': field_ids['betrag_brutto'], 'value': str(total)})
+    # Extract invoice number from references
+    inv_ref = next(
+        (r.value for r in analysis.references if r.status == 'FOUND' and r.label in ('invoice_number', 'Rechnungsnummer')),
+        None,
+    )
+    if inv_ref and 'rechnungsnummer' in field_ids:
+        custom_fields.append({'field': field_ids['rechnungsnummer'], 'value': inv_ref})
+
+    if custom_fields:
+        patch_data['custom_fields'] = custom_fields
+
+    if patch_data:
+        await connector.update_document_metadata(doc_id, patch_data)
+        _logger.info('Paperless writeback OK for doc %s: %s', document_ref, list(patch_data.keys()))
+
+
 async def finalize_document_review(state: AgentState) -> AgentState:
     result = DocumentAnalysisResult.model_validate(state.get('document_analysis', {}))
     case_id = state.get('case_id', 'uncategorized')
@@ -763,6 +871,17 @@ async def finalize_document_review(state: AgentState) -> AgentState:
             )
     else:
         _logger.debug('CaseEngine: skipped, no tenant_id in state')
+
+    # ── Paperless writeback — enrich document with metadata ────────────────
+    if document_ref and document_ref.isdigit():
+        try:
+            await _writeback_to_paperless(
+                document_ref=document_ref,
+                analysis=result,
+                case_id=case_id,
+            )
+        except Exception as _wb_exc:
+            _logger.warning('Paperless writeback failed for doc %s: %s', document_ref, _wb_exc)
 
     open_item_id = None
     problem_id = None

@@ -41,6 +41,7 @@ from app.api.proposal_views import router as proposal_router
 from app.api.rules_views import router as rules_router
 from app.api.verfahrensdoku_views import router as verfahrensdoku_router
 from app.api.e_invoice_views import router as e_invoice_router
+from app.api.backfill_views import router as backfill_router
 from app.api.bulk_upload import router as bulk_upload_router
 from app.api.webhooks import router as webhooks_router
 from app.api.ws import router as ws_router
@@ -257,6 +258,7 @@ app.include_router(approval_router)
 app.include_router(booking_approval_router)
 app.include_router(verfahrensdoku_router)
 app.include_router(e_invoice_router)
+app.include_router(backfill_router)
 app.include_router(bulk_upload_router)
 app.include_router(agent_config_router)
 app.include_router(case_engine_router)

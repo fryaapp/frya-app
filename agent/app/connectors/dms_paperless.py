@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -14,6 +15,7 @@ class PaperlessConnector(DMSConnector):
     def __init__(self, base_url: str, token: str | None) -> None:
         self.base_url = base_url.rstrip('/')
         self.token = token
+        self._custom_field_cache: dict[str, int] = {}
 
     def _headers(self) -> dict[str, str]:
         if not self.token:
@@ -225,3 +227,49 @@ class PaperlessConnector(DMSConnector):
                 return True
         except Exception:
             return False
+
+    async def list_all_documents(self, page_size: int = 100) -> list[dict]:
+        """Fetch all documents from Paperless (paginated)."""
+        results: list[dict] = []
+        url = f'{self.base_url}/api/documents/'
+        params: dict[str, int] = {'page_size': page_size}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            while url:
+                resp = await client.get(url, headers=self._headers(), params=params)
+                resp.raise_for_status()
+                payload = resp.json()
+                results.extend(payload.get('results', []))
+                next_url = payload.get('next')
+                if next_url:
+                    # Paperless generates next-page URLs using its public PAPERLESS_URL
+                    # (e.g. https://paperless.staging.myfrya.de), but we must stay on
+                    # the internal base_url (e.g. http://frya-paperless:8000) to avoid
+                    # unnecessary external round-trips and to not depend on public
+                    # reachability during pagination.
+                    parsed = urlparse(next_url)
+                    base = urlparse(self.base_url)
+                    next_url = urlunparse(parsed._replace(scheme=base.scheme, netloc=base.netloc))
+                url = next_url
+                params = {}  # next URL already includes query params
+        return results
+
+    async def get_custom_field_ids(self) -> dict[str, int]:
+        """Return cached mapping of custom field name → ID."""
+        if self._custom_field_cache:
+            return dict(self._custom_field_cache)
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(
+                    f'{self.base_url}/api/custom_fields/',
+                    headers=self._headers(),
+                )
+                resp.raise_for_status()
+                fields = resp.json().get('results', [])
+                self._custom_field_cache = {f['name']: f['id'] for f in fields}
+                return dict(self._custom_field_cache)
+        except Exception:
+            return {}
+
+    def invalidate_custom_field_cache(self) -> None:
+        """Clear the custom field cache (e.g. after creating new fields)."""
+        self._custom_field_cache = {}
