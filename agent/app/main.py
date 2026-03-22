@@ -236,6 +236,11 @@ async def auth_exception_handler(request: Request, exc: HTTPException):
 ui_static_dir = Path(__file__).resolve().parent / 'ui' / 'static'
 app.mount('/ui/static', StaticFiles(directory=str(ui_static_dir)), name='ui_static')
 
+@app.get('/')
+async def root():
+    return RedirectResponse(url='/ui/dashboard', status_code=HTTP_303_SEE_OTHER)
+
+
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(totp_router)
