@@ -47,6 +47,9 @@ class UserRecord(BaseModel):
     tenant_id: str | None = None
     is_active: bool = True
     session_version: int = 1
+    totp_secret: str | None = None
+    totp_enabled: bool = False
+    totp_backup_codes: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -67,6 +70,10 @@ class UserRepository:
         try:
             await conn.execute(_CREATE_TABLE)
             await conn.execute(_CREATE_EMAIL_INDEX)
+            # 2FA / TOTP columns (migration 0019)
+            await conn.execute("ALTER TABLE frya_users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)")
+            await conn.execute("ALTER TABLE frya_users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE")
+            await conn.execute("ALTER TABLE frya_users ADD COLUMN IF NOT EXISTS totp_backup_codes TEXT")
         finally:
             await conn.close()
 
@@ -178,6 +185,72 @@ class UserRepository:
         finally:
             await conn.close()
         return row['session_version'] if row else 1
+
+    async def enable_totp(self, username: str, secret: str, backup_codes: str) -> None:
+        if self.is_memory:
+            u = self._memory.get(username)
+            if u:
+                self._memory[username] = u.model_copy(update={
+                    'totp_secret': secret,
+                    'totp_enabled': True,
+                    'totp_backup_codes': backup_codes,
+                    'updated_at': datetime.utcnow(),
+                })
+            return
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            await conn.execute(
+                """
+                UPDATE frya_users
+                   SET totp_secret=$1, totp_enabled=TRUE, totp_backup_codes=$2, updated_at=NOW()
+                 WHERE username=$3
+                """,
+                secret, backup_codes, username,
+            )
+        finally:
+            await conn.close()
+
+    async def disable_totp(self, username: str) -> None:
+        if self.is_memory:
+            u = self._memory.get(username)
+            if u:
+                self._memory[username] = u.model_copy(update={
+                    'totp_secret': None,
+                    'totp_enabled': False,
+                    'totp_backup_codes': None,
+                    'updated_at': datetime.utcnow(),
+                })
+            return
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            await conn.execute(
+                """
+                UPDATE frya_users
+                   SET totp_secret=NULL, totp_enabled=FALSE, totp_backup_codes=NULL, updated_at=NOW()
+                 WHERE username=$1
+                """,
+                username,
+            )
+        finally:
+            await conn.close()
+
+    async def update_backup_codes(self, username: str, backup_codes: str) -> None:
+        if self.is_memory:
+            u = self._memory.get(username)
+            if u:
+                self._memory[username] = u.model_copy(update={
+                    'totp_backup_codes': backup_codes,
+                    'updated_at': datetime.utcnow(),
+                })
+            return
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            await conn.execute(
+                "UPDATE frya_users SET totp_backup_codes=$1, updated_at=NOW() WHERE username=$2",
+                backup_codes, username,
+            )
+        finally:
+            await conn.close()
 
     async def deactivate_by_tenant(self, tenant_id: str) -> int:
         """Deactivate all users belonging to a tenant. Returns count."""

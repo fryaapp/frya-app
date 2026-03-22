@@ -105,6 +105,20 @@ async def login_submit(
     except Exception:
         session_ver = 1
 
+    # Check if 2FA is enabled for this user
+    try:
+        db_user = await repo.find_by_username(user.username)
+        if db_user and db_user.totp_enabled and db_user.totp_secret:
+            # Store pending auth state and redirect to TOTP verification
+            request.session.clear()
+            request.session['totp_pending_username'] = user.username
+            request.session['totp_pending_session'] = build_session_payload(user)
+            request.session['totp_pending_session_ver'] = session_ver
+            request.session['totp_pending_next'] = _safe_next(next)
+            return RedirectResponse(url='/auth/verify-totp', status_code=HTTP_303_SEE_OTHER)
+    except Exception:
+        pass
+
     request.session.clear()
     request.session['auth_user'] = build_session_payload(user)
     request.session['auth_issued_at'] = issue_now_ts()

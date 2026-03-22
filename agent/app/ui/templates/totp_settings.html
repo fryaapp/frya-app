@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Zwei-Faktor-Authentifizierung <span class="en-hint">(2FA / TOTP)</span></h1>
+
+{% if error %}
+<p class="panel-warn">{{ error }}</p>
+{% endif %}
+{% if success %}
+<p class="panel-ok">{{ success }}</p>
+{% endif %}
+
+{% if totp_enabled and not qr_code %}
+  <!-- 2FA is active -->
+  <div class="totp-status totp-active">
+    <p><strong>Status:</strong> 2FA ist aktiv.</p>
+    <p>Dein Account ist durch einen zweiten Faktor geschuetzt.</p>
+  </div>
+
+  {% if backup_codes %}
+  <div class="totp-backup-codes">
+    <h3>Backup-Codes (sicher aufbewahren!)</h3>
+    <pre>{% for c in backup_codes %}{{ c }}
+{% endfor %}</pre>
+    <p class="hint">Jeder Backup-Code kann nur einmal verwendet werden.</p>
+  </div>
+  {% endif %}
+
+  <div class="totp-disable">
+    <h3>2FA deaktivieren</h3>
+    <form method="post" action="/auth/2fa/disable">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <label>Code aus Authenticator-App
+        <input type="text" name="code" maxlength="8" pattern="[0-9a-f]{6,8}" placeholder="000000" autocomplete="one-time-code" required />
+      </label>
+      <button type="submit" class="btn btn-danger">2FA deaktivieren</button>
+    </form>
+  </div>
+
+{% elif qr_code %}
+  <!-- Setup in progress -->
+  <div class="totp-setup">
+    <h2>Schritt 1: QR-Code scannen</h2>
+    <p>Scanne diesen QR-Code mit deiner Authenticator-App (z.B. Google Authenticator, Authy, 1Password).</p>
+    <div class="qr-container">
+      <img src="{{ qr_code }}" alt="TOTP QR Code" width="200" height="200" />
+    </div>
+    <p>Oder gib diesen Code manuell ein: <code class="totp-manual-secret">{{ secret }}</code></p>
+
+    <h2>Schritt 2: Code bestaetigen</h2>
+    <form method="post" action="/auth/2fa/confirm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+      <label>6-stelliger Code aus der App
+        <input type="text" name="code" maxlength="6" pattern="[0-9]{6}" placeholder="000000" autocomplete="one-time-code" required autofocus />
+      </label>
+      <button type="submit" class="btn btn-save">Bestaetigen und aktivieren</button>
+    </form>
+
+    {% if backup_codes %}
+    <div class="totp-backup-codes">
+      <h3>Backup-Codes (jetzt notieren!)</h3>
+      <pre>{% for c in backup_codes %}{{ c }}
+{% endfor %}</pre>
+      <p class="hint">Bewahre diese Codes sicher auf. Du brauchst sie falls du keinen Zugriff auf deine Authenticator-App hast.</p>
+    </div>
+    {% endif %}
+  </div>
+
+{% else %}
+  <!-- 2FA not active -->
+  <div class="totp-status totp-inactive">
+    <p><strong>Status:</strong> 2FA ist nicht aktiv.</p>
+    <p>Schuetze deinen Account mit einem zweiten Faktor. Du brauchst eine Authenticator-App auf deinem Smartphone.</p>
+  </div>
+
+  <form method="post" action="/auth/2fa/setup">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+    <button type="submit" class="btn btn-save">2FA aktivieren</button>
+  </form>
+{% endif %}
+
+<style>
+.totp-status { padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; }
+.totp-active { background: #d1fae5; border: 1px solid #065f46; }
+.totp-inactive { background: #f3f4f6; border: 1px solid #d1d5db; }
+.qr-container { margin: 1rem 0; padding: 1rem; background: #fff; display: inline-block; border-radius: 8px; border: 1px solid #e5e7eb; }
+.totp-manual-secret { font-size: 1.1rem; padding: 0.3rem 0.6rem; background: #f0f0f0; border-radius: 4px; user-select: all; letter-spacing: 0.1em; }
+.totp-backup-codes { margin-top: 1.5rem; padding: 1rem; background: #fffbeb; border: 1px solid #f59e0b; border-radius: 8px; }
+.totp-backup-codes pre { font-family: monospace; font-size: 1rem; line-height: 1.8; background: #fff; padding: 0.8rem; border-radius: 4px; }
+.totp-backup-codes .hint { font-size: 0.85rem; color: #92400e; margin-top: 0.5rem; }
+.totp-disable { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #e5e7eb; }
+.btn-danger { background: #dc2626; color: #fff; padding: 0.4rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+.btn-danger:hover { background: #b91c1c; }
+</style>
+
+<meta name="csrf-token" content="{{ csrf_token }}">
+{% endblock %}

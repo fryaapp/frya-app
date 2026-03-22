@@ -298,17 +298,23 @@ class LLMConfigRepository:
         model: str,
         api_key: str | None = None,
         base_url: str | None = None,
+        *,
+        clear_key: bool = False,
     ) -> dict:
         encrypted_key = encrypt_api_key(api_key, self.encryption_key) if api_key else None
         now = datetime.now(timezone.utc)
 
         if self.is_memory:
             existing = self._memory_store.get(agent_id, {})
+            if clear_key:
+                keep_key = None
+            else:
+                keep_key = encrypted_key or existing.get('api_key_encrypted')
             record = {
                 'agent_id': agent_id,
                 'provider': provider,
                 'model': model,
-                'api_key_encrypted': encrypted_key or existing.get('api_key_encrypted'),
+                'api_key_encrypted': keep_key,
                 'base_url': base_url,
                 'is_active': True,
                 'agent_status': existing.get('agent_status', 'active'),
@@ -336,6 +342,21 @@ class LLMConfigRepository:
                     RETURNING *
                     """,
                     agent_id, provider, model, encrypted_key, base_url, now,
+                )
+            elif clear_key:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO frya_agent_llm_config (agent_id, provider, model, base_url, updated_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (agent_id) DO UPDATE SET
+                        provider = EXCLUDED.provider,
+                        model = EXCLUDED.model,
+                        api_key_encrypted = NULL,
+                        base_url = EXCLUDED.base_url,
+                        updated_at = EXCLUDED.updated_at
+                    RETURNING *
+                    """,
+                    agent_id, provider, model, base_url, now,
                 )
             else:
                 row = await conn.fetchrow(
@@ -413,4 +434,16 @@ class LLMConfigRepository:
         }
 
     def decrypt_key_for_call(self, config: dict) -> str | None:
-        return decrypt_api_key(config.get('api_key_encrypted'), self.encryption_key)
+        key = decrypt_api_key(config.get('api_key_encrypted'), self.encryption_key)
+        if key:
+            return key
+        # Env-var fallback based on provider
+        provider = (config.get('provider') or '').strip().lower()
+        if provider == 'anthropic':
+            return os.environ.get('FRYA_ANTHROPIC_API_KEY') or None
+        if provider == 'ionos':
+            return os.environ.get('FRYA_IONOS_API_KEY') or None
+        if provider == 'openai':
+            return os.environ.get('FRYA_OPENAI_API_KEY') or None
+        # Generic fallback
+        return os.environ.get('FRYA_LLM_API_KEY') or os.environ.get('FRYA_OPENAI_API_KEY') or None

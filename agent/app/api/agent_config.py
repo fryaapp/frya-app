@@ -131,12 +131,35 @@ async def save_config(
         raise HTTPException(status_code=422, detail='Provider und Modell sind Pflichtfelder')
 
     repo: LLMConfigRepository = get_llm_config_repository()
+
+    # Detect provider change to handle API key inheritance/cleanup
+    existing = await repo.get_config(agent_id)
+    provider_changed = existing is not None and existing.get('provider') != provider
+    clear_old_key = False
+
+    if not api_key:
+        existing_has_key = existing and existing.get('api_key_encrypted') and existing.get('provider') == provider
+        if not existing_has_key:
+            # Try to inherit API key from a sibling agent with the same provider
+            all_configs = await repo.get_all_configs()
+            for cfg in all_configs:
+                if cfg.get('provider') == provider and cfg.get('api_key_encrypted') and cfg['agent_id'] != agent_id:
+                    sibling_key = repo.decrypt_key_for_call(cfg)
+                    if sibling_key:
+                        api_key = sibling_key
+                        break
+
+        # If provider changed and no key found, clear old key to avoid cross-provider key leakage
+        if provider_changed and not api_key:
+            clear_old_key = True
+
     record = await repo.upsert_config(
         agent_id=agent_id,
         provider=provider,
         model=model,
         api_key=api_key,
         base_url=base_url,
+        clear_key=clear_old_key,
     )
 
     return {
@@ -176,12 +199,6 @@ async def health_check(
     provider = config.get('provider', '')
     base_url = config.get('base_url') or None
     api_key = repo.decrypt_key_for_call(config)
-    if not api_key and provider == 'anthropic':
-        try:
-            from app.dependencies import get_settings as _get_settings
-            api_key = _get_settings().anthropic_api_key or None
-        except Exception:
-            pass
 
     # IONOS AI Hub uses OpenAI-compatible API — always use openai/ prefix
     if provider == 'ionos':

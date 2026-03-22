@@ -49,6 +49,7 @@ from app.auth.csrf import require_csrf
 from app.auth.dependencies import require_admin
 from app.auth.models import AuthUser
 from app.auth.router import router as auth_router
+from app.auth.totp_router import router as totp_router
 from app.config import get_settings
 from app.dependencies import (
     get_approval_service,
@@ -237,6 +238,7 @@ app.mount('/ui/static', StaticFiles(directory=str(ui_static_dir)), name='ui_stat
 
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(totp_router)
 app.include_router(webhooks_router)
 app.include_router(ws_router)
 app.include_router(audit_router)

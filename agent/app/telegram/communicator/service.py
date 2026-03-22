@@ -341,13 +341,6 @@ class TelegramCommunicatorService:
 
                 try:
                     api_key = _repo.decrypt_key_for_call(llm_config) if _repo else None
-                    # Fall back to FRYA_ANTHROPIC_API_KEY env var when no per-agent key is stored
-                    if not api_key and provider == 'anthropic':
-                        try:
-                            from app.dependencies import get_settings as _get_settings
-                            api_key = _get_settings().anthropic_api_key or None
-                        except Exception:
-                            pass
                     base_url = llm_config.get('base_url') or None
 
                     # Resolve case_repository from dependencies if not passed

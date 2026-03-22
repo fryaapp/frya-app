@@ -177,8 +177,14 @@ def test_llm_call_receives_fallkontext_in_payload():
     # System prompt must be present
     sys_msg = next((m for m in messages if m['role'] == 'system'), None)
     assert sys_msg is not None
-    assert 'FRYA' in sys_msg['content']
-    assert 'Buchhaltungs' in sys_msg['content']
+    # Anthropic prompt caching wraps content in a list of dicts
+    sys_content = sys_msg['content']
+    if isinstance(sys_content, list):
+        sys_text = ' '.join(block.get('text', '') for block in sys_content)
+    else:
+        sys_text = sys_content
+    assert 'FRYA' in sys_text
+    assert 'Buchhaltungs' in sys_text
 
 
 # ═════════════════════════════════════════════════════════════════════════════
