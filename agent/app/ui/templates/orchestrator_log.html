@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Orchestrator-Log</h1>
+<p style="color:#888;margin-bottom:1.5em;">Letzte LLM-Entscheidungen des Orchestrators (Llama/IONOS)</p>
+
+{% if entries %}
+<div style="overflow-x:auto;">
+<table class="data-table" style="width:100%;border-collapse:collapse;font-size:0.85em;">
+  <thead>
+    <tr style="background:#f5f5f5;text-align:left;">
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Zeitpunkt</th>
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Case</th>
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Aktion</th>
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Target</th>
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Confidence</th>
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Reasoning</th>
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Modell</th>
+      <th style="padding:8px;border-bottom:2px solid #ddd;">Approval</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr style="border-bottom:1px solid #eee;{% if loop.index is odd %}background:#fafafa;{% endif %}">
+      <td style="padding:8px;white-space:nowrap;">{{ e.timestamp }}</td>
+      <td style="padding:8px;font-family:monospace;font-size:0.8em;">{{ e.case_id[:12] }}...</td>
+      <td style="padding:8px;font-weight:600;">{{ e.action }}</td>
+      <td style="padding:8px;">{{ e.target }}</td>
+      <td style="padding:8px;text-align:center;">
+        {% if e.confidence is not none %}
+          <span style="
+            display:inline-block;padding:2px 8px;border-radius:10px;font-size:0.85em;
+            {% if e.confidence >= 0.7 %}background:#e8f5e9;color:#2e7d32;
+            {% elif e.confidence >= 0.4 %}background:#fff3e0;color:#e65100;
+            {% else %}background:#ffebee;color:#c62828;
+            {% endif %}
+          ">{{ '%.2f'|format(e.confidence) }}</span>
+        {% else %}-{% endif %}
+      </td>
+      <td style="padding:8px;max-width:300px;overflow:hidden;text-overflow:ellipsis;">{{ e.reasoning }}</td>
+      <td style="padding:8px;font-size:0.8em;">{{ e.model }}</td>
+      <td style="padding:8px;">
+        {% if e.approval_hint == 'AUTO' %}<span style="color:#2e7d32;">AUTO</span>
+        {% elif e.approval_hint == 'PROPOSE_ONLY' %}<span style="color:#1565c0;">PROPOSE</span>
+        {% elif e.approval_hint == 'REQUIRE_USER_APPROVAL' %}<span style="color:#e65100;">USER</span>
+        {% elif e.approval_hint == 'BLOCK_ESCALATE' %}<span style="color:#c62828;font-weight:700;">BLOCK</span>
+        {% else %}{{ e.approval_hint }}{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p style="color:#999;padding:2em 0;">Noch keine Orchestrator-Entscheidungen protokolliert. Sobald der Orchestrator LLM-Calls macht, erscheinen sie hier.</p>
+{% endif %}
+{% endblock %}

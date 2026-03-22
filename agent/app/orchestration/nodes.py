@@ -238,6 +238,27 @@ Input: Betrag im Dokument 100€, im Case 95€
         except Exception:
             pass
         state['planned_action'] = parsed
+
+        # ── Log orchestrator decision to audit trail ───────────────────────
+        await get_audit_service().log_event({
+            'event_id': 'orch-' + uuid.uuid4().hex[:12],
+            'case_id': state.get('case_id', 'unknown'),
+            'source': state.get('source', 'api'),
+            'agent_name': 'frya-orchestrator',
+            'approval_status': 'NOT_REQUIRED',
+            'action': 'ORCHESTRATOR_PLAN',
+            'result': parsed.get('action', 'NONE'),
+            'llm_model': full_model,
+            'llm_input': {'message': state.get('message', '')},
+            'llm_output': {
+                'raw_response': content,
+                'parsed_action': parsed,
+                'model_used': full_model,
+                'confidence': parsed.get('confidence'),
+                'reasoning': parsed.get('reasoning'),
+                'approval_hint': parsed.get('approval_hint'),
+            },
+        })
     except Exception as exc:
         state['planned_action'] = {'action': 'NONE', 'reason': f'LLM unavailable: {exc}', 'reversible': True}
 

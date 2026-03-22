@@ -2823,3 +2823,38 @@ async def export_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get('/orchestrator-log', response_class=HTMLResponse)
+async def orchestrator_log_page(
+    request: Request,
+    audit_service: AuditService = Depends(get_audit_service),
+) -> HTMLResponse:
+    """Orchestrator LLM decision log — /ui/orchestrator-log."""
+    all_recent = await audit_service.recent(limit=500)
+    orch_events = [
+        r for r in all_recent
+        if r.agent_name in ('frya-orchestrator', 'orchestrator')
+        and r.action == 'ORCHESTRATOR_PLAN'
+    ][:30]
+
+    entries = []
+    for ev in orch_events:
+        llm_out = ev.llm_output or {}
+        parsed = llm_out.get('parsed_action') or {}
+        entries.append({
+            'timestamp': ev.created_at.strftime('%d.%m.%Y %H:%M') if ev.created_at else '-',
+            'case_id': ev.case_id or '-',
+            'action': parsed.get('action', ev.result or '-'),
+            'target': parsed.get('target_agent', '-'),
+            'confidence': llm_out.get('confidence'),
+            'reasoning': llm_out.get('reasoning', '-'),
+            'model': llm_out.get('model_used') or ev.llm_model or '-',
+            'approval_hint': llm_out.get('approval_hint', '-'),
+        })
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'orchestrator_log.html',
+        _ctx(request, title='Orchestrator-Log', entries=entries),
+    )
+
+

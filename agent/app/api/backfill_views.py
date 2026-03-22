@@ -1,15 +1,15 @@
-"""Admin endpoint: backfill Paperless documents with metadata from CaseEngine."""
+"""Admin endpoints: backfill Paperless + orchestrator monitoring."""
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.auth.dependencies import require_admin
 from app.auth.models import AuthUser
-from app.dependencies import get_case_repository, get_paperless_connector
+from app.dependencies import get_audit_service, get_case_repository, get_paperless_connector
 
 logger = logging.getLogger(__name__)
 
@@ -178,3 +178,43 @@ async def _find_case_for_document(case_repo: Any, paperless_doc_id: str) -> Any:
     if row is None:
         return None
     return case_repo._row_to_doc(dict(row))
+
+
+# ── Orchestrator Monitoring ────────────────────────────────────────────────
+
+
+@router.get('/orchestrator-log')
+async def get_orchestrator_log(
+    limit: int = Query(default=20, ge=1, le=200),
+    current_user: AuthUser = Depends(require_admin),
+) -> dict[str, Any]:
+    """Return the most recent orchestrator LLM decisions with full output."""
+    audit_service = get_audit_service()
+    all_recent = await audit_service.recent(limit=500)
+
+    # Filter to orchestrator events only
+    orch_events = [
+        r for r in all_recent
+        if r.agent_name in ('frya-orchestrator', 'orchestrator')
+        and r.action == 'ORCHESTRATOR_PLAN'
+    ][:limit]
+
+    entries = []
+    for ev in orch_events:
+        llm_out = ev.llm_output or {}
+        entries.append({
+            'timestamp': str(ev.created_at) if ev.created_at else None,
+            'event_id': ev.event_id,
+            'case_id': ev.case_id,
+            'action': ev.action,
+            'result': ev.result,
+            'model': llm_out.get('model_used') or ev.llm_model,
+            'confidence': llm_out.get('confidence'),
+            'reasoning': llm_out.get('reasoning'),
+            'approval_hint': llm_out.get('approval_hint'),
+            'target_agent': (llm_out.get('parsed_action') or {}).get('target_agent'),
+            'raw_response': llm_out.get('raw_response'),
+            'llm_output': llm_out,
+        })
+
+    return {'count': len(entries), 'entries': entries}
