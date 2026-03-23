@@ -59,3 +59,25 @@ def test_require_role_exists():
     from app.auth.dependencies import require_role
     dep = require_role('admin', 'operator')
     assert callable(dep)
+
+
+def test_connection_manager():
+    from app.api.customer_api import ConnectionManager
+    mgr = ConnectionManager()
+    assert mgr.active_count == 0
+
+def test_ws_validate_token_empty():
+    import asyncio
+    from app.api.customer_api import _validate_ws_token
+    result = asyncio.get_event_loop().run_until_complete(_validate_ws_token(''))
+    assert result is None
+
+def test_ws_validate_token_valid():
+    import asyncio, os
+    os.environ['FRYA_JWT_SECRET'] = 'test-secret-for-jwt-p42'
+    from app.auth.jwt_auth import create_access_token
+    from app.api.customer_api import _validate_ws_token
+    token = create_access_token('wsuser', 'tid-1', 'customer')
+    result = asyncio.get_event_loop().run_until_complete(_validate_ws_token(token))
+    assert result is not None
+    assert result.username == 'wsuser'

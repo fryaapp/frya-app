@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Query
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_authenticated
@@ -647,3 +647,300 @@ async def refresh_token(body: RefreshRequest) -> RefreshResponse:
 async def logout(user: AuthUser = Depends(require_authenticated)) -> dict:
     """Logout — invalidates session (JWT stateless, client discards token)."""
     return {'status': 'logged_out'}
+
+
+# ── WebSocket Connection Manager ─────────────────────────────────────────────
+
+
+class ConnectionManager:
+    """Manages active WebSocket connections per user."""
+
+    def __init__(self) -> None:
+        self._connections: dict[str, WebSocket] = {}
+
+    async def connect(self, user_id: str, websocket: WebSocket) -> None:
+        await websocket.accept()
+        old = self._connections.get(user_id)
+        if old:
+            try:
+                await old.close(code=4000, reason='new_connection')
+            except Exception:
+                pass
+        self._connections[user_id] = websocket
+
+    def disconnect(self, user_id: str) -> None:
+        self._connections.pop(user_id, None)
+
+    async def send_to_user(self, user_id: str, data: dict) -> None:
+        ws = self._connections.get(user_id)
+        if ws:
+            try:
+                await ws.send_json(data)
+            except Exception:
+                self.disconnect(user_id)
+
+    @property
+    def active_count(self) -> int:
+        return len(self._connections)
+
+
+ws_manager = ConnectionManager()
+
+
+async def _validate_ws_token(token: str) -> AuthUser | None:
+    """Validate JWT token for WebSocket connection."""
+    if not token:
+        return None
+    try:
+        from app.auth.jwt_auth import decode_token
+        payload = decode_token(token)
+        if payload.get('type') != 'access':
+            return None
+        return AuthUser(
+            username=payload['sub'],
+            role=payload.get('role', 'customer'),
+            tenant_id=payload.get('tid'),
+        )
+    except Exception:
+        return None
+
+
+async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -> None:
+    """Handle an incoming WebSocket message — stream LLM response."""
+    text = data.get('text', '').strip()
+    if not text:
+        await websocket.send_json({'type': 'error', 'message': 'Leere Nachricht'})
+        return
+
+    # Typing indicator
+    await websocket.send_json({'type': 'typing', 'active': True})
+
+    try:
+        from app.dependencies import (
+            get_audit_service, get_case_repository, get_chat_history_store,
+            get_communicator_conversation_store, get_communicator_user_store,
+            get_open_items_service, get_telegram_clarification_service,
+            get_llm_config_repository,
+        )
+        from app.telegram.communicator.intent_classifier import classify_intent
+        from app.telegram.communicator.memory.conversation_store import (
+            ConversationMemoryStore, build_updated_conversation_memory,
+        )
+        from app.telegram.communicator.context_resolver import resolve_context, search_case_by_vendor
+        from app.telegram.communicator.models import CommunicatorContextResolution
+        from app.telegram.communicator.prompts import COMMUNICATOR_SYSTEM_PROMPT
+        from app.telegram.communicator.service import (
+            build_llm_context_payload, _build_system_context, _CONTEXT_INTENTS,
+            _GENERAL_CONVERSATION_PERSONALITY,
+        )
+        import litellm
+
+        chat_id = f'web-{user.username}'
+        case_id = f'ws-{user.username}-{uuid.uuid4().hex[:8]}'
+
+        # Load conversation memory
+        conv_store = get_communicator_conversation_store()
+        conv_memory = await conv_store.load(chat_id) if conv_store else None
+
+        # Load chat history
+        chat_history_store = get_chat_history_store()
+        chat_history = await chat_history_store.load(chat_id) if chat_history_store else []
+
+        # Classify intent
+        intent = classify_intent(text)
+        if intent is None:
+            await websocket.send_json({'type': 'message_complete', 'text': 'FRYA: Ich bin nicht sicher was du meinst.', 'suggestions': []})
+            await websocket.send_json({'type': 'typing', 'active': False})
+            return
+
+        # Resolve LLM config
+        _repo = get_llm_config_repository()
+        llm_config = {}
+        model_str = ''
+        if _repo:
+            try:
+                llm_config = await _repo.get_config_or_fallback('communicator')
+                model_str = (llm_config.get('model') or '').strip()
+            except Exception:
+                pass
+
+        if not model_str:
+            # No model configured — simple template response
+            await websocket.send_json({
+                'type': 'message_complete',
+                'text': 'FRYA: Ich bin gerade nicht konfiguriert. Bitte wende dich an den Administrator.',
+                'suggestions': [],
+            })
+            await websocket.send_json({'type': 'typing', 'active': False})
+            return
+
+        # Build model name
+        provider = (llm_config.get('provider') or '').strip()
+        if provider == 'ionos':
+            full_model = f'openai/{model_str}'
+        elif provider and '/' not in model_str:
+            full_model = f'{provider}/{model_str}'
+        else:
+            full_model = model_str
+
+        api_key = _repo.decrypt_key_for_call(llm_config) if _repo else None
+        base_url = llm_config.get('base_url') or None
+
+        # Resolve tenant + system context
+        _tenant_id = None
+        try:
+            _tenant_id = await _resolve_tenant_uuid()
+        except Exception:
+            pass
+
+        case_repo = get_case_repository()
+
+        # Context resolution for context intents
+        core_ctx = None
+        if intent in _CONTEXT_INTENTS:
+            try:
+                core_ctx, _ = await resolve_context(
+                    case_id,
+                    audit_service=get_audit_service(),
+                    clarification_service=get_telegram_clarification_service(),
+                    open_items_service=get_open_items_service(),
+                )
+            except Exception:
+                pass
+
+        # Vendor search fallback
+        if (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND') and case_repo and _tenant_id:
+            try:
+                vendor_case_id = await search_case_by_vendor(text, case_repo, _tenant_id)
+                if vendor_case_id:
+                    core_ctx = CommunicatorContextResolution(
+                        resolution_status='FOUND',
+                        resolved_case_ref=vendor_case_id,
+                        context_reason='Vendor-Name im Text erkannt.',
+                    )
+            except Exception:
+                pass
+
+        _resolved_ref = core_ctx.resolved_case_ref if core_ctx and core_ctx.resolution_status == 'FOUND' else None
+
+        sys_ctx = await _build_system_context(
+            tenant_id=_tenant_id, case_repository=case_repo,
+            audit_service=get_audit_service(), user_memory=None,
+            conv_memory=conv_memory, effective_case_ref=_resolved_ref,
+        )
+        if intent == 'GENERAL_CONVERSATION':
+            sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
+
+        # Build LLM payload
+        from app.telegram.communicator.memory.models import TruthAnnotation
+        truth = TruthAnnotation.unknown()
+        payload = build_llm_context_payload(
+            intent=intent, context_resolution=core_ctx,
+            truth_annotation=truth, conversation_memory=conv_memory,
+            user_message=text, system_context=sys_ctx, provider=provider,
+            chat_history=chat_history,
+        )
+
+        call_kwargs = {
+            'model': full_model,
+            'messages': payload['messages'],
+            'max_tokens': 300,
+            'timeout': 120,
+        }
+        if api_key:
+            call_kwargs['api_key'] = api_key
+        if base_url:
+            call_kwargs['api_base'] = base_url
+
+        # Try streaming first
+        full_text = ''
+        try:
+            call_kwargs['stream'] = True
+            response = await litellm.acompletion(**call_kwargs)
+            async for chunk in response:
+                delta = (chunk.choices[0].delta.content or '') if chunk.choices else ''
+                if delta:
+                    full_text += delta
+                    await websocket.send_json({'type': 'chunk', 'text': delta})
+        except Exception:
+            # Fallback: non-streaming
+            call_kwargs.pop('stream', None)
+            response = await litellm.acompletion(**call_kwargs)
+            full_text = (response.choices[0].message.content or '').strip()
+
+        if not full_text.startswith('FRYA:'):
+            full_text = f'FRYA: {full_text}'
+
+        # Get case ref from memory
+        case_ref = conv_memory.last_case_ref if conv_memory else None
+        suggestions = _build_suggestions(intent, case_ref or _resolved_ref)
+
+        await websocket.send_json({
+            'type': 'message_complete',
+            'text': full_text,
+            'case_ref': case_ref or _resolved_ref,
+            'suggestions': suggestions,
+        })
+
+        # Update chat history
+        if chat_history_store:
+            await chat_history_store.append(chat_id, text, full_text)
+
+        # Update conversation memory
+        if conv_store:
+            updated = build_updated_conversation_memory(
+                chat_id=chat_id, prev_memory=conv_memory,
+                intent=intent, resolved_case_ref=_resolved_ref,
+                resolved_document_ref=None, resolved_clarification_ref=None,
+                resolved_open_item_id=None,
+                context_resolution_status=core_ctx.resolution_status if core_ctx else None,
+            )
+            await conv_store.save(updated)
+
+    except Exception as exc:
+        logger.warning('WebSocket message handling error: %s', exc)
+        await websocket.send_json({'type': 'error', 'message': 'Fehler bei der Verarbeitung'})
+
+    await websocket.send_json({'type': 'typing', 'active': False})
+
+
+@router.websocket('/chat/stream')
+async def chat_websocket(websocket: WebSocket, token: str = Query(default='')):
+    """WebSocket for real-time chat with Frya."""
+    user = await _validate_ws_token(token)
+
+    # Also try session auth from cookies
+    if user is None:
+        try:
+            session_payload = websocket.session.get('auth_user') if hasattr(websocket, 'session') else None
+            if isinstance(session_payload, dict) and session_payload.get('username'):
+                user = AuthUser(
+                    username=session_payload['username'],
+                    role=session_payload.get('role', 'operator'),
+                )
+        except Exception:
+            pass
+
+    if user is None:
+        await websocket.close(code=4001, reason='Unauthorized')
+        return
+
+    user_id = user.username
+    await ws_manager.connect(user_id, websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get('type', '')
+
+            if msg_type == 'ping':
+                await websocket.send_json({'type': 'pong'})
+            elif msg_type == 'message':
+                await _handle_ws_message(websocket, user, data)
+            else:
+                await websocket.send_json({'type': 'error', 'message': f'Unbekannter Nachrichtentyp: {msg_type}'})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(user_id)
+    except Exception as exc:
+        logger.warning('WebSocket error for user %s: %s', user_id, exc)
+        ws_manager.disconnect(user_id)
