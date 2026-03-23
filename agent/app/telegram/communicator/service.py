@@ -187,9 +187,11 @@ async def _build_system_context(
 
             case_detail = await case_repository.get_case(_case_uuid) if _case_uuid else None
             if case_detail:
-                logger.warning('=== SYSTEM_CONTEXT CASE LOADED: id=%s, vendor=%s, has_analysis=%s ===',
-                    case_detail.id, case_detail.vendor_name,
-                    'document_analysis' in (case_detail.metadata or {}))
+                logger.warning('=== SYSTEM_CONTEXT CASE LOADED: id=%s, vendor=%s, amount=%s, status=%s, case_num=%s, has_analysis=%s, meta_keys=%s ===',
+                    case_detail.id, case_detail.vendor_name, case_detail.total_amount,
+                    case_detail.status, case_detail.case_number,
+                    'document_analysis' in (case_detail.metadata or {}),
+                    list((case_detail.metadata or {}).keys()))
                 detail_parts = []
                 detail_parts.append(f'Aktueller Vorgang: {case_detail.case_number or case_detail.id}')
                 detail_parts.append(f'Vendor: {case_detail.vendor_name}')
@@ -215,9 +217,10 @@ async def _build_system_context(
                     bp = meta['booking_proposal']
                     detail_parts.append(f'Buchung: {bp.get("skr03_soll_name")} -> {bp.get("skr03_haben_name")}')
 
+                logger.warning('=== DETAIL_PARTS: %s ===', detail_parts)
                 _vorgang_text = 'Vorgang-Details:\n' + '\n'.join(f'  - {p}' for p in detail_parts)
-                parts.append(_vorgang_text)
-                logger.warning('=== SYSTEM_CONTEXT VORGANG APPENDED: %s ===', _vorgang_text[:300])
+                parts.insert(0, _vorgang_text)
+                logger.warning('=== SYSTEM_CONTEXT VORGANG INSERTED AT [0], parts_count=%s ===', len(parts))
             else:
                 logger.warning('=== SYSTEM_CONTEXT NO CASE: uuid=%s, not found in DB ===', _case_uuid)
         except Exception as _exc:
@@ -277,7 +280,9 @@ async def _build_system_context(
 
     if not parts:
         return None
-    return '[SYSTEMKONTEXT]\n' + '\n'.join(parts) + '\n[/SYSTEMKONTEXT]'
+    _result = '[SYSTEMKONTEXT]\n' + '\n'.join(parts) + '\n[/SYSTEMKONTEXT]'
+    logger.warning('=== _BUILD_SYSTEM_CONTEXT RETURN: parts_count=%s, first_100=%s ===', len(parts), _result[:100])
+    return _result
 
 
 class TelegramCommunicatorService:
