@@ -215,7 +215,9 @@ async def _build_system_context(
                     bp = meta['booking_proposal']
                     detail_parts.append(f'Buchung: {bp.get("skr03_soll_name")} -> {bp.get("skr03_haben_name")}')
 
-                parts.append('Vorgang-Details:\n' + '\n'.join(f'  - {p}' for p in detail_parts))
+                _vorgang_text = 'Vorgang-Details:\n' + '\n'.join(f'  - {p}' for p in detail_parts)
+                parts.append(_vorgang_text)
+                logger.warning('=== SYSTEM_CONTEXT VORGANG APPENDED: %s ===', _vorgang_text[:300])
             else:
                 logger.warning('=== SYSTEM_CONTEXT NO CASE: uuid=%s, not found in DB ===', _case_uuid)
         except Exception as _exc:
@@ -256,7 +258,7 @@ async def _build_system_context(
                 audit_lines: list[str] = []
                 for ev in recent:
                     action = getattr(ev, 'action', '?')
-                    result = getattr(ev, 'result', '-')
+                    result = str(getattr(ev, 'result', '-'))[:80]
                     agent = getattr(ev, 'agent_name', '-')
                     created = str(getattr(ev, 'created_at', ''))[:16]
                     audit_lines.append(f'  - [{created}] {action} / {result} ({agent})')
@@ -509,6 +511,12 @@ class TelegramCommunicatorService:
                     if intent == 'GENERAL_CONVERSATION':
                         sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
 
+                    logger.warning('=== LLM_PAYLOAD DEBUG: sys_ctx_len=%s ===', len(sys_ctx) if sys_ctx else 0)
+                    # Log full sys_ctx in chunks
+                    if sys_ctx:
+                        for _ci, _chunk_start in enumerate(range(0, len(sys_ctx), 800)):
+                            logger.warning('=== SYS_CTX[%d]: %s ===', _ci, sys_ctx[_chunk_start:_chunk_start+800])
+
                     payload = build_llm_context_payload(
                         intent=intent,
                         context_resolution=effective_ctx,
@@ -519,6 +527,12 @@ class TelegramCommunicatorService:
                         provider=provider,
                         chat_history=chat_history,
                     )
+                    # Log the user message content for debugging
+                    _user_msgs = [m for m in payload.get('messages', []) if m.get('role') == 'user']
+                    if _user_msgs:
+                        _umsg = _user_msgs[-1].get('content', '')
+                        for _ui, _us in enumerate(range(0, len(_umsg), 800)):
+                            logger.warning('=== USER_MSG[%d]: %s ===', _ui, _umsg[_us:_us+800])
                     # Prepend email arrival info for DOCUMENT_ARRIVAL_CHECK
                     if email_arrival_info and intent == 'DOCUMENT_ARRIVAL_CHECK':
                         msgs = payload['messages']
