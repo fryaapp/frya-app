@@ -44,3 +44,27 @@ def test_build_suggestions_greeting():
     from app.api.customer_api import _build_suggestions
     s = _build_suggestions('GREETING', None)
     assert 'Status-Übersicht' in s
+
+def test_document_item_model():
+    from app.api.customer_api import DocumentItem
+    item = DocumentItem(id=16, title='Test Doc', tags=['frya:analysiert'])
+    assert item.id == 16
+
+def test_case_detail_model():
+    from app.api.customer_api import CaseDetail
+    d = CaseDetail(case_id='uuid-1', case_number='CASE-001', vendor_name='Test', status='OPEN')
+    assert d.status == 'OPEN'
+
+def test_deadlines_response_model():
+    from app.api.customer_api import DeadlinesResponse
+    r = DeadlinesResponse(overdue=[], due_today=[], due_soon=[], skonto_expiring=[], summary='Keine.')
+    assert 'Keine' in r.summary
+
+def test_finance_summary_model():
+    from app.api.customer_api import FinanceSummaryResponse
+    r = FinanceSummaryResponse(period='März 2026', income=4200.0, expenses=1850.0)
+    assert r.income == 4200.0
+
+def test_paperless_has_thumbnail_method():
+    from app.connectors.dms_paperless import PaperlessConnector
+    assert hasattr(PaperlessConnector, 'get_thumbnail_bytes')

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import require_authenticated
@@ -255,3 +255,316 @@ async def learn_from_correction(
         except Exception as exc:
             logger.warning('Learn rule save failed for %s: %s', case_id, exc)
     return {'status': 'accepted', 'scope': body.scope}
+
+
+# ---------------------------------------------------------------------------
+# TASK 5: Documents (3 endpoints)
+# ---------------------------------------------------------------------------
+
+# ── Document Models ──────────────────────────────────────────────────────────
+
+class DocumentItem(BaseModel):
+    id: int
+    title: str | None = None
+    correspondent: str | None = None
+    document_type: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    created_at: str | None = None
+    thumbnail_url: str | None = None
+
+
+class DocumentsResponse(BaseModel):
+    count: int
+    items: list[DocumentItem]
+
+
+@router.get('/documents')
+async def search_documents(
+    user: AuthUser = Depends(require_authenticated),
+    query: str = '',
+    document_type: str = '',
+    limit: int = 25,
+    offset: int = 0,
+) -> DocumentsResponse:
+    """Search documents in Paperless."""
+    from app.dependencies import get_paperless_connector
+    pc = get_paperless_connector()
+
+    search_query = query
+    if document_type:
+        search_query = f'{search_query} type:{document_type}'.strip()
+
+    docs = await pc.search_documents(search_query) if search_query else await pc.list_all_documents()
+    if not isinstance(docs, list):
+        docs = []
+
+    total = len(docs)
+    page = docs[offset:offset + limit]
+    items = [
+        DocumentItem(
+            id=d.get('id', 0),
+            title=d.get('title'),
+            correspondent=d.get('correspondent_name') or str(d.get('correspondent') or ''),
+            document_type=d.get('document_type_name') or str(d.get('document_type') or ''),
+            tags=[str(t) for t in (d.get('tags') or [])],
+            created_at=d.get('created') or d.get('added'),
+            thumbnail_url=f'/api/v1/documents/{d.get("id", 0)}/thumbnail',
+        )
+        for d in page
+    ]
+    return DocumentsResponse(count=total, items=items)
+
+
+@router.post('/documents/upload')
+async def upload_document(
+    file: UploadFile,
+    user: AuthUser = Depends(require_authenticated),
+) -> dict:
+    """Upload a document and start the analysis pipeline."""
+    from app.dependencies import get_paperless_connector
+    content = await file.read()
+    if len(content) > 20_000_000:
+        raise HTTPException(status_code=400, detail='file_too_large')
+
+    pc = get_paperless_connector()
+    ref = f'web-upload-{uuid.uuid4().hex[:8]}'
+    result = await pc.upload_document(
+        content, filename=file.filename or 'upload.pdf',
+        title=f'frya:{ref}:{file.filename or "upload"}',
+    )
+    return {'ref': ref, 'status': 'processing', 'message': 'Dokument angenommen. Analyse läuft.',
+            'task_id': result.get('task_id')}
+
+
+@router.get('/documents/{doc_id}/thumbnail')
+async def get_document_thumbnail(
+    doc_id: int,
+    user: AuthUser = Depends(require_authenticated),
+):
+    """Proxy to Paperless document thumbnail."""
+    from fastapi.responses import Response
+    from app.dependencies import get_paperless_connector
+    pc = get_paperless_connector()
+    try:
+        thumb_bytes = await pc.get_thumbnail_bytes(str(doc_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail='thumbnail_not_found')
+    return Response(content=thumb_bytes, media_type='image/png')
+
+
+# ---------------------------------------------------------------------------
+# TASK 6: Cases (2 endpoints)
+# ---------------------------------------------------------------------------
+
+# ── Case Models ──────────────────────────────────────────────────────────────
+
+class CaseDetail(BaseModel):
+    case_id: str
+    case_number: str | None = None
+    vendor_name: str | None = None
+    amount: float | None = None
+    currency: str = 'EUR'
+    status: str | None = None
+    case_type: str | None = None
+    created_at: str | None = None
+    due_date: str | None = None
+    document_analysis: dict | None = None
+    booking_proposal: dict | None = None
+    line_items: list[dict] = Field(default_factory=list)
+    timeline: list[dict] = Field(default_factory=list)
+
+
+class CasesResponse(BaseModel):
+    count: int
+    items: list[CaseDetail]
+
+
+def _case_to_detail(case: Any) -> CaseDetail:
+    meta = case.metadata or {}
+    da = meta.get('document_analysis', {})
+    return CaseDetail(
+        case_id=str(case.id), case_number=case.case_number,
+        vendor_name=case.vendor_name,
+        amount=float(case.total_amount) if case.total_amount else None,
+        currency=case.currency or 'EUR', status=case.status,
+        case_type=getattr(case, 'case_type', None),
+        created_at=case.created_at.isoformat() if case.created_at else None,
+        due_date=str(case.due_date) if case.due_date else None,
+        document_analysis=da or None, booking_proposal=meta.get('booking_proposal'),
+        line_items=da.get('line_items', []),
+    )
+
+
+@router.get('/cases')
+async def list_cases(
+    user: AuthUser = Depends(require_authenticated),
+    status: str = '',
+    limit: int = 50,
+    offset: int = 0,
+) -> CasesResponse:
+    """List all cases for the tenant."""
+    from app.dependencies import get_case_repository
+    tenant_id = await _resolve_tenant_uuid()
+    repo = get_case_repository()
+
+    if status:
+        cases = await repo.list_cases_by_status(tenant_id, status.upper())
+    else:
+        cases = []
+        for s in ['DRAFT', 'OPEN', 'OVERDUE', 'PAID', 'CLOSED']:
+            try:
+                cases.extend(await repo.list_cases_by_status(tenant_id, s))
+            except Exception:
+                pass
+
+    cases.sort(key=lambda c: c.created_at or datetime.min, reverse=True)
+    total = len(cases)
+    page = cases[offset:offset + limit]
+    return CasesResponse(count=total, items=[_case_to_detail(c) for c in page])
+
+
+@router.get('/cases/{case_id}')
+async def get_case_detail_endpoint(
+    case_id: str,
+    user: AuthUser = Depends(require_authenticated),
+) -> CaseDetail:
+    """Get full case details including line items and timeline."""
+    from app.dependencies import get_audit_service, get_case_repository
+    tenant_id = await _resolve_tenant_uuid()
+    repo = get_case_repository()
+
+    case = await repo.get_case(uuid.UUID(case_id))
+    if case is None or case.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail='case_not_found')
+
+    detail = _case_to_detail(case)
+
+    try:
+        audit = get_audit_service()
+        events = await audit.by_case(str(case.id), limit=50)
+        detail.timeline = [
+            {'action': getattr(ev, 'action', ''),
+             'result': str(getattr(ev, 'result', ''))[:100],
+             'agent': getattr(ev, 'agent_name', ''),
+             'created_at': str(getattr(ev, 'created_at', ''))[:19]}
+            for ev in (events or [])
+        ]
+    except Exception as exc:
+        logger.warning('Timeline fetch failed for case %s: %s', case_id, exc)
+
+    return detail
+
+
+# ---------------------------------------------------------------------------
+# TASK 7: GET /deadlines
+# ---------------------------------------------------------------------------
+
+class DeadlinesResponse(BaseModel):
+    overdue: list[dict] = Field(default_factory=list)
+    due_today: list[dict] = Field(default_factory=list)
+    due_soon: list[dict] = Field(default_factory=list)
+    skonto_expiring: list[dict] = Field(default_factory=list)
+    summary: str = ''
+
+
+@router.get('/deadlines')
+async def get_deadlines(
+    user: AuthUser = Depends(require_authenticated),
+) -> DeadlinesResponse:
+    """Return deadline overview."""
+    from app.deadline_analyst.service import DeadlineAnalystService
+    from app.dependencies import get_case_repository
+    tenant_id = await _resolve_tenant_uuid()
+    svc = DeadlineAnalystService(get_case_repository())
+    report = await svc.check_all_deadlines(tenant_id)
+
+    def _item(it: Any) -> dict:
+        return {
+            'case_id': str(getattr(it, 'case_id', '')),
+            'case_number': getattr(it, 'case_number', None),
+            'vendor_name': getattr(it, 'vendor_name', None),
+            'amount': float(getattr(it, 'amount', 0)) if getattr(it, 'amount', None) else None,
+            'due_date': str(getattr(it, 'due_date', '')),
+            'days_remaining': getattr(it, 'days_remaining', None),
+            'severity': getattr(it, 'severity', None),
+        }
+
+    return DeadlinesResponse(
+        overdue=[_item(c) for c in (getattr(report, 'overdue', None) or [])],
+        due_today=[_item(c) for c in (getattr(report, 'due_today', None) or [])],
+        due_soon=[_item(c) for c in (getattr(report, 'due_soon', None) or [])],
+        skonto_expiring=[_item(c) for c in (getattr(report, 'skonto_expiring', None) or [])],
+        summary=getattr(report, 'summary', '') or '',
+    )
+
+
+# ---------------------------------------------------------------------------
+# TASK 8: GET /finance/summary
+# ---------------------------------------------------------------------------
+
+class FinanceSummaryResponse(BaseModel):
+    period: str = ''
+    income: float = 0.0
+    expenses: float = 0.0
+    open_receivables: float = 0.0
+    open_payables: float = 0.0
+    overdue_count: int = 0
+    overdue_amount: float = 0.0
+
+
+@router.get('/finance/summary')
+async def get_finance_summary(
+    user: AuthUser = Depends(require_authenticated),
+    period: str = 'month',
+) -> FinanceSummaryResponse:
+    """Return financial summary."""
+    from app.dependencies import get_akaunting_connector
+    ak = get_akaunting_connector()
+    now = datetime.now(timezone.utc)
+
+    if period == 'quarter':
+        q_start = ((now.month - 1) // 3) * 3 + 1
+        months = list(range(q_start, now.month + 1))
+        label = f'Q{(now.month - 1) // 3 + 1} {now.year}'
+    elif period == 'year':
+        months = list(range(1, now.month + 1))
+        label = str(now.year)
+    else:
+        months = [now.month]
+        label = now.strftime('%B %Y')
+
+    total_income = 0.0
+    total_expenses = 0.0
+    for m in months:
+        try:
+            s = await ak.get_monthly_summary(now.year, m)
+            total_income += s.get('total_income', 0.0)
+            total_expenses += s.get('total_expense', 0.0)
+        except Exception as exc:
+            logger.warning('Finance summary failed for %d-%02d: %s', now.year, m, exc)
+
+    open_recv = 0.0
+    open_pay = 0.0
+    try:
+        oi = await ak.get_open_items_summary()
+        open_recv = oi.get('total_receivable', 0.0)
+        open_pay = oi.get('total_payable', 0.0)
+    except Exception as exc:
+        logger.warning('Open items fetch failed: %s', exc)
+
+    overdue_count = 0
+    overdue_amount = 0.0
+    try:
+        from app.dependencies import get_case_repository
+        tid = await _resolve_tenant_uuid()
+        overdue = await get_case_repository().list_cases_by_status(tid, 'OVERDUE')
+        overdue_count = len(overdue)
+        overdue_amount = sum(float(c.total_amount or 0) for c in overdue)
+    except Exception:
+        pass
+
+    return FinanceSummaryResponse(
+        period=label, income=total_income, expenses=total_expenses,
+        open_receivables=open_recv, open_payables=open_pay,
+        overdue_count=overdue_count, overdue_amount=overdue_amount,
+    )

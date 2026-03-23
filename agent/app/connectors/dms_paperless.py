@@ -36,6 +36,16 @@ class PaperlessConnector(DMSConnector):
             response.raise_for_status()
             return response.content
 
+    async def get_thumbnail_bytes(self, doc_id: str) -> bytes:
+        """Download the thumbnail image for a Paperless document."""
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.get(
+                f'{self.base_url}/api/documents/{doc_id}/thumb/',
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            return response.content
+
     async def get_document(self, doc_id: str) -> dict:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(f'{self.base_url}/api/documents/{doc_id}/', headers=self._headers())
