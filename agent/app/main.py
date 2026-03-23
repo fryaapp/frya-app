@@ -43,6 +43,7 @@ from app.api.verfahrensdoku_views import router as verfahrensdoku_router
 from app.api.e_invoice_views import router as e_invoice_router
 from app.api.backfill_views import router as backfill_router
 from app.api.bulk_upload import router as bulk_upload_router
+from app.api.customer_api import router as customer_router
 from app.api.webhooks import router as webhooks_router
 from app.api.ws import router as ws_router
 from app.approvals.service import ApprovalService
@@ -276,6 +277,7 @@ app.include_router(feedback_router)
 app.include_router(dunning_router)
 app.include_router(export_router)
 app.include_router(akaunting_health_router)
+app.include_router(customer_router)
 app.include_router(ui_router)
 
 
