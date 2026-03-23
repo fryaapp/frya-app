@@ -154,3 +154,55 @@ async def test_chat_history_contains_approval():
     assert len(history) >= 2
     found_reject = any('abgelehnt' in msg['content'].lower() for msg in history)
     assert found_reject
+
+
+@pytest.mark.asyncio
+async def test_system_context_includes_case_details():
+    """When conv_memory has last_case_ref, system context must include vendor, amount, doc number."""
+    import uuid as _uuid
+    from decimal import Decimal
+    from app.telegram.communicator.service import _build_system_context
+    from app.telegram.communicator.memory.models import ConversationMemory
+    from app.case_engine.repository import CaseRepository
+
+    repo = CaseRepository('memory://')
+    tenant_id = _uuid.uuid4()
+
+    case = await repo.create_case(
+        tenant_id=tenant_id,
+        case_type='incoming_invoice',
+        vendor_name='A-F-INOX GmbH',
+        total_amount=Decimal('245.99'),
+        currency='EUR',
+        created_by='test',
+    )
+    await repo.update_metadata(case.id, {
+        'document_analysis': {
+            'sender': 'A-F-INOX GmbH',
+            'document_number': 'INV-2026-001',
+            'document_date': '15.03.2026',
+            'gross_amount': 245.99,
+            'document_type': 'INVOICE',
+            'iban': 'DE89370400440532013000',
+        }
+    })
+
+    conv_memory = ConversationMemory(
+        conversation_memory_ref='conv-test',
+        chat_id='test-chat',
+        last_case_ref=str(case.id),
+    )
+
+    ctx = await _build_system_context(
+        tenant_id=tenant_id,
+        case_repository=repo,
+        audit_service=None,
+        user_memory=None,
+        conv_memory=conv_memory,
+    )
+
+    assert ctx is not None
+    assert 'A-F-INOX GmbH' in ctx
+    assert '245.99' in ctx
+    assert 'INV-2026-001' in ctx
+    assert 'DE89370400440532013000' in ctx

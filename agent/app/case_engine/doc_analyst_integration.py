@@ -255,6 +255,21 @@ async def integrate_document_analysis(
             'created_draft': True,
         }
 
+    # Persist document_analysis summary in case metadata for communicator context
+    _case_uuid = uuid.UUID(result['case_id'])
+    try:
+        await repo.update_metadata(_case_uuid, {
+            'document_analysis': {
+                'sender': vendor_name,
+                'document_number': ref_tuples[0][1] if ref_tuples else None,
+                'document_date': str(document_date) if document_date else None,
+                'gross_amount': float(total_amount) if total_amount is not None else None,
+                'document_type': document_type_value,
+            }
+        })
+    except Exception:
+        pass  # metadata update must not break the integration flow
+
     if audit_service is not None:
         await audit_service.log_event({
             'event_id': str(uuid.uuid4()),

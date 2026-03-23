@@ -141,9 +141,45 @@ async def _build_system_context(
     case_repository: Any,
     audit_service: Any,
     user_memory: Any,
+    conv_memory: Any = None,
 ) -> str | None:
     """Fetch live system data and format as a [SYSTEMKONTEXT] block for the LLM."""
     parts: list[str] = []
+
+    # ── Detailed case context from conversation memory ──────────────────────
+    if conv_memory and getattr(conv_memory, 'last_case_ref', None) and case_repository is not None:
+        try:
+            import uuid as _uuid_mod
+            case_detail = await case_repository.get_case(_uuid_mod.UUID(conv_memory.last_case_ref))
+            if case_detail:
+                detail_parts = []
+                detail_parts.append(f'Aktueller Vorgang: {case_detail.case_number or case_detail.id}')
+                detail_parts.append(f'Vendor: {case_detail.vendor_name}')
+                detail_parts.append(f'Betrag: {case_detail.total_amount} {case_detail.currency}')
+                detail_parts.append(f'Status: {case_detail.status}')
+
+                meta = case_detail.metadata or {}
+                if meta.get('document_analysis'):
+                    analysis = meta['document_analysis']
+                    if analysis.get('document_number'):
+                        detail_parts.append(f'Rechnungsnummer: {analysis["document_number"]}')
+                    if analysis.get('document_date'):
+                        detail_parts.append(f'Datum: {analysis["document_date"]}')
+                    if analysis.get('line_items'):
+                        items_str = ', '.join(str(item) for item in analysis['line_items'][:5])
+                        detail_parts.append(f'Positionen: {items_str}')
+                    if analysis.get('sender'):
+                        detail_parts.append(f'Absender: {analysis["sender"]}')
+                    if analysis.get('iban'):
+                        detail_parts.append(f'IBAN: {analysis["iban"]}')
+
+                if meta.get('booking_proposal'):
+                    bp = meta['booking_proposal']
+                    detail_parts.append(f'Buchung: {bp.get("skr03_soll_name")} -> {bp.get("skr03_haben_name")}')
+
+                parts.append('Vorgang-Details:\n' + '\n'.join(f'  - {p}' for p in detail_parts))
+        except Exception as _exc:
+            logger.debug('system_context: case detail fetch failed: %s', _exc)
 
     # Open cases
     if case_repository is not None and tenant_id is not None:
@@ -378,6 +414,7 @@ class TelegramCommunicatorService:
                         case_repository=_case_repo,
                         audit_service=audit_service,
                         user_memory=prev_user_memory,
+                        conv_memory=conv_memory,
                     )
                     if intent == 'GENERAL_CONVERSATION':
                         sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
