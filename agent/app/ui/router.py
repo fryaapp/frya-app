@@ -2777,12 +2777,11 @@ async def legal_overview(
     saved: str = '',
     user: AuthUser = Depends(require_operator),
 ) -> HTMLResponse:
-    from app.preferences.repository import PreferencesRepository
+    from app.preferences.repository import UserPreferencesRepository
 
     settings = get_settings()
-    repo = PreferencesRepository(settings.database_url)
+    repo = UserPreferencesRepository(settings.database_url)
     try:
-        await repo.initialize()
         all_prefs = await repo.get_all_preferences('default', user.username)
     except Exception:
         all_prefs = {}
@@ -2814,12 +2813,11 @@ async def save_legal_placeholders(
     user: AuthUser = Depends(require_operator),
 ):
     """Save legal placeholder values and redirect."""
-    from app.preferences.repository import PreferencesRepository
+    from app.preferences.repository import UserPreferencesRepository
 
     form = await request.form()
     settings = get_settings()
-    repo = PreferencesRepository(settings.database_url)
-    await repo.initialize()
+    repo = UserPreferencesRepository(settings.database_url)
 
     tenant_id = 'default'
     user_id = user.username
