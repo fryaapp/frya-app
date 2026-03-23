@@ -145,6 +145,7 @@ async def _build_system_context(
     audit_service: Any,
     user_memory: Any,
     conv_memory: Any = None,
+    effective_case_ref: str | None = None,
 ) -> str | None:
     """Fetch live system data and format as a [SYSTEMKONTEXT] block for the LLM."""
     parts: list[str] = []
@@ -153,13 +154,16 @@ async def _build_system_context(
         tenant_id, conv_memory is not None,
         getattr(conv_memory, 'last_case_ref', None) if conv_memory else None)
 
-    # ── Detailed case context from conversation memory ──────────────────────
-    if conv_memory and getattr(conv_memory, 'last_case_ref', None) and case_repository is not None:
+    # ── Detailed case context from effective context or conversation memory ──
+    _effective_case_ref = effective_case_ref or (
+        getattr(conv_memory, 'last_case_ref', None) if conv_memory else None
+    )
+    if _effective_case_ref and case_repository is not None:
         try:
             import uuid as _uuid_mod
             import re as _re_mod
 
-            _case_ref = conv_memory.last_case_ref
+            _case_ref = _effective_case_ref
             _case_uuid = None
 
             # Try direct UUID parse first
@@ -345,6 +349,8 @@ class TelegramCommunicatorService:
             )
 
         # ── Step 6b: vendor-name fallback when context not found ───────────
+        logger.warning('=== STEP6B CHECK: core_ctx=%s, case_repo=%s ===',
+            core_ctx.resolution_status if core_ctx else None, case_repository is not None)
         if (
             (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND')
             and case_repository is not None
@@ -379,10 +385,12 @@ class TelegramCommunicatorService:
                 except Exception:
                     pass
 
+            logger.warning('=== STEP6B TENANT: %s, text=%s ===', _tenant_for_vendor, (normalized.text or '')[:50])
             if _tenant_for_vendor is not None:
                 vendor_case_id = await search_case_by_vendor(
                     normalized.text or '', case_repository, _tenant_for_vendor,
                 )
+                logger.warning('=== STEP6B VENDOR RESULT: %s ===', vendor_case_id)
                 if vendor_case_id:
                     core_ctx = CommunicatorContextResolution(
                         resolution_status='FOUND',
@@ -521,6 +529,7 @@ class TelegramCommunicatorService:
                         audit_service=audit_service,
                         user_memory=prev_user_memory,
                         conv_memory=conv_memory,
+                        effective_case_ref=effective_ctx.resolved_case_ref if effective_ctx else None,
                     )
                     if intent == 'GENERAL_CONVERSATION':
                         sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
