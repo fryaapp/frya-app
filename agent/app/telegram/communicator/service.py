@@ -523,13 +523,19 @@ class TelegramCommunicatorService:
                         except Exception:
                             pass
 
+                    # Prefer core_ctx (vendor search / context resolver) over effective_ctx
+                    # because truth arbitrator returns None for non-context intents
+                    _resolved_ref = (
+                        (core_ctx.resolved_case_ref if core_ctx and core_ctx.resolution_status == 'FOUND' else None)
+                        or (effective_ctx.resolved_case_ref if effective_ctx else None)
+                    )
                     sys_ctx = await _build_system_context(
                         tenant_id=_tenant_id,
                         case_repository=_case_repo,
                         audit_service=audit_service,
                         user_memory=prev_user_memory,
                         conv_memory=conv_memory,
-                        effective_case_ref=effective_ctx.resolved_case_ref if effective_ctx else None,
+                        effective_case_ref=_resolved_ref,
                     )
                     if intent == 'GENERAL_CONVERSATION':
                         sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
