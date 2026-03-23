@@ -150,7 +150,32 @@ async def _build_system_context(
     if conv_memory and getattr(conv_memory, 'last_case_ref', None) and case_repository is not None:
         try:
             import uuid as _uuid_mod
-            case_detail = await case_repository.get_case(_uuid_mod.UUID(conv_memory.last_case_ref))
+            import re as _re_mod
+
+            _case_ref = conv_memory.last_case_ref
+            _case_uuid = None
+
+            # Try direct UUID parse first
+            try:
+                _case_uuid = _uuid_mod.UUID(_case_ref)
+            except (ValueError, AttributeError):
+                pass
+
+            # If not a UUID (e.g. "doc-19", "tg-chat-msg"), resolve via audit trail
+            if _case_uuid is None and audit_service is not None:
+                try:
+                    _events = await audit_service.by_case(_case_ref, limit=50)
+                    for _ev in _events:
+                        if getattr(_ev, 'action', '') == 'document_assigned_to_case':
+                            _result_str = getattr(_ev, 'result', '') or ''
+                            _m = _re_mod.search(r'case_id=([0-9a-f-]{36})', _result_str)
+                            if _m:
+                                _case_uuid = _uuid_mod.UUID(_m.group(1))
+                                break
+                except Exception:
+                    pass
+
+            case_detail = await case_repository.get_case(_case_uuid) if _case_uuid else None
             if case_detail:
                 detail_parts = []
                 detail_parts.append(f'Aktueller Vorgang: {case_detail.case_number or case_detail.id}')
@@ -443,6 +468,19 @@ class TelegramCommunicatorService:
                             _case_obj = await _case_repo.get_case(_uuid_mod.UUID(case_id))
                             if _case_obj is not None:
                                 _tenant_id = _case_obj.tenant_id
+                        except (ValueError, AttributeError):
+                            pass  # case_id is not a UUID (e.g. tg-chat-msg, doc-N)
+                        except Exception:
+                            pass
+
+                    # Fallback: resolve tenant from default tenant resolver
+                    if _tenant_id is None:
+                        try:
+                            from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_tid
+                            _tid_str = await _resolve_tid()
+                            if _tid_str:
+                                import uuid as _uuid_mod
+                                _tenant_id = _uuid_mod.UUID(_tid_str)
                         except Exception:
                             pass
 
