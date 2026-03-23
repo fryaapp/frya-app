@@ -66,18 +66,20 @@ def test_connection_manager():
     mgr = ConnectionManager()
     assert mgr.active_count == 0
 
-def test_ws_validate_token_empty():
-    import asyncio
+@pytest.mark.asyncio
+async def test_ws_validate_token_empty():
     from app.api.customer_api import _validate_ws_token
-    result = asyncio.get_event_loop().run_until_complete(_validate_ws_token(''))
+    result = await _validate_ws_token('')
     assert result is None
 
-def test_ws_validate_token_valid():
-    import asyncio, os
+
+@pytest.mark.asyncio
+async def test_ws_validate_token_valid():
+    import os
     os.environ['FRYA_JWT_SECRET'] = 'test-secret-for-jwt-p42'
     from app.auth.jwt_auth import create_access_token
     from app.api.customer_api import _validate_ws_token
     token = create_access_token('wsuser', 'tid-1', 'customer')
-    result = asyncio.get_event_loop().run_until_complete(_validate_ws_token(token))
+    result = await _validate_ws_token(token)
     assert result is not None
     assert result.username == 'wsuser'
