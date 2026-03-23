@@ -9,7 +9,7 @@ import litellm
 
 _LLM_TIMEOUT = float(os.environ.get('FRYA_LLM_TIMEOUT', '120'))
 
-from app.telegram.communicator.context_resolver import resolve_context
+from app.telegram.communicator.context_resolver import resolve_context, search_case_by_vendor
 from app.telegram.communicator.guardrail import check_guardrail
 from app.telegram.communicator.intent_classifier import classify_intent
 from app.telegram.communicator.memory.conversation_store import (
@@ -296,6 +296,43 @@ class TelegramCommunicatorService:
                 clarification_service=clarification_service,
                 open_items_service=open_items_service,
             )
+
+        # ── Step 6b: vendor-name fallback when context not found ───────────
+        if (
+            intent in _CONTEXT_INTENTS
+            and (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND')
+            and case_repository is not None
+        ):
+            _tenant_for_vendor = None
+            # Try tenant from current case_id
+            if case_id and case_id != 'unknown':
+                try:
+                    import uuid as _uuid_mod
+                    _co = await case_repository.get_case(_uuid_mod.UUID(case_id))
+                    if _co:
+                        _tenant_for_vendor = _co.tenant_id
+                except Exception:
+                    pass
+            # Fallback: try tenant from conversation memory
+            if _tenant_for_vendor is None and conv_memory and conv_memory.last_case_ref:
+                try:
+                    import uuid as _uuid_mod
+                    _co2 = await case_repository.get_case(_uuid_mod.UUID(conv_memory.last_case_ref))
+                    if _co2:
+                        _tenant_for_vendor = _co2.tenant_id
+                except Exception:
+                    pass
+
+            if _tenant_for_vendor is not None:
+                vendor_case_id = await search_case_by_vendor(
+                    normalized.text or '', case_repository, _tenant_for_vendor,
+                )
+                if vendor_case_id:
+                    core_ctx = CommunicatorContextResolution(
+                        resolution_status='FOUND',
+                        resolved_case_ref=vendor_case_id,
+                        context_reason='Vendor-Name im Text erkannt.',
+                    )
 
         # ── Step 7: truth arbitration ────────────────────────────────────────
         arbitrator = TruthArbitrator()

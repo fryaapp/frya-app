@@ -206,3 +206,71 @@ async def test_system_context_includes_case_details():
     assert '245.99' in ctx
     assert 'INV-2026-001' in ctx
     assert 'DE89370400440532013000' in ctx
+
+
+@pytest.mark.asyncio
+async def test_vendor_search_finds_case():
+    """User mentions vendor name verbatim -> case is found."""
+    import uuid as _uuid
+    from decimal import Decimal
+    from app.telegram.communicator.context_resolver import search_case_by_vendor
+    from app.case_engine.repository import CaseRepository
+
+    repo = CaseRepository('memory://')
+    tenant_id = _uuid.uuid4()
+
+    case = await repo.create_case(
+        tenant_id=tenant_id,
+        case_type='incoming_invoice',
+        vendor_name='A&S Autoteile',
+        total_amount=Decimal('120.00'),
+        currency='EUR',
+        created_by='test',
+    )
+    # Directly set status in memory store (bypass transition check)
+    repo._cases[case.id] = case.model_copy(update={'status': 'OPEN'})
+
+    found = await search_case_by_vendor('Was war mit A&S Autoteile?', repo, tenant_id)
+    assert found is not None
+    assert found == str(case.id)
+
+
+@pytest.mark.asyncio
+async def test_vendor_search_partial_match():
+    """User mentions partial vendor name -> case is found."""
+    import uuid as _uuid
+    from decimal import Decimal
+    from app.telegram.communicator.context_resolver import search_case_by_vendor
+    from app.case_engine.repository import CaseRepository
+
+    repo = CaseRepository('memory://')
+    tenant_id = _uuid.uuid4()
+
+    case = await repo.create_case(
+        tenant_id=tenant_id,
+        case_type='incoming_invoice',
+        vendor_name='A-F-INOX Trading GmbH',
+        total_amount=Decimal('245.99'),
+        currency='EUR',
+        created_by='test',
+    )
+    # Directly set status in memory store (bypass transition check)
+    repo._cases[case.id] = case.model_copy(update={'status': 'OPEN'})
+
+    found = await search_case_by_vendor('Was ist mit INOX?', repo, tenant_id)
+    assert found is not None
+    assert found == str(case.id)
+
+
+@pytest.mark.asyncio
+async def test_vendor_search_no_match():
+    """No matching vendor -> returns None."""
+    import uuid as _uuid
+    from app.telegram.communicator.context_resolver import search_case_by_vendor
+    from app.case_engine.repository import CaseRepository
+
+    repo = CaseRepository('memory://')
+    tenant_id = _uuid.uuid4()
+
+    found = await search_case_by_vendor('Hallo Frya', repo, tenant_id)
+    assert found is None

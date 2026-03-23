@@ -111,3 +111,39 @@ async def resolve_context(
         clarification_question=clar_question,
         has_multiple_open_items=has_multiple,
     ), ctx_ref
+
+
+async def search_case_by_vendor(
+    text: str,
+    case_repository: Any,
+    tenant_id: Any,
+) -> str | None:
+    """Search for a case whose vendor_name matches text from the user message.
+
+    Returns case_id (str) or None.
+    """
+    if not text or case_repository is None or tenant_id is None:
+        return None
+
+    all_cases = await case_repository.list_active_cases_for_tenant(tenant_id)
+    text_lower = text.lower()
+
+    # Pass 1: vendor name appears in user text (or vice versa)
+    for case in all_cases:
+        vendor = (getattr(case, 'vendor_name', None) or '').lower()
+        if not vendor:
+            continue
+        if vendor in text_lower or text_lower in vendor:
+            return str(case.id)
+
+    # Pass 2: any word >3 chars from user text matches inside a vendor name
+    words = [w.strip('?!.,;:()[]{}"\'/') for w in text_lower.split()]
+    words = [w for w in words if len(w) > 3]
+    for case in all_cases:
+        vendor = (getattr(case, 'vendor_name', None) or '').lower()
+        if not vendor:
+            continue
+        if any(word in vendor for word in words):
+            return str(case.id)
+
+    return None
