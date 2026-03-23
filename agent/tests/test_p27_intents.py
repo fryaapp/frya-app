@@ -49,7 +49,10 @@ def test_existing_intents_still_work():
     assert classify_intent('Zufaelliger Text ohne Match') == 'GENERAL_CONVERSATION'
 
 
-def test_risky_still_overrides():
+def test_risky_substrings_no_longer_block():
+    # P-43: _RISKY_SUBSTRINGS removed — Orchestrator is the gatekeeper.
+    # These phrases now fall through to GENERAL_CONVERSATION instead of
+    # being blocked at the intent-classifier level.
     from app.telegram.communicator.intent_classifier import classify_intent
-    assert classify_intent('Freigabe erteilen') == 'UNSUPPORTED_OR_RISKY'
-    assert classify_intent('Zahlung ausfuehren') == 'UNSUPPORTED_OR_RISKY'
+    assert classify_intent('Freigabe erteilen') == 'GENERAL_CONVERSATION'
+    assert classify_intent('Zahlung ausfuehren') == 'GENERAL_CONVERSATION'

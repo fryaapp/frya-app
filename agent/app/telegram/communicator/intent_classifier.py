@@ -2,40 +2,6 @@ from __future__ import annotations
 
 from app.telegram.communicator.models import CommunicatorIntentCode
 
-# ── Risky substrings (override all other intents) ─────────────────────────────
-# Checked case-insensitively against lowercased text.
-_RISKY_SUBSTRINGS: tuple[str, ...] = (
-    # Finance / execution
-    'freigabe',
-    'freigeben',
-    'genehmige',
-    'bestaetige',
-    'zahlung',
-    'zahle',
-    'bezahl',
-    'buche ',  # trailing space avoids "buchen" false positive in phrases
-    'ueberweise',
-    'loesche',
-    'starte ocr',
-    'mach die zahlung',
-    'approve',
-    'delete',
-    # Cross-case navigation
-    'alle faelle',
-    'alle vorgaenge',
-    'alle akten',
-    'zeig mir alle',
-    'liste all',  # matches "liste alle" and "liste aller"
-    # File-send
-    'schick mir das dokument',
-    'schick mir die datei',
-    'schick mir das bild',
-    'schick mir das pdf',
-    'lade das dokument',
-    'send me the',
-    'forward the document',
-)
-
 # ── Greeting ──────────────────────────────────────────────────────────────────
 _GREETING_TOKENS: frozenset[str] = frozenset({
     'hallo', 'hi', 'hey', 'servus', 'moin', 'na', 'jo',
@@ -219,17 +185,16 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
     if not t:
         return None
 
-    # 0. REMINDER_PERSONAL — checked BEFORE risky to allow "Erinnere mich an Rechnung bezahlen"
+    # 0a. Length guard — reject excessively long inputs
+    if len(t) > 5000:
+        return 'UNSUPPORTED_OR_RISKY'
+
+    # 0. REMINDER_PERSONAL — checked before other patterns
     for phrase in _REMINDER_PERSONAL_PHRASES:
         if phrase in t:
             return 'REMINDER_PERSONAL'
 
-    # 1. Risky check — overrides everything else
-    for sub in _RISKY_SUBSTRINGS:
-        if sub in t:
-            return 'UNSUPPORTED_OR_RISKY'
-
-    # 2. GREETING (single token or phrase) — use word-level match to avoid
+    # 1. GREETING (single token or phrase) — use word-level match to avoid
     #    false positives like 'hi' in 'hier'.
     words = set(t.split())
     for token in _GREETING_TOKENS:
@@ -239,7 +204,7 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
         if phrase in t:
             return 'GREETING'
 
-    # 3. STATUS_OVERVIEW
+    # 2. STATUS_OVERVIEW
     if t in _STATUS_TOKENS:
         return 'STATUS_OVERVIEW'
     for phrase in _STATUS_PHRASES:
