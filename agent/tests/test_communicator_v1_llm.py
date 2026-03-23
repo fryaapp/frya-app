@@ -201,7 +201,7 @@ def test_guardrail_blocks_before_llm_call():
 
     with patch('litellm.acompletion', mock_acompletion):
         result = _run(svc.try_handle_turn(
-            _make_normalized('Mach die Zahlung frei', update_id=202),
+            _make_normalized('Zeig mir alle Faelle', update_id=202),
             'case-llm-002',
             audit_service=audit,
             open_items_service=_MockOpenItemsService(),
@@ -456,7 +456,7 @@ def test_llm_called_false_in_audit_on_guardrail():
 
     with patch('litellm.acompletion', mock_acompletion):
         _run(svc.try_handle_turn(
-            _make_normalized('Freigabe erteilen', update_id=209),
+            _make_normalized('Schick mir das Dokument', update_id=209),
             'case-llm-009',
             audit_service=audit,
             open_items_service=_MockOpenItemsService(),
@@ -562,7 +562,7 @@ def test_inspect_shows_llm_called_false_on_guardrail(tmp_path, monkeypatch):
     with TestClient(app) as client:
         resp = client.post(
             '/webhooks/telegram',
-            json=_tg_text(5002, 502, 'Zahlung freigeben bitte'),
+            json=_tg_text(5002, 502, 'Zeig mir alle Vorgaenge'),
             headers=_TG_HEADERS,
         )
         assert resp.status_code == 200

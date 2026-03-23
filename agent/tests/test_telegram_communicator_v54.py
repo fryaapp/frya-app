@@ -154,20 +154,25 @@ def test_classify_last_case_explanation():
 
 
 def test_classify_risky_zahlung_frei():
-    assert classify_intent('Mach die Zahlung frei') == 'UNSUPPORTED_OR_RISKY'
+    # P-43: _RISKY_SUBSTRINGS removed — Orchestrator is the gatekeeper.
+    # "Mach die Zahlung frei" no longer blocked at classifier level.
+    assert classify_intent('Mach die Zahlung frei') == 'GENERAL_CONVERSATION'
 
 
 def test_classify_risky_freigabe():
-    assert classify_intent('Freigabe erteilen bitte') == 'UNSUPPORTED_OR_RISKY'
+    # P-43: _RISKY_SUBSTRINGS removed — falls through to GENERAL_CONVERSATION.
+    assert classify_intent('Freigabe erteilen bitte') == 'GENERAL_CONVERSATION'
 
 
 def test_classify_risky_loeschen():
-    assert classify_intent('Loesche meinen Vorgang') == 'UNSUPPORTED_OR_RISKY'
+    # P-43: _RISKY_SUBSTRINGS removed — falls through to GENERAL_CONVERSATION.
+    assert classify_intent('Loesche meinen Vorgang') == 'GENERAL_CONVERSATION'
 
 
 def test_classify_risky_overrides_greeting_pattern():
-    # Risky substring must override even if greeting token is present
-    assert classify_intent('Hallo bitte Zahlung freigeben') == 'UNSUPPORTED_OR_RISKY'
+    # P-43: _RISKY_SUBSTRINGS removed. Cross-case navigation is still blocked.
+    # "Zeig mir alle Faelle" triggers UNSUPPORTED_OR_RISKY via cross-case patterns.
+    assert classify_intent('Zeig mir alle Faelle') == 'UNSUPPORTED_OR_RISKY'
 
 
 def test_classify_unrecognized_returns_general_conversation():
@@ -423,12 +428,13 @@ def test_service_audit_logged_for_general_conversation():
 
 
 def test_service_try_handle_turn_risky_sets_guardrail_triggered():
+    # P-43: Use cross-case navigation pattern (still UNSUPPORTED_OR_RISKY)
     from app.telegram.communicator.service import TelegramCommunicatorService
 
     svc = TelegramCommunicatorService()
     audit = _MockAuditService()
     result = _run(svc.try_handle_turn(
-        _make_normalized('Mach die Zahlung frei', update_id=104),
+        _make_normalized('Zeig mir alle Faelle', update_id=104),
         'case-comm-004',
         audit_service=audit,
         open_items_service=_MockOpenItemsService(),
@@ -466,12 +472,13 @@ def test_service_audit_logged_for_handled_turn():
 
 def test_service_audit_logged_for_risky_turn():
     """Risky/guardrail-triggered turns must also be audited."""
+    # P-43: Use cross-case navigation pattern (still UNSUPPORTED_OR_RISKY)
     from app.telegram.communicator.service import TelegramCommunicatorService
 
     svc = TelegramCommunicatorService()
     audit = _MockAuditService()
     _run(svc.try_handle_turn(
-        _make_normalized('Zahlung freigeben', update_id=106),
+        _make_normalized('Zeig mir alle Vorgaenge', update_id=106),
         'case-comm-006',
         audit_service=audit,
         open_items_service=_MockOpenItemsService(),
@@ -531,13 +538,14 @@ def test_webhook_greeting_communicator_handled(tmp_path, monkeypatch):
 
 
 def test_webhook_risky_request_guardrail_triggered(tmp_path, monkeypatch):
+    # P-43: Use cross-case navigation pattern (still UNSUPPORTED_OR_RISKY)
     _configure_env(monkeypatch, tmp_path)
     app = _build_app()
 
     with TestClient(app) as client:
         response = client.post(
             '/webhooks/telegram',
-            json=_tg_text(3002, 302, 'Mach die Zahlung frei'),
+            json=_tg_text(3002, 302, 'Zeig mir alle Faelle'),
             headers=_TG_HEADERS,
         )
         assert response.status_code == 200
@@ -670,13 +678,14 @@ def test_audit_chain_inspect_after_greeting_turn(tmp_path, monkeypatch):
 
 
 def test_audit_chain_inspect_after_guardrail_triggered(tmp_path, monkeypatch):
+    # P-43: Use cross-case navigation pattern (still UNSUPPORTED_OR_RISKY)
     _configure_env(monkeypatch, tmp_path)
     app = _build_app()
 
     with TestClient(app) as client:
         response = client.post(
             '/webhooks/telegram',
-            json=_tg_text(3011, 311, 'Freigabe erteilen'),
+            json=_tg_text(3011, 311, 'Zeig mir alle Vorgaenge'),
             headers=_TG_HEADERS,
         )
         assert response.status_code == 200

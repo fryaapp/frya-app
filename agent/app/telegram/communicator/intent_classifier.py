@@ -156,6 +156,20 @@ _CREATE_CUSTOMER_PHRASES: tuple[str, ...] = (
     'als kunden an', 'als lieferant an',
 )
 
+# ── Cross-Case / File-Send (UNSUPPORTED_OR_RISKY) ────────────────────────────
+# These phrases attempt to enumerate or access data across multiple cases /
+# all documents — a privacy risk the Orchestrator alone cannot fully block
+# at parse time. Reject early at the communicator level.
+_CROSS_CASE_PATTERNS: tuple[str, ...] = (
+    'zeig mir alle faelle',
+    'zeig mir alle vorgaenge',
+    'zeig mir alle meine dateien',
+    'schick mir das dokument',
+    'schick mir die datei',
+    'liste alle faelle',
+    'liste aller vorgaenge',
+)
+
 # ── General Safe Help ─────────────────────────────────────────────────────────
 _SAFE_HELP_PHRASES: tuple[str, ...] = (
     'was kannst du',
@@ -260,6 +274,11 @@ def classify_intent(text: str) -> CommunicatorIntentCode | None:
     for phrase in _SAFE_HELP_PHRASES:
         if phrase in t:
             return 'GENERAL_SAFE_HELP'
+
+    # 13b. UNSUPPORTED_OR_RISKY — cross-case navigation / bulk file-send attempts
+    for pattern in _CROSS_CASE_PATTERNS:
+        if pattern in t:
+            return 'UNSUPPORTED_OR_RISKY'
 
     # 14. GENERAL_CONVERSATION — catch-all for any non-risky unrecognized text
     return 'GENERAL_CONVERSATION'

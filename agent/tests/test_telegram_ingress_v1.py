@@ -53,9 +53,9 @@ def test_telegram_unsupported_message_is_safe(tmp_path, monkeypatch):
 
 
 def test_telegram_does_not_execute_approval_from_chat(tmp_path, monkeypatch):
-    # Paket 54: 'freigeben' is now a risky substring caught by the communicator
-    # guardrail. It returns a safe-limit response (COMMUNICATOR_GUARDRAIL_TRIGGERED)
-    # instead of falling through to the operator inbox — a stricter, correct behavior.
+    # P-43: 'freigeben' is no longer a risky substring (_RISKY_SUBSTRINGS removed).
+    # The Orchestrator is the gatekeeper. 'freigeben case-abc' falls through to
+    # GENERAL_CONVERSATION and is handled by the communicator.
     _configure_env(monkeypatch, tmp_path)
     app = _build_app()
 
@@ -74,13 +74,11 @@ def test_telegram_does_not_execute_approval_from_chat(tmp_path, monkeypatch):
         assert response.status_code == 200
         body = response.json()
         assert body['status'] == 'accepted'
-        # Communicator V0 guardrail intercepts 'freigeben' → safe limit response
-        assert body['routing_status'] == 'COMMUNICATOR_GUARDRAIL_TRIGGERED'
+        # Communicator handles as GENERAL_CONVERSATION — Orchestrator is gatekeeper
+        assert body['routing_status'] == 'COMMUNICATOR_HANDLED'
 
         _login_admin(client)
         case_json = client.get(f"/inspect/cases/{body['case_id']}/json")
         assert case_json.status_code == 200
         telegram = case_json.json()['telegram_ingress']
-        assert telegram['intent_name'] == 'communicator.unsupported_or_risky'
-        # No open item created for safe-limit (track_for_status=False)
-        assert telegram.get('open_item_id') is None
+        assert telegram['intent_name'] == 'communicator.general_conversation'
