@@ -354,3 +354,25 @@ async def test_duplicate_skip_callback():
     mock_telegram.send.assert_called_once()
     sent_msg = mock_telegram.send.call_args[0][0]
     assert 'bersprungen' in sent_msg.text
+
+
+def test_line_item_model():
+    """LineItem model can be instantiated."""
+    from decimal import Decimal
+    from app.document_analysis.models import LineItem
+    item = LineItem(
+        description='Spanplattenschrauben TX',
+        quantity=2,
+        unit_price=Decimal('11.59'),
+        total_price=Decimal('23.18'),
+    )
+    assert item.description == 'Spanplattenschrauben TX'
+    assert item.quantity == 2
+
+
+def test_semantic_prompt_has_line_items():
+    """Semantic prompt must mention line_items."""
+    from app.document_analysis.semantic_service import _SYSTEM_PROMPT
+    assert 'line_items' in _SYSTEM_PROMPT
+    assert 'description' in _SYSTEM_PROMPT
+    assert 'unit_price' in _SYSTEM_PROMPT

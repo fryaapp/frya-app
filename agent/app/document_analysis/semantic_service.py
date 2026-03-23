@@ -67,6 +67,14 @@ OUTPUT-FORMAT (IMMER DIESES FORMAT)
   "cancellation_period_days": Zahl oder null,
   "dunning_level": 1-4 oder null,
   "references": ["alle Referenznummern"],
+  "line_items": [
+    {
+      "description": "Artikelbezeichnung oder Leistung",
+      "quantity": Menge als Zahl oder null,
+      "unit_price": Einzelpreis als Zahl oder null,
+      "total_price": Gesamtpreis der Position als Zahl oder null
+    }
+  ],
   "has_attachments": true oder false,
   "is_business_relevant": true oder false,
   "private_info": "Extrahierte Termine/Infos bei privaten Dokumenten oder null",
@@ -176,6 +184,13 @@ Suche nach handschriftlichen Vermerken oder Stempeln im OCR-Text:
 | "StB", "für Steuerberater" | tax_advisor_note | FLAG_FOR_TAX_ADVISOR |
 
 Nur Vermerke die tatsächlich im OCR-Text stehen. Wenn keine → annotations = [].
+
+14. POSITIONEN / LINE ITEMS: Extrahiere alle Einzelpositionen aus der Rechnung.
+    Jede Zeile in der Artikelliste ist ein line_item.
+    Beispiel: "2x Spanplattenschrauben TX 11,59€ = 23,18€" →
+    {"description": "Spanplattenschrauben TX Edelstahl VA", "quantity": 2, "unit_price": 11.59, "total_price": 23.18}
+    Wenn keine Positionsliste erkennbar: "line_items": []
+    Versandkosten, Verpackung etc. sind eigene Positionen.
 
 ═══════════════════════════════════════
 BEISPIELE
@@ -510,6 +525,18 @@ class DocumentAnalystSemanticService:
                 action_suggested=_action,  # type: ignore[arg-type]
             ))
 
+        # ── Line Items ───────────────────────────────────────────────────────
+        from app.document_analysis.models import LineItem
+        line_items: list[LineItem] = []
+        for _li in (data.get('line_items') or []):
+            if isinstance(_li, dict) and _li.get('description'):
+                line_items.append(LineItem(
+                    description=str(_li['description']).strip(),
+                    quantity=float(_li['quantity']) if _li.get('quantity') else None,
+                    unit_price=Decimal(str(_li['unit_price'])) if _li.get('unit_price') else None,
+                    total_price=Decimal(str(_li['total_price'])) if _li.get('total_price') else None,
+                ))
+
         # ── New fields from prompt v3 ─────────────────────────────────────────
         has_attachments = bool(data.get('has_attachments', False))
         is_business_relevant = bool(data.get('is_business_relevant', True))
@@ -556,6 +583,7 @@ class DocumentAnalystSemanticService:
             references=references,
             risks=risks,
             annotations=annotations,
+            line_items=line_items,
             warnings=[],
             missing_fields=missing_fields,
             recommended_next_step=next_step,

@@ -121,6 +121,7 @@ async def integrate_document_analysis(
     filename: str | None,
     overall_confidence: float,
     orchestration_case_id: str,
+    line_items: list[dict] | None = None,
     repo: 'CaseRepository',
     audit_service: 'AuditService | None' = None,
 ) -> dict[str, Any]:
@@ -265,6 +266,7 @@ async def integrate_document_analysis(
                 'document_date': str(document_date) if document_date else None,
                 'gross_amount': float(total_amount) if total_amount is not None else None,
                 'document_type': document_type_value,
+                'line_items': line_items or [],
             }
         })
     except Exception:

@@ -64,6 +64,13 @@ class DocumentRisk(BaseModel):
     related_fields: list[str] = Field(default_factory=list)
 
 
+class LineItem(BaseModel):
+    description: str
+    quantity: float | None = None
+    unit_price: Decimal | None = None
+    total_price: Decimal | None = None
+
+
 class DocumentAnalysisInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -91,6 +98,7 @@ class DocumentAnalysisResult(BaseModel):
     document_date: ExtractedField[date]
     due_date: ExtractedField[date]
     references: list[ExtractedField[str]] = Field(default_factory=list)
+    line_items: list[LineItem] = Field(default_factory=list)
     risks: list[DocumentRisk] = Field(default_factory=list)
     annotations: list[Annotation] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

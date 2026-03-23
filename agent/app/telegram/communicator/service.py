@@ -198,8 +198,16 @@ async def _build_system_context(
                     if analysis.get('document_date'):
                         detail_parts.append(f'Datum: {analysis["document_date"]}')
                     if analysis.get('line_items'):
-                        items_str = ', '.join(str(item) for item in analysis['line_items'][:5])
-                        detail_parts.append(f'Positionen: {items_str}')
+                        items_lines = []
+                        for item in analysis['line_items'][:10]:
+                            desc = item.get('description', '?') if isinstance(item, dict) else str(item)
+                            qty = item.get('quantity', '') if isinstance(item, dict) else ''
+                            price = item.get('total_price', '') if isinstance(item, dict) else ''
+                            if qty:
+                                items_lines.append(f'    {qty}x {desc} — {price}')
+                            else:
+                                items_lines.append(f'    {desc} — {price}')
+                        detail_parts.append('Positionen:\n' + '\n'.join(items_lines))
                     if analysis.get('sender'):
                         detail_parts.append(f'Absender: {analysis["sender"]}')
                     if analysis.get('iban'):

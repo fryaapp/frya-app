@@ -887,6 +887,12 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                 filename=_filename,
                 overall_confidence=result.overall_confidence,
                 orchestration_case_id=case_id,
+                line_items=[
+                    {'description': li.description, 'quantity': li.quantity,
+                     'unit_price': str(li.unit_price) if li.unit_price else None,
+                     'total_price': str(li.total_price) if li.total_price else None}
+                    for li in result.line_items
+                ] if hasattr(result, 'line_items') else [],
                 repo=get_case_repository(),
                 audit_service=get_audit_service(),
             )
