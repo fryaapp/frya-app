@@ -129,6 +129,19 @@ Erkenne den Typ anhand dieser Schlüsselwörter:
 | WIDERRUF | "Widerrufsbelehrung", "Widerrufsrecht" |
 | OTHER | Keines der obigen Muster passt |
 
+PRIORITÄT bei Dokumenttyp-Erkennung:
+Ein Dokument ist IMMER geschäftsrelevant (is_business_relevant=true)
+und IMMER eine Rechnung (document_type="INVOICE") wenn MINDESTENS EINES zutrifft:
+- Es enthält eine USt-IDNr. oder Steuernummer
+- Es enthält eine Rechnungsnummer
+- Es enthält Positionen mit Preisen (Artikelliste, Einzelpreise, Gesamtpreise)
+- Es enthält "Rechnung" oder "Invoice" als Dokumentüberschrift
+- Es enthält MwSt-Angaben (19%, 7%, "Mehrwertsteuer", "Umsatzsteuer")
+Auch wenn der Absender wie eine Privatperson klingt (z.B. "Ahmad Fayad"):
+Wenn das Dokument geschäftliche Merkmale hat, ist es eine Rechnung.
+document_type="PRIVATE" ist NUR für Dokumente OHNE jegliche geschäftliche Merkmale
+(kein Betrag, keine Rechnungsnummer, keine USt-IDNr., keine Positionen).
+
 ═══════════════════════════════════════
 MULTI-DOKUMENT-PDFs
 ═══════════════════════════════════════
