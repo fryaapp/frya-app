@@ -687,19 +687,19 @@ async def _writeback_to_paperless(
         if dt_id is not None:
             patch_data['document_type'] = dt_id
 
-    # ── Tags (merge with existing — never overwrite) ─────────────────────
+    # ── Tags (merge with existing — never overwrite, deduplicate) ────────
     existing_doc = await connector.get_document(document_ref)
-    tag_ids: list[int] = list(existing_doc.get('tags', []))
+    tag_ids: set[int] = set(existing_doc.get('tags', []))
     analysiert_id = await connector.find_or_create_tag('frya:analysiert', '#2196F3')
-    if analysiert_id is not None and analysiert_id not in tag_ids:
-        tag_ids.append(analysiert_id)
+    if analysiert_id is not None:
+        tag_ids.add(analysiert_id)
     # Add vorsteuer-relevant for invoices
     if analysis.document_type.status in ('FOUND', 'UNCERTAIN') and analysis.document_type.value == 'INVOICE':
         vst_id = await connector.find_or_create_tag('vorsteuer-relevant', '#673AB7')
-        if vst_id is not None and vst_id not in tag_ids:
-            tag_ids.append(vst_id)
+        if vst_id is not None:
+            tag_ids.add(vst_id)
     if tag_ids:
-        patch_data['tags'] = tag_ids
+        patch_data['tags'] = sorted(tag_ids)
 
     # ── Title: "Vendor — Betrag€ — Datum" ─────────────────────────────────
     title_parts: list[str] = []
