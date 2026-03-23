@@ -171,7 +171,13 @@ class MemoryCuratorService:
 
     # ── Context Assembly ──────────────────────────────────────────────────────
 
-    async def get_context_assembly(self, tenant_id: uuid.UUID) -> str:
+    async def get_context_assembly(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        conversation_memory: Any = None,
+        effective_case_ref: str | None = None,
+    ) -> str:
         """Build the complete context string for LLM calls of other agents."""
         mem_dir = self._memory_dir(tenant_id)
         self._ensure_static_files(mem_dir)
@@ -211,7 +217,103 @@ class MemoryCuratorService:
         if state_md.strip():
             parts.append(f'[DMS-STATE]\n{state_md.strip()}\n[/DMS-STATE]')
 
+        # ── Aktuelle Vorgaenge (Top 5 open cases) ────────────────────────────
+        if self._case_repo is not None:
+            try:
+                cases = await self._case_repo.list_active_cases_for_tenant(tenant_id)
+                # Also include DRAFT
+                try:
+                    drafts = await self._case_repo.list_cases_by_status(tenant_id, 'DRAFT')
+                    seen = {c.id for c in cases}
+                    for d in drafts:
+                        if d.id not in seen:
+                            cases.append(d)
+                except Exception:
+                    pass
+                if cases:
+                    cases.sort(key=lambda c: c.created_at or datetime.min, reverse=True)
+                    case_lines = []
+                    for c in cases[:5]:
+                        case_lines.append(
+                            f'- {c.case_number or c.id}: {c.vendor_name or "?"}, '
+                            f'{c.total_amount or "?"} {c.currency or "EUR"}, Status: {c.status}'
+                        )
+                    parts.append('[AKTUELLE VORGAENGE]\n' + '\n'.join(case_lines) + '\n[/AKTUELLE VORGAENGE]')
+            except Exception as exc:
+                logger.warning('context_assembly: case list failed: %s', exc)
+
+        # ── Aktueller Vorgang (detailed, from conversation memory) ───────────
+        _case_ref = effective_case_ref
+        if not _case_ref and conversation_memory and getattr(conversation_memory, 'last_case_ref', None):
+            _case_ref = conversation_memory.last_case_ref
+        if _case_ref and self._case_repo is not None:
+            detail = await self._build_current_case_detail(tenant_id, _case_ref)
+            if detail:
+                parts.append(f'[AKTUELLER VORGANG]\n{detail}\n[/AKTUELLER VORGANG]')
+
         return '\n\n'.join(parts)
+
+    async def _build_current_case_detail(self, tenant_id: uuid.UUID, case_ref: str) -> str | None:
+        """Build detailed case text for the currently referenced case."""
+        case = None
+
+        # Try direct UUID
+        try:
+            case = await self._case_repo.get_case(uuid.UUID(case_ref))
+        except (ValueError, AttributeError):
+            pass
+
+        # Audit-trail resolution (doc-25 -> UUID)
+        if case is None and self._audit_svc is not None:
+            try:
+                import re
+                events = await self._audit_svc.by_case(case_ref, limit=50)
+                for ev in (events or []):
+                    if getattr(ev, 'action', '') == 'document_assigned_to_case':
+                        result_str = getattr(ev, 'result', '') or ''
+                        m = re.search(r'case_id=([0-9a-f-]{36})', result_str)
+                        if m:
+                            case = await self._case_repo.get_case(uuid.UUID(m.group(1)))
+                            break
+            except Exception as exc:
+                logger.warning('_build_current_case_detail audit resolve failed: %s', exc)
+
+        if case is None:
+            return None
+
+        meta = case.metadata or {}
+        analysis = meta.get('document_analysis', {})
+        booking = meta.get('booking_proposal', {})
+
+        lines = []
+        lines.append(f'Vorgang: {case.case_number or case.id} ({case.vendor_name or "?"})')
+        lines.append(f'Betrag: {case.total_amount} {case.currency or "EUR"}')
+
+        if analysis.get('net_amount'):
+            lines.append(f'Netto: {analysis["net_amount"]}, MwSt {analysis.get("tax_rate", "?")}%: {analysis.get("tax_amount", "?")}')
+        if analysis.get('document_number'):
+            lines.append(f'Rechnungsnr: {analysis["document_number"]}')
+        if analysis.get('document_date'):
+            lines.append(f'Datum: {analysis["document_date"]}')
+        if analysis.get('sender'):
+            lines.append(f'Absender: {analysis["sender"]}')
+        if analysis.get('iban'):
+            lines.append(f'IBAN: {analysis["iban"]}')
+
+        items = analysis.get('line_items', [])
+        if items:
+            lines.append('Positionen:')
+            for item in items[:10]:
+                qty = item.get('quantity', '')
+                desc = item.get('description', '?')
+                price = item.get('total_price', '')
+                lines.append(f'  {qty}x {desc} — {price}')
+
+        if booking.get('skr03_soll_name'):
+            lines.append(f'Buchung: {booking["skr03_soll_name"]} -> {booking.get("skr03_haben_name", "")}')
+
+        lines.append(f'Status: {case.status}')
+        return '\n'.join(lines)
 
     # ── Daily Curation ────────────────────────────────────────────────────────
 

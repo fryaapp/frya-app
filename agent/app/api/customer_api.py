@@ -823,11 +823,33 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
 
         _resolved_ref = core_ctx.resolved_case_ref if core_ctx and core_ctx.resolution_status == 'FOUND' else None
 
-        sys_ctx = await _build_system_context(
-            tenant_id=_tenant_id, case_repository=case_repo,
-            audit_service=get_audit_service(), user_memory=None,
-            conv_memory=conv_memory, effective_case_ref=_resolved_ref,
-        )
+        # Try Memory Curator for rich context (primary path)
+        sys_ctx = None
+        try:
+            from app.memory_curator.service import build_memory_curator_service
+            from app.config import get_settings as _get_mem_settings
+            _mem_settings = _get_mem_settings()
+            _mem_curator = build_memory_curator_service(
+                data_dir=_mem_settings.data_dir,
+                llm_config_repository=None,
+                case_repository=case_repo,
+                audit_service=get_audit_service(),
+            )
+            sys_ctx = await _mem_curator.get_context_assembly(
+                _tenant_id,
+                conversation_memory=conv_memory,
+                effective_case_ref=_resolved_ref,
+            )
+        except Exception as _mem_exc:
+            logger.warning('Memory Curator failed in WS, falling back: %s', _mem_exc)
+
+        # Fallback to _build_system_context if Memory Curator fails
+        if not sys_ctx:
+            sys_ctx = await _build_system_context(
+                tenant_id=_tenant_id, case_repository=case_repo,
+                audit_service=get_audit_service(), user_memory=None,
+                conv_memory=conv_memory, effective_case_ref=_resolved_ref,
+            )
         if intent == 'GENERAL_CONVERSATION':
             sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
 
