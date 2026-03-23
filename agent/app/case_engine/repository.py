@@ -549,6 +549,26 @@ class CaseRepository:
             await conn.close()
         return [self._row_to_case(dict(r)) for r in rows]
 
+    async def list_cases_by_status(
+        self, tenant_id: uuid.UUID, status: str
+    ) -> list[CaseRecord]:
+        """Return cases with a specific status for a tenant."""
+        if self.is_memory:
+            return [
+                c for c in self._cases.values()
+                if c.tenant_id == tenant_id and c.status == status
+            ]
+        import asyncpg
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            rows = await conn.fetch(
+                "SELECT * FROM case_cases WHERE tenant_id=$1 AND status=$2",
+                tenant_id, status,
+            )
+        finally:
+            await conn.close()
+        return [self._row_to_case(dict(r)) for r in rows]
+
     # ── conflicts ─────────────────────────────────────────────────────────────
 
     async def create_conflict(

@@ -346,8 +346,7 @@ class TelegramCommunicatorService:
 
         # ── Step 6b: vendor-name fallback when context not found ───────────
         if (
-            intent in _CONTEXT_INTENTS
-            and (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND')
+            (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND')
             and case_repository is not None
         ):
             _tenant_for_vendor = None
@@ -367,6 +366,16 @@ class TelegramCommunicatorService:
                     _co2 = await case_repository.get_case(_uuid_mod.UUID(conv_memory.last_case_ref))
                     if _co2:
                         _tenant_for_vendor = _co2.tenant_id
+                except Exception:
+                    pass
+            # Fallback: tenant resolver
+            if _tenant_for_vendor is None:
+                try:
+                    from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_tid_v
+                    _tid_v = await _resolve_tid_v()
+                    if _tid_v:
+                        import uuid as _uuid_mod
+                        _tenant_for_vendor = _uuid_mod.UUID(_tid_v)
                 except Exception:
                     pass
 

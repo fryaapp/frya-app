@@ -125,7 +125,17 @@ async def search_case_by_vendor(
     if not text or case_repository is None or tenant_id is None:
         return None
 
+    # Include DRAFT cases — users often ask about recently uploaded documents
     all_cases = await case_repository.list_active_cases_for_tenant(tenant_id)
+    try:
+        draft_cases = await case_repository.list_cases_by_status(tenant_id, 'DRAFT')
+        # Merge without duplicates
+        seen_ids = {c.id for c in all_cases}
+        for dc in draft_cases:
+            if dc.id not in seen_ids:
+                all_cases.append(dc)
+    except (AttributeError, Exception):
+        pass  # list_cases_by_status may not exist — fall back to active only
     text_lower = text.lower()
 
     # Pass 1: vendor name appears in user text (or vice versa)
