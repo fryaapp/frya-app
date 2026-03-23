@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Request
 
@@ -914,8 +917,11 @@ async def _handle_telegram_callback_query(
                 context_resolution_status='FOUND',
             )
             await conversation_store.save(_updated_mem)
-        except Exception:
-            pass  # Memory update must not break the approval flow
+            logger.info('Callback memory updated: chat_id=%s case_id=%s action=%s', chat_id, case_id, action)
+        except Exception as exc:
+            logger.warning('Callback memory update failed: chat_id=%s error=%s', chat_id, exc)
+    else:
+        logger.warning('Callback memory skipped: conversation_store=%s chat_id=%s', conversation_store is not None, chat_id)
 
     # ── Append to ChatHistory so LLM context includes the approval ─────────
     _action_labels = {
@@ -931,8 +937,11 @@ async def _handle_telegram_callback_query(
                 f'[User hat {_action_labels.get(action, action)} für {case_id}]',
                 f'FRYA: {_action_labels.get(action, action)}.',
             )
-        except Exception:
-            pass
+            logger.info('Callback chat_history updated: chat_id=%s action=%s', chat_id, action)
+        except Exception as exc:
+            logger.warning('Callback chat_history update failed: %s', exc)
+    else:
+        logger.warning('Callback chat_history skipped: store=%s chat_id=%s', chat_history_store is not None, chat_id)
 
     # Ack the callback so Telegram removes the loading spinner
     if callback_id and telegram_connector.bot_token:
