@@ -150,10 +150,6 @@ async def _build_system_context(
     """Fetch live system data and format as a [SYSTEMKONTEXT] block for the LLM."""
     parts: list[str] = []
 
-    logger.warning('=== SYSTEM_CONTEXT START: tenant_id=%s, has_conv_memory=%s, last_case_ref=%s ===',
-        tenant_id, conv_memory is not None,
-        getattr(conv_memory, 'last_case_ref', None) if conv_memory else None)
-
     # ── Detailed case context from effective context or conversation memory ──
     _effective_case_ref = effective_case_ref or (
         getattr(conv_memory, 'last_case_ref', None) if conv_memory else None
@@ -186,16 +182,8 @@ async def _build_system_context(
                 except Exception:
                     pass
 
-            logger.warning('=== SYSTEM_CONTEXT RESOLVE: case_ref=%s, is_uuid=%s, resolved_uuid=%s ===',
-                _case_ref, _case_uuid is not None and _case_ref == str(_case_uuid), _case_uuid)
-
             case_detail = await case_repository.get_case(_case_uuid) if _case_uuid else None
             if case_detail:
-                logger.warning('=== SYSTEM_CONTEXT CASE LOADED: id=%s, vendor=%s, amount=%s, status=%s, case_num=%s, has_analysis=%s, meta_keys=%s ===',
-                    case_detail.id, case_detail.vendor_name, case_detail.total_amount,
-                    case_detail.status, case_detail.case_number,
-                    'document_analysis' in (case_detail.metadata or {}),
-                    list((case_detail.metadata or {}).keys()))
                 detail_parts = []
                 detail_parts.append(f'Aktueller Vorgang: {case_detail.case_number or case_detail.id}')
                 detail_parts.append(f'Vendor: {case_detail.vendor_name}')
@@ -221,14 +209,12 @@ async def _build_system_context(
                     bp = meta['booking_proposal']
                     detail_parts.append(f'Buchung: {bp.get("skr03_soll_name")} -> {bp.get("skr03_haben_name")}')
 
-                logger.warning('=== DETAIL_PARTS: %s ===', detail_parts)
                 _vorgang_text = 'Vorgang-Details:\n' + '\n'.join(f'  - {p}' for p in detail_parts)
                 parts.insert(0, _vorgang_text)
-                logger.warning('=== SYSTEM_CONTEXT VORGANG INSERTED AT [0], parts_count=%s ===', len(parts))
             else:
-                logger.warning('=== SYSTEM_CONTEXT NO CASE: uuid=%s, not found in DB ===', _case_uuid)
-        except Exception as _exc:
-            logger.warning('=== SYSTEM_CONTEXT ERROR: %s ===', _exc)
+                pass
+        except Exception:
+            pass
 
     # Open cases
     if case_repository is not None and tenant_id is not None:
@@ -284,9 +270,7 @@ async def _build_system_context(
 
     if not parts:
         return None
-    _result = '[SYSTEMKONTEXT]\n' + '\n'.join(parts) + '\n[/SYSTEMKONTEXT]'
-    logger.warning('=== _BUILD_SYSTEM_CONTEXT RETURN: parts_count=%s, first_100=%s ===', len(parts), _result[:100])
-    return _result
+    return '[SYSTEMKONTEXT]\n' + '\n'.join(parts) + '\n[/SYSTEMKONTEXT]'
 
 
 class TelegramCommunicatorService:
@@ -349,8 +333,6 @@ class TelegramCommunicatorService:
             )
 
         # ── Step 6b: vendor-name fallback when context not found ───────────
-        logger.warning('=== STEP6B CHECK: core_ctx=%s, case_repo=%s ===',
-            core_ctx.resolution_status if core_ctx else None, case_repository is not None)
         if (
             (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND')
             and case_repository is not None
@@ -385,12 +367,10 @@ class TelegramCommunicatorService:
                 except Exception:
                     pass
 
-            logger.warning('=== STEP6B TENANT: %s, text=%s ===', _tenant_for_vendor, (normalized.text or '')[:50])
             if _tenant_for_vendor is not None:
                 vendor_case_id = await search_case_by_vendor(
                     normalized.text or '', case_repository, _tenant_for_vendor,
                 )
-                logger.warning('=== STEP6B VENDOR RESULT: %s ===', vendor_case_id)
                 if vendor_case_id:
                     core_ctx = CommunicatorContextResolution(
                         resolution_status='FOUND',
@@ -540,12 +520,6 @@ class TelegramCommunicatorService:
                     if intent == 'GENERAL_CONVERSATION':
                         sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
 
-                    logger.warning('=== LLM_PAYLOAD DEBUG: sys_ctx_len=%s ===', len(sys_ctx) if sys_ctx else 0)
-                    # Log full sys_ctx in chunks
-                    if sys_ctx:
-                        for _ci, _chunk_start in enumerate(range(0, len(sys_ctx), 800)):
-                            logger.warning('=== SYS_CTX[%d]: %s ===', _ci, sys_ctx[_chunk_start:_chunk_start+800])
-
                     payload = build_llm_context_payload(
                         intent=intent,
                         context_resolution=effective_ctx,
@@ -556,12 +530,6 @@ class TelegramCommunicatorService:
                         provider=provider,
                         chat_history=chat_history,
                     )
-                    # Log the user message content for debugging
-                    _user_msgs = [m for m in payload.get('messages', []) if m.get('role') == 'user']
-                    if _user_msgs:
-                        _umsg = _user_msgs[-1].get('content', '')
-                        for _ui, _us in enumerate(range(0, len(_umsg), 800)):
-                            logger.warning('=== USER_MSG[%d]: %s ===', _ui, _umsg[_us:_us+800])
                     # Prepend email arrival info for DOCUMENT_ARRIVAL_CHECK
                     if email_arrival_info and intent == 'DOCUMENT_ARRIVAL_CHECK':
                         msgs = payload['messages']

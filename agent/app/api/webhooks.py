@@ -835,8 +835,6 @@ async def _handle_telegram_callback_query(
     from_user = callback_query.get('from') or {}
     update_id = raw_payload.get('update_id')
 
-    logger.warning('=== CALLBACK START: data=%s, chat_id=%s ===', callback_data, chat_id)
-
     # ── Handle duplicate document callbacks ──────────────────────────────────
     if callback_data.startswith('dup_skip:') or callback_data.startswith('dup_force:'):
         _dup_parts = callback_data.split(':')
@@ -945,11 +943,7 @@ async def _handle_telegram_callback_query(
         source='telegram_callback',
     )
 
-    logger.warning('=== CALLBACK APPROVAL DONE: case_id=%s, action=%s, result_keys=%s ===', case_id, action, list(result.keys()) if isinstance(result, dict) else type(result))
-
     # ── Update ConversationMemory so Frya remembers this approval ──────────
-    logger.warning('=== CALLBACK MEMORY UPDATE: chat_id=%s, case_ref=%s, has_conv_store=%s, has_hist_store=%s ===',
-        chat_id, case_id, conversation_store is not None, chat_history_store is not None)
     if conversation_store is not None and chat_id:
         try:
             _prev_mem = await conversation_store.load(chat_id)
