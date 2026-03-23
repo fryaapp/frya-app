@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     n8n_token: str | None = None
     n8n_default_workflow: str = 'default-frya-workflow'
 
+    jwt_secret: str = ''
+
     auth_users_json: str = '[]'
     auth_session_secret: str
     auth_session_cookie_name: str = 'frya_session'

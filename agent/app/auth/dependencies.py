@@ -13,6 +13,7 @@ from app.auth.service import AuthService, get_auth_service
 from app.config import get_settings
 
 ROLE_LEVEL = {
+    'customer': 5,
     'operator': 10,
     'admin': 20,
 }
@@ -117,6 +118,24 @@ async def require_authenticated(
     request: Request,
     auth_service: AuthService = Depends(get_auth_service),
 ) -> AuthUser:
+    # 1. Try JWT Bearer token first
+    auth_header = request.headers.get('authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        try:
+            from app.auth.jwt_auth import decode_token
+            payload = decode_token(token)
+            if payload.get('type') != 'access':
+                _raise_unauthorized()
+            return AuthUser(
+                username=payload['sub'],
+                role=payload.get('role', 'customer'),
+                tenant_id=payload.get('tid'),
+            )
+        except Exception:
+            _raise_unauthorized()
+
+    # 2. Fall back to session auth
     payload = _get_session_user_payload(request)
     if payload is None:
         _raise_unauthorized()
@@ -148,3 +167,12 @@ async def require_admin(user: AuthUser = Depends(require_authenticated)) -> Auth
     if not _has_required_role(user, 'admin'):
         _raise_forbidden()
     return user
+
+
+def require_role(*roles: str):
+    """Factory for role-based auth dependency."""
+    async def _check(user: AuthUser = Depends(require_authenticated)) -> AuthUser:
+        if user.role not in roles:
+            _raise_forbidden()
+        return user
+    return _check

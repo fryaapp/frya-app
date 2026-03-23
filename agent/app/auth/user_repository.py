@@ -74,6 +74,9 @@ class UserRepository:
             await conn.execute("ALTER TABLE frya_users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64)")
             await conn.execute("ALTER TABLE frya_users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE")
             await conn.execute("ALTER TABLE frya_users ADD COLUMN IF NOT EXISTS totp_backup_codes TEXT")
+            await conn.execute(
+                "ALTER TABLE frya_users ADD COLUMN IF NOT EXISTS customer_level INTEGER DEFAULT 0"
+            )
         finally:
             await conn.close()
 

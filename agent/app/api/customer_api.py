@@ -568,3 +568,82 @@ async def get_finance_summary(
         open_receivables=open_recv, open_payables=open_pay,
         overdue_count=overdue_count, overdue_amount=overdue_amount,
     )
+
+
+# ---------------------------------------------------------------------------
+# AUTH ENDPOINTS (P-42)
+# ---------------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class LoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    expires_in: int = 3600
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    expires_in: int = 3600
+
+
+@router.post('/auth/login')
+async def login(body: LoginRequest) -> LoginResponse:
+    """Login with email + password, returns JWT tokens."""
+    from app.auth.jwt_auth import create_access_token, create_refresh_token
+    from app.auth.service import verify_password
+    from app.dependencies import get_user_repository
+
+    repo = get_user_repository()
+    record = await repo.find_by_email(body.email)
+    if record is None:
+        record = await repo.find_by_username(body.email)
+    if record is None or not record.is_active:
+        raise HTTPException(status_code=401, detail='invalid_credentials')
+
+    if not verify_password(body.password, record.password_hash or ''):
+        raise HTTPException(status_code=401, detail='invalid_credentials')
+
+    tenant_id = record.tenant_id or 'default'
+    access = create_access_token(record.username, tenant_id, record.role)
+    refresh = create_refresh_token(record.username)
+
+    return LoginResponse(access_token=access, refresh_token=refresh)
+
+
+@router.post('/auth/refresh')
+async def refresh_token(body: RefreshRequest) -> RefreshResponse:
+    """Exchange refresh token for new access token."""
+    from app.auth.jwt_auth import create_access_token, decode_token
+    from app.dependencies import get_user_repository
+
+    try:
+        payload = decode_token(body.refresh_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail='invalid_refresh_token')
+
+    if payload.get('type') != 'refresh':
+        raise HTTPException(status_code=401, detail='invalid_token_type')
+
+    user_id = payload.get('sub')
+    if not user_id:
+        raise HTTPException(status_code=401, detail='invalid_refresh_token')
+
+    repo = get_user_repository()
+    record = await repo.find_by_username(user_id)
+    if record is None or not record.is_active:
+        raise HTTPException(status_code=401, detail='user_not_found')
+
+    tenant_id = record.tenant_id or 'default'
+    access = create_access_token(record.username, tenant_id, record.role)
+    return RefreshResponse(access_token=access)
+
+
+@router.post('/auth/logout')
+async def logout(user: AuthUser = Depends(require_authenticated)) -> dict:
+    """Logout — invalidates session (JWT stateless, client discards token)."""
+    return {'status': 'logged_out'}
