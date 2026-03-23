@@ -2731,13 +2731,159 @@ async def ui_feedback(request: Request, auth_user: AuthUser = Depends(require_ad
 # Legal / DSGVO pages
 # ---------------------------------------------------------------------------
 
+import logging as _logging
+
+_legal_logger = _logging.getLogger(__name__ + '.legal')
+
+LEGAL_PLACEHOLDERS = {
+    'company_name': {'label': 'Firmenname', 'placeholder': 'Frya GmbH'},
+    'company_street': {'label': 'Straße + Hausnummer', 'placeholder': 'Musterstr. 1'},
+    'company_zip': {'label': 'PLZ', 'placeholder': '77815'},
+    'company_city': {'label': 'Ort', 'placeholder': 'Bühl'},
+    'company_country': {'label': 'Land', 'placeholder': 'Deutschland'},
+    'responsible_first_name': {'label': 'Vorname Verantwortlicher', 'placeholder': 'Max'},
+    'responsible_last_name': {'label': 'Nachname Verantwortlicher', 'placeholder': 'Mustermann'},
+    'responsible_email': {'label': 'E-Mail Verantwortlicher', 'placeholder': 'max@example.de'},
+    'responsible_phone': {'label': 'Telefon Verantwortlicher', 'placeholder': '+49 123 456789'},
+    'ceo_name': {'label': 'Geschäftsführer', 'placeholder': 'Max Mustermann'},
+    'trade_register': {'label': 'Handelsregister', 'placeholder': 'HRB 12345'},
+    'register_court': {'label': 'Amtsgericht', 'placeholder': 'AG Mannheim'},
+    'tax_number': {'label': 'Steuernummer', 'placeholder': '12/345/67890'},
+    'ust_id': {'label': 'USt-IDNr.', 'placeholder': 'DE123456789'},
+    'dpo_name': {'label': 'Datenschutzbeauftragter', 'placeholder': 'Max Mustermann'},
+    'dpo_email': {'label': 'E-Mail DSB', 'placeholder': 'datenschutz@example.de'},
+    'website': {'label': 'Website', 'placeholder': 'https://myfrya.de'},
+    'hosting_provider': {'label': 'Hosting-Anbieter', 'placeholder': 'Hetzner Online GmbH'},
+    'hosting_location': {'label': 'Serverstandort', 'placeholder': 'Deutschland'},
+}
+
+
+async def _load_avv_documents() -> list:
+    """Load AVV documents for the template."""
+    try:
+        from app.legal.avv_repository import AvvRepository
+        settings = get_settings()
+        repo = AvvRepository(settings.database_url, settings.data_dir)
+        await repo.initialize()
+        return await repo.list_all('default')
+    except Exception as exc:
+        _legal_logger.warning('Failed to load AVV documents: %s', exc)
+        return []
+
+
 @router.get('/legal', response_class=HTMLResponse)
-async def legal_overview(request: Request) -> HTMLResponse:
+async def legal_overview(
+    request: Request,
+    saved: str = '',
+    user: AuthUser = Depends(require_operator),
+) -> HTMLResponse:
+    from app.preferences.repository import PreferencesRepository
+
+    settings = get_settings()
+    repo = PreferencesRepository(settings.database_url)
+    try:
+        await repo.initialize()
+        all_prefs = await repo.get_all_preferences('default', user.username)
+    except Exception:
+        all_prefs = {}
+
+    saved_values = {}
+    for key in LEGAL_PLACEHOLDERS:
+        saved_values[key] = all_prefs.get(f'legal_{key}', '')
+
+    # Load AVV documents
+    avv_documents = await _load_avv_documents()
+
     return TEMPLATES.TemplateResponse(
         request,
         'legal_overview.html',
-        _ctx(request, title='Rechtliches'),
+        _ctx(request,
+             title='Rechtliches',
+             placeholders=LEGAL_PLACEHOLDERS,
+             saved_values=saved_values,
+             show_saved=saved == 'true',
+             show_avv_saved=saved == 'avv',
+             avv_documents=avv_documents,
+        ),
     )
+
+
+@router.post('/legal/save-placeholders')
+async def save_legal_placeholders(
+    request: Request,
+    user: AuthUser = Depends(require_operator),
+):
+    """Save legal placeholder values and redirect."""
+    from app.preferences.repository import PreferencesRepository
+
+    form = await request.form()
+    settings = get_settings()
+    repo = PreferencesRepository(settings.database_url)
+    await repo.initialize()
+
+    tenant_id = 'default'
+    user_id = user.username
+
+    for key in LEGAL_PLACEHOLDERS:
+        value = form.get(key, '')
+        if value:
+            await repo.set_preference(tenant_id, user_id, f'legal_{key}', str(value))
+
+    return RedirectResponse(url='/ui/legal?saved=true', status_code=303)
+
+
+@router.post('/legal/upload-avv')
+async def upload_avv(
+    request: Request,
+    user: AuthUser = Depends(require_operator),
+):
+    """Upload a third-party AVV document."""
+    from app.legal.avv_repository import AvvRepository
+
+    form = await request.form()
+    file = form.get('file')
+    if not file or not hasattr(file, 'read'):
+        return RedirectResponse(url='/ui/legal?error=no_file', status_code=303)
+
+    settings = get_settings()
+    repo = AvvRepository(settings.database_url, settings.data_dir)
+    await repo.initialize()
+
+    content = await file.read()
+    await repo.upload(
+        tenant_id='default',
+        provider_name=form.get('provider_name', ''),
+        document_type=form.get('document_type', 'AVV'),
+        filename=file.filename or 'upload.pdf',
+        file_bytes=content,
+        uploaded_by=user.username,
+        notes=form.get('notes', ''),
+    )
+
+    return RedirectResponse(url='/ui/legal?saved=avv', status_code=303)
+
+
+@router.get('/legal/download-avv/{doc_id}')
+async def download_avv(
+    doc_id: str,
+    request: Request,
+    user: AuthUser = Depends(require_operator),
+):
+    """Download an AVV document."""
+    from fastapi.responses import FileResponse
+    from app.legal.avv_repository import AvvRepository
+
+    settings = get_settings()
+    repo = AvvRepository(settings.database_url, settings.data_dir)
+    doc = await repo.get_by_id(doc_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail='not_found')
+
+    file_path = settings.data_dir / doc.file_path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail='file_not_found')
+
+    return FileResponse(path=str(file_path), filename=doc.filename, media_type='application/pdf')
 
 
 @router.get('/legal/datenschutz', response_class=HTMLResponse)

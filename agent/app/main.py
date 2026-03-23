@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -75,6 +76,8 @@ from app.problems.service import ProblemCaseService
 from app.rules.audit_service import RuleChangeAuditService
 from app.rules.policy_access import REQUIRED_POLICY_ROLES
 from app.ui.router import router as ui_router
+
+_logger = logging.getLogger(__name__)
 
 AUTH_TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / 'ui' / 'templates'))
 
@@ -157,6 +160,14 @@ async def lifespan(app: FastAPI):
 
     llm_config_repo = get_llm_config_repository()
     await llm_config_repo.setup()
+
+    # AVV document storage
+    try:
+        from app.legal.avv_repository import AvvRepository
+        _avv_repo = AvvRepository(_boot_settings.database_url, _boot_settings.data_dir)
+        await _avv_repo.initialize()
+    except Exception as _avv_exc:
+        _logger.warning('AVV repository init failed: %s', _avv_exc)
 
     app.state.graph = build_graph()
 
