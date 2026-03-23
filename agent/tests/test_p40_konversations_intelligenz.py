@@ -274,3 +274,83 @@ async def test_vendor_search_no_match():
 
     found = await search_case_by_vendor('Hallo Frya', repo, tenant_id)
     assert found is None
+
+
+# ── P-40 Nachtrag: Duplikat-Erkennung ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_duplicate_detected_sends_telegram_message():
+    """When Paperless task fails with 'duplicate', user gets a Telegram notification."""
+    from app.telegram.media_service import TelegramMediaIngressService
+
+    mock_paperless = MagicMock()
+    mock_paperless.get_task_status = AsyncMock(return_value={
+        'task_id': 'task-123',
+        'status': 'FAILURE',
+        'result': 'file.pdf: Not consuming file.pdf: It is a duplicate of Invoice XYZ (#42).',
+    })
+
+    mock_telegram = MagicMock()
+    mock_telegram.send = AsyncMock(return_value={'ok': True})
+
+    svc = TelegramMediaIngressService(
+        audit_service=MagicMock(),
+        open_items_service=MagicMock(),
+        telegram_connector=mock_telegram,
+        telegram_case_link_service=MagicMock(),
+        file_store=MagicMock(),
+        max_bytes=10_000_000,
+        allowed_mime_types={'application/pdf'},
+        allowed_extensions={'.pdf'},
+        paperless_connector=mock_paperless,
+    )
+
+    # Patch asyncio.sleep to not actually wait
+    with patch('asyncio.sleep', new_callable=AsyncMock):
+        await svc._poll_paperless_task_for_duplicate(
+            paperless_task_id='task-123',
+            chat_id='12345',
+            case_id='case-dup-001',
+            filename='file.pdf',
+        )
+
+    mock_telegram.send.assert_called_once()
+    sent_msg = mock_telegram.send.call_args[0][0]
+    assert 'bereits' in sent_msg.text
+    assert 'Invoice XYZ' in sent_msg.text
+    assert sent_msg.reply_markup is not None
+    assert 'inline_keyboard' in sent_msg.reply_markup
+
+
+@pytest.mark.asyncio
+async def test_duplicate_skip_callback():
+    """dup_skip callback acks and sends skip message."""
+    from app.api.webhooks import _handle_telegram_callback_query
+
+    callback_query = {
+        'id': 'cb-dup-1',
+        'data': 'dup_skip:case-dup-001',
+        'from': {'id': 999},
+        'message': {'chat': {'id': 12345}},
+    }
+
+    mock_audit = MagicMock()
+    mock_audit.log_event = AsyncMock()
+    mock_telegram = MagicMock()
+    mock_telegram.bot_token = 'fake-token'
+    mock_telegram.send = AsyncMock()
+
+    with patch('httpx.AsyncClient') as mock_httpx:
+        mock_client = AsyncMock()
+        mock_httpx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_httpx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await _handle_telegram_callback_query(
+            callback_query, {'update_id': 3}, mock_audit, mock_telegram,
+        )
+
+    assert result['status'] == 'processed'
+    assert result['action'] == 'dup_skip'
+    mock_telegram.send.assert_called_once()
+    sent_msg = mock_telegram.send.call_args[0][0]
+    assert 'bersprungen' in sent_msg.text

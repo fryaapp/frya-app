@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import uuid
@@ -48,6 +49,71 @@ class TelegramMediaIngressService:
         self.allowed_mime_types = {x.lower() for x in allowed_mime_types if x}
         self.allowed_extensions = {x.lower() for x in allowed_extensions if x}
         self.paperless_connector = paperless_connector
+
+    async def _poll_paperless_task_for_duplicate(
+        self,
+        paperless_task_id: str,
+        chat_id: str,
+        case_id: str,
+        filename: str,
+    ) -> None:
+        """Background task: poll Paperless task status and notify user on duplicate."""
+        if self.paperless_connector is None or not paperless_task_id:
+            return
+        try:
+            # Wait for Paperless to start consuming (usually takes 5-15s)
+            for _ in range(6):
+                await asyncio.sleep(5)
+                task_info = await self.paperless_connector.get_task_status(paperless_task_id)
+                status = (task_info.get('status') or '').upper()
+
+                if status == 'SUCCESS':
+                    logger.info('Paperless task %s succeeded for %s', paperless_task_id, filename)
+                    return
+
+                if status == 'FAILURE':
+                    result_text = str(task_info.get('result') or '')
+                    if 'duplicate' in result_text.lower():
+                        # Extract original document title from error message
+                        # Format: "... It is a duplicate of {title} (#{id})."
+                        original_title = result_text
+                        import re
+                        m = re.search(r'duplicate of (.+?) \(#(\d+)\)', result_text)
+                        if m:
+                            original_title = m.group(1)
+                            original_id = m.group(2)
+                        else:
+                            original_id = None
+
+                        dup_msg = (
+                            f'FRYA: Dieses Dokument habe ich bereits.\n'
+                            f'\U0001f4c4 {original_title}\n'
+                        )
+                        if original_id:
+                            dup_msg += f'Paperless-ID: #{original_id}\n'
+                        dup_msg += '\nSoll ich es trotzdem nochmal verarbeiten?'
+
+                        keyboard = {
+                            'inline_keyboard': [
+                                [
+                                    {'text': '\u23ed\ufe0f \u00dcberspringen', 'callback_data': f'dup_skip:{case_id}'},
+                                    {'text': '\U0001f504 Trotzdem verarbeiten', 'callback_data': f'dup_force:{case_id}:{original_id or ""}'},
+                                ],
+                            ]
+                        }
+
+                        from app.connectors.contracts import NotificationMessage
+                        await self.telegram_connector.send(
+                            NotificationMessage(target=chat_id, text=dup_msg, reply_markup=keyboard)
+                        )
+                        logger.info('Duplicate detected for %s, notified chat %s', filename, chat_id)
+                    else:
+                        logger.warning('Paperless task %s failed (non-duplicate): %s', paperless_task_id, result_text)
+                    return
+
+                # PENDING or other → keep polling
+        except Exception as exc:
+            logger.debug('Paperless duplicate poll failed: %s', exc)
 
     async def handle_media_ingress(
         self,
@@ -234,6 +300,14 @@ class TelegramMediaIngressService:
                     },
                 )
                 logger.info('Telegram file %s uploaded to Paperless, task_id=%s', attachment.file_name, paperless_task_id)
+                # Fire-and-forget: poll Paperless task status and notify on duplicate
+                if paperless_task_id:
+                    asyncio.create_task(self._poll_paperless_task_for_duplicate(
+                        paperless_task_id=paperless_task_id,
+                        chat_id=normalized.actor.chat_id,
+                        case_id=case_id,
+                        filename=attachment.file_name or stored_relative_path,
+                    ))
             except Exception as _pl_exc:
                 logger.warning('Paperless upload failed for %s: %s', attachment.file_name, _pl_exc)
                 await self._log_media_event(

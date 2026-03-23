@@ -835,6 +835,47 @@ async def _handle_telegram_callback_query(
     from_user = callback_query.get('from') or {}
     update_id = raw_payload.get('update_id')
 
+    # ── Handle duplicate document callbacks ──────────────────────────────────
+    if callback_data.startswith('dup_skip:') or callback_data.startswith('dup_force:'):
+        _dup_parts = callback_data.split(':')
+        _dup_action = _dup_parts[0]  # dup_skip or dup_force
+        _dup_case_id = _dup_parts[1] if len(_dup_parts) > 1 else ''
+
+        if _dup_action == 'dup_skip':
+            _ack_text = '\u2705 Duplikat übersprungen.'
+        else:
+            _ack_text = '\U0001f504 Dokument wird erneut verarbeitet...'
+            # For dup_force: delete the original in Paperless so re-upload succeeds
+            _original_doc_id = _dup_parts[2] if len(_dup_parts) > 2 and _dup_parts[2] else None
+            if _original_doc_id:
+                try:
+                    from app.dependencies import get_paperless_connector
+                    _pc = get_paperless_connector()
+                    if _pc is not None:
+                        import httpx as _httpx
+                        async with _httpx.AsyncClient(timeout=20) as _cl:
+                            await _cl.delete(
+                                f'{_pc.base_url}/api/documents/{_original_doc_id}/',
+                                headers={'Authorization': f'Token {_pc.token}'},
+                            )
+                        logger.info('Duplicate force: deleted Paperless doc #%s for case %s', _original_doc_id, _dup_case_id)
+                except Exception as _del_exc:
+                    logger.warning('Duplicate force: failed to delete doc #%s: %s', _original_doc_id, _del_exc)
+
+        # Ack callback
+        if callback_id and telegram_connector.bot_token:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(timeout=10) as _cl:
+                await _cl.post(
+                    f'https://api.telegram.org/bot{telegram_connector.bot_token}/answerCallbackQuery',
+                    json={'callback_query_id': callback_id},
+                )
+        # Send response to chat
+        if chat_id and telegram_connector.bot_token:
+            await telegram_connector.send(NotificationMessage(target=chat_id, text=_ack_text))
+
+        return {'status': 'processed', 'action': _dup_action, 'case_id': _dup_case_id}
+
     if not callback_data.startswith('booking:'):
         # Unknown callback — ack and ignore
         if callback_id and telegram_connector.bot_token:
