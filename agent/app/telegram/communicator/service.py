@@ -75,6 +75,9 @@ def build_llm_context_payload(
     """Build the messages payload for litellm.acompletion."""
     lines = ['[FALLKONTEXT]']
     res_status = context_resolution.resolution_status if context_resolution else 'NOT_FOUND'
+    # If conversation memory has a case ref, override NOT_FOUND so LLM uses system context
+    if res_status == 'NOT_FOUND' and conversation_memory and conversation_memory.last_case_ref:
+        res_status = 'FOUND'
     lines.append(f'resolution_status: {res_status}')
     lines.append(f'truth_basis: {truth_annotation.truth_basis}')
 
@@ -146,6 +149,10 @@ async def _build_system_context(
     """Fetch live system data and format as a [SYSTEMKONTEXT] block for the LLM."""
     parts: list[str] = []
 
+    logger.warning('=== SYSTEM_CONTEXT START: tenant_id=%s, has_conv_memory=%s, last_case_ref=%s ===',
+        tenant_id, conv_memory is not None,
+        getattr(conv_memory, 'last_case_ref', None) if conv_memory else None)
+
     # ── Detailed case context from conversation memory ──────────────────────
     if conv_memory and getattr(conv_memory, 'last_case_ref', None) and case_repository is not None:
         try:
@@ -175,8 +182,14 @@ async def _build_system_context(
                 except Exception:
                     pass
 
+            logger.warning('=== SYSTEM_CONTEXT RESOLVE: case_ref=%s, is_uuid=%s, resolved_uuid=%s ===',
+                _case_ref, _case_uuid is not None and _case_ref == str(_case_uuid), _case_uuid)
+
             case_detail = await case_repository.get_case(_case_uuid) if _case_uuid else None
             if case_detail:
+                logger.warning('=== SYSTEM_CONTEXT CASE LOADED: id=%s, vendor=%s, has_analysis=%s ===',
+                    case_detail.id, case_detail.vendor_name,
+                    'document_analysis' in (case_detail.metadata or {}))
                 detail_parts = []
                 detail_parts.append(f'Aktueller Vorgang: {case_detail.case_number or case_detail.id}')
                 detail_parts.append(f'Vendor: {case_detail.vendor_name}')
@@ -203,8 +216,10 @@ async def _build_system_context(
                     detail_parts.append(f'Buchung: {bp.get("skr03_soll_name")} -> {bp.get("skr03_haben_name")}')
 
                 parts.append('Vorgang-Details:\n' + '\n'.join(f'  - {p}' for p in detail_parts))
+            else:
+                logger.warning('=== SYSTEM_CONTEXT NO CASE: uuid=%s, not found in DB ===', _case_uuid)
         except Exception as _exc:
-            logger.debug('system_context: case detail fetch failed: %s', _exc)
+            logger.warning('=== SYSTEM_CONTEXT ERROR: %s ===', _exc)
 
     # Open cases
     if case_repository is not None and tenant_id is not None:
