@@ -43,7 +43,8 @@ class TruthAnnotation(BaseModel):
 class ConversationMemory(BaseModel):
     conversation_memory_ref: str
     chat_id: str
-    last_case_ref: str | None = None
+    last_case_ref: str | None = None        # Primary: set by user action / pipeline
+    last_search_ref: str | None = None      # Secondary: set by vendor search
     last_document_ref: str | None = None
     last_clarification_ref: str | None = None
     last_open_item_id: str | None = None

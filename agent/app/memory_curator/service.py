@@ -289,8 +289,14 @@ class MemoryCuratorService:
         lines.append(f'Vorgang: {case.case_number or case.id} ({case.vendor_name or "?"})')
         lines.append(f'Betrag: {case.total_amount} {case.currency or "EUR"}')
 
+        if analysis.get('gross_amount'):
+            lines.append(f'Brutto: {analysis["gross_amount"]}')
         if analysis.get('net_amount'):
-            lines.append(f'Netto: {analysis["net_amount"]}, MwSt {analysis.get("tax_rate", "?")}%: {analysis.get("tax_amount", "?")}')
+            lines.append(f'Netto: {analysis["net_amount"]}')
+        if analysis.get('tax_rate'):
+            lines.append(f'MwSt-Satz: {analysis["tax_rate"]}%')
+        if analysis.get('tax_amount'):
+            lines.append(f'MwSt-Betrag: {analysis["tax_amount"]}')
         if analysis.get('document_number'):
             lines.append(f'Rechnungsnr: {analysis["document_number"]}')
         if analysis.get('document_date'):

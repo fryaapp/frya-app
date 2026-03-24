@@ -9,7 +9,7 @@ import litellm
 
 _LLM_TIMEOUT = float(os.environ.get('FRYA_LLM_TIMEOUT', '120'))
 
-from app.telegram.communicator.context_resolver import resolve_context, search_case_by_vendor
+from app.telegram.communicator.context_resolver import extract_case_ref_from_text, resolve_context, search_case_by_vendor
 from app.telegram.communicator.guardrail import check_guardrail
 from app.telegram.communicator.intent_classifier import classify_intent
 from app.telegram.communicator.memory.conversation_store import (
@@ -340,6 +340,17 @@ class TelegramCommunicatorService:
                 open_items_service=open_items_service,
             )
 
+        # ── Step 6a: explicit doc-ref in user text ─────────────────────────
+        _vendor_search_used = False
+        if core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND':
+            _explicit_ref = extract_case_ref_from_text(normalized.text or '')
+            if _explicit_ref:
+                core_ctx = CommunicatorContextResolution(
+                    resolution_status='FOUND',
+                    resolved_case_ref=_explicit_ref,
+                    context_reason='Explizite doc-Referenz im Text.',
+                )
+
         # ── Step 6b: vendor-name fallback when context not found ───────────
         if (
             (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND')
@@ -385,6 +396,7 @@ class TelegramCommunicatorService:
                         resolved_case_ref=vendor_case_id,
                         context_reason='Vendor-Name im Text erkannt.',
                     )
+                    _vendor_search_used = True
 
         # ── Step 7: truth arbitration ────────────────────────────────────────
         arbitrator = TruthArbitrator()
@@ -754,6 +766,7 @@ class TelegramCommunicatorService:
                 resolved_clarification_ref=effective_ctx.resolved_clarification_ref if effective_ctx else None,
                 resolved_open_item_id=effective_ctx.resolved_open_item_id if effective_ctx else None,
                 context_resolution_status=effective_ctx.resolution_status if effective_ctx else None,
+                is_search_result=_vendor_search_used,
             )
             await conversation_store.save(updated_conv)
 

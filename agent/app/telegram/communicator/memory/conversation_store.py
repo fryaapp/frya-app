@@ -78,9 +78,27 @@ def build_updated_conversation_memory(
     resolved_clarification_ref: str | None,
     resolved_open_item_id: str | None,
     context_resolution_status: str | None,
+    is_search_result: bool = False,
 ) -> ConversationMemory:
-    """Sticky merge: if context NOT_FOUND, preserve old refs."""
+    """Sticky merge: if context NOT_FOUND, preserve old refs.
+
+    If *is_search_result* is True the resolved_case_ref is stored in
+    ``last_search_ref`` instead of ``last_case_ref`` so the primary
+    context is not overwritten by vendor-search results.
+    """
     if prev_memory is None:
+        if is_search_result:
+            return ConversationMemory(
+                conversation_memory_ref='conv-' + uuid.uuid4().hex[:8],
+                chat_id=chat_id,
+                last_case_ref=None,
+                last_search_ref=resolved_case_ref,
+                last_document_ref=resolved_document_ref,
+                last_clarification_ref=resolved_clarification_ref,
+                last_open_item_id=resolved_open_item_id,
+                last_intent=intent,
+                last_context_resolution_status=context_resolution_status,
+            )
         return ConversationMemory(
             conversation_memory_ref='conv-' + uuid.uuid4().hex[:8],
             chat_id=chat_id,
@@ -98,6 +116,7 @@ def build_updated_conversation_memory(
             conversation_memory_ref=prev_memory.conversation_memory_ref,
             chat_id=chat_id,
             last_case_ref=prev_memory.last_case_ref,
+            last_search_ref=prev_memory.last_search_ref,
             last_document_ref=prev_memory.last_document_ref,
             last_clarification_ref=prev_memory.last_clarification_ref,
             last_open_item_id=prev_memory.last_open_item_id,
@@ -106,10 +125,24 @@ def build_updated_conversation_memory(
         )
 
     # FOUND or AMBIGUOUS: update with new refs, keep old if new is None
+    if is_search_result:
+        return ConversationMemory(
+            conversation_memory_ref=prev_memory.conversation_memory_ref,
+            chat_id=chat_id,
+            last_case_ref=prev_memory.last_case_ref,
+            last_search_ref=resolved_case_ref if resolved_case_ref is not None else prev_memory.last_search_ref,
+            last_document_ref=resolved_document_ref if resolved_document_ref is not None else prev_memory.last_document_ref,
+            last_clarification_ref=resolved_clarification_ref if resolved_clarification_ref is not None else prev_memory.last_clarification_ref,
+            last_open_item_id=resolved_open_item_id if resolved_open_item_id is not None else prev_memory.last_open_item_id,
+            last_intent=intent,
+            last_context_resolution_status=context_resolution_status,
+        )
+
     return ConversationMemory(
         conversation_memory_ref=prev_memory.conversation_memory_ref,
         chat_id=chat_id,
         last_case_ref=resolved_case_ref if resolved_case_ref is not None else prev_memory.last_case_ref,
+        last_search_ref=prev_memory.last_search_ref,
         last_document_ref=resolved_document_ref if resolved_document_ref is not None else prev_memory.last_document_ref,
         last_clarification_ref=resolved_clarification_ref if resolved_clarification_ref is not None else prev_memory.last_clarification_ref,
         last_open_item_id=resolved_open_item_id if resolved_open_item_id is not None else prev_memory.last_open_item_id,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -111,6 +112,21 @@ async def resolve_context(
         clarification_question=clar_question,
         has_multiple_open_items=has_multiple,
     ), ctx_ref
+
+
+def extract_case_ref_from_text(text: str) -> str | None:
+    """Extract doc-reference from user text. Returns 'doc-N' or None."""
+    if not text:
+        return None
+    # Patterns: "doc 26", "doc-26", "Doc26", "doc26"
+    m = re.search(r'\bdoc[- ]?(\d+)\b', text, re.IGNORECASE)
+    if m:
+        return f'doc-{m.group(1)}'
+    # "Vorgang 26", "Fall 26", "ref 26"
+    m = re.search(r'\b(?:vorgang|fall|ref)\s*(\d+)\b', text, re.IGNORECASE)
+    if m:
+        return f'doc-{m.group(1)}'
+    return None
 
 
 async def search_case_by_vendor(

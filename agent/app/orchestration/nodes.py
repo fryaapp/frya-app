@@ -863,6 +863,14 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                 (a.amount for a in result.amounts if a.label == 'TOTAL' and a.status == 'FOUND'),
                 None,
             )
+            _net = next(
+                (a.amount for a in result.amounts if a.label == 'NET' and a.status == 'FOUND'),
+                None,
+            )
+            _tax = next(
+                (a.amount for a in result.amounts if a.label == 'TAX' and a.status == 'FOUND'),
+                None,
+            )
             _currency = result.currency.value if result.currency.status == 'FOUND' else None
             _doc_date = result.document_date.value if result.document_date.status == 'FOUND' else None
             _due_date = result.due_date.value if result.due_date.status == 'FOUND' else None
@@ -893,6 +901,8 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                      'total_price': str(li.total_price) if li.total_price else None}
                     for li in result.line_items
                 ] if hasattr(result, 'line_items') else [],
+                net_amount=_net,
+                tax_amount=_tax,
                 repo=get_case_repository(),
                 audit_service=get_audit_service(),
             )
@@ -1177,6 +1187,35 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
                         },
                     )
                 )
+                # Update ConversationMemory so Frya knows this proposal's context
+                try:
+                    from app.dependencies import get_communicator_conversation_store, get_chat_history_store
+                    from app.telegram.communicator.memory.conversation_store import build_updated_conversation_memory
+                    _conv_store = get_communicator_conversation_store()
+                    if _conv_store and _chat_id:
+                        _prev = await _conv_store.load(_chat_id)
+                        _updated = build_updated_conversation_memory(
+                            chat_id=_chat_id,
+                            prev_memory=_prev,
+                            intent='BOOKING_PROPOSAL_SENT',
+                            resolved_case_ref=review.case_id,
+                            resolved_document_ref=None,
+                            resolved_clarification_ref=None,
+                            resolved_open_item_id=None,
+                            context_resolution_status='FOUND',
+                        )
+                        await _conv_store.save(_updated)
+                    _hist_store = get_chat_history_store()
+                    if _hist_store and _chat_id:
+                        _vendor = accounting_analysis.vendor_name or review.case_id
+                        _amt = accounting_analysis.total_amount if hasattr(accounting_analysis, 'total_amount') else ''
+                        await _hist_store.append(
+                            _chat_id,
+                            '',
+                            f'FRYA: Buchungsvorschlag für {_vendor}. Case: {review.case_id}',
+                        )
+                except Exception as _mem_exc:
+                    _logger.warning('Proposal memory update failed: %s', _mem_exc)
         except Exception as _notify_exc:
             _logger.warning('Booking proposal notification failed for case %s: %s', review.case_id, _notify_exc)
 
