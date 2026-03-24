@@ -205,7 +205,8 @@ class LLMConfigRepository:
             import redis.asyncio as aioredis
             self._redis = aioredis.from_url(self.redis_url, decode_responses=True)
             return self._redis
-        except Exception:
+        except Exception as exc:
+            logger.warning('LLMConfigRepository: Redis connect failed: %s', exc)
             return None
 
     def _cache_key(self, agent_id: str) -> str:
@@ -218,7 +219,8 @@ class LLMConfigRepository:
         try:
             raw = await r.get(self._cache_key(agent_id))
             return json.loads(raw) if raw else None
-        except Exception:
+        except Exception as exc:
+            logger.debug('LLMConfigRepository: cache_get failed: %s', exc)
             return None
 
     async def _cache_set(self, agent_id: str, data: dict) -> None:
@@ -227,8 +229,8 @@ class LLMConfigRepository:
             return
         try:
             await r.set(self._cache_key(agent_id), json.dumps(data), ex=300)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('LLMConfigRepository: cache_set failed: %s', exc)
 
     async def _cache_delete(self, agent_id: str) -> None:
         r = await self._get_redis()
@@ -236,8 +238,8 @@ class LLMConfigRepository:
             return
         try:
             await r.delete(self._cache_key(agent_id))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('LLMConfigRepository: cache_delete failed: %s', exc)
 
     async def get_config(self, agent_id: str) -> dict | None:
         cached = await self._cache_get(agent_id)

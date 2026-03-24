@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from typing import Any
 
 from app.telegram.communicator.models import CommunicatorContextResolution
+
+logger = logging.getLogger(__name__)
 
 # Open item statuses that count as "still open" (user/data pending)
 _ACTIVE_STATUSES = frozenset({'OPEN', 'WAITING_USER', 'WAITING_DATA', 'SCHEDULED'})
@@ -58,8 +61,8 @@ async def resolve_context(
             if raw_q:
                 # Truncate to 200 chars — avoid leaking full operator prompt
                 clar_question = raw_q[:200].strip()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('resolve_context: clarification lookup failed: %s', exc)
 
     # ── 3. Active open items ─────────────────────────────────────────────────
     active_item_id: str | None = None
@@ -84,8 +87,8 @@ async def resolve_context(
                 desc = getattr(first, 'description', None)
                 title = desc[:80] if desc else None
             open_item_title = title
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('resolve_context: open items lookup failed: %s', exc)
 
     has_context = bool(latest_doc or clar_ref or active_item_id)
 
@@ -150,8 +153,8 @@ async def search_case_by_vendor(
         for dc in draft_cases:
             if dc.id not in seen_ids:
                 all_cases.append(dc)
-    except (AttributeError, Exception):
-        pass  # list_cases_by_status may not exist — fall back to active only
+    except Exception as exc:
+        logger.debug('search_case_by_vendor: list_cases_by_status unavailable: %s', exc)
     text_lower = text.lower()
 
     # Pass 1: vendor name appears in user text (or vice versa)

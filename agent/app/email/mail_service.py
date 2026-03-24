@@ -16,6 +16,7 @@ Inbound mail:
 from __future__ import annotations
 
 import asyncio
+import logging
 import smtplib
 import ssl
 import uuid
@@ -26,6 +27,8 @@ from typing import Any
 import aiohttp
 
 from app.audit.service import AuditService
+
+logger = logging.getLogger(__name__)
 
 
 class MailService:
@@ -110,8 +113,8 @@ class MailService:
                     return json.loads(cfg)
             finally:
                 await conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('MailService: tenant mail config fetch failed: %s', exc)
         return None
 
     def _decrypt(self, encrypted: str) -> str:
@@ -120,7 +123,8 @@ class MailService:
             return encrypted
         try:
             return f.decrypt(encrypted.encode()).decode()
-        except Exception:
+        except Exception as exc:
+            logger.warning('MailService: decrypt failed: %s', exc)
             return encrypted
 
     async def _send_smtp(
@@ -284,5 +288,5 @@ class MailService:
                 'result': error[:200],
                 'llm_output': {'to': to, 'subject': subject, 'error': error[:500]},
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('MailService: audit log_failure failed: %s', exc)

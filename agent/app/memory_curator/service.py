@@ -228,8 +228,8 @@ class MemoryCuratorService:
                     for d in drafts:
                         if d.id not in seen:
                             cases.append(d)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug('context_assembly: draft fetch unavailable: %s', exc)
                 if cases:
                     cases.sort(key=lambda c: c.created_at or datetime.min, reverse=True)
                     case_lines = []
@@ -260,8 +260,8 @@ class MemoryCuratorService:
         # Try direct UUID
         try:
             case = await self._case_repo.get_case(uuid.UUID(case_ref))
-        except (ValueError, AttributeError):
-            pass
+        except (ValueError, AttributeError) as exc:
+            logger.debug('_build_current_case_detail: UUID parse failed: %s', exc)
 
         # Audit-trail resolution (doc-25 -> UUID)
         if case is None and self._audit_svc is not None:

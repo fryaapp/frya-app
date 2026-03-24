@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from app.audit.service import AuditService
 from app.telegram.models import (
@@ -184,8 +187,8 @@ class TelegramDocumentAnalystMergeService:
                         score += 0.35
                         reasons.append(f'Betrag stimmt ueberein: {a1}')
                         break
-                except (TypeError, ValueError, ZeroDivisionError):
-                    pass
+                except (TypeError, ValueError, ZeroDivisionError) as exc:
+                    logger.debug('_calculate_confidence: amount comparison failed: %s', exc)
 
         other_doc_ref = (other_payload.get('document_ref') or '').lower()
         if doc_ref and other_doc_ref and (

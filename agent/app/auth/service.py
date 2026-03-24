@@ -4,9 +4,12 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 import time
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 from app.auth.models import AuthUser, AuthUserRecord, SessionUser
 from app.config import get_settings
@@ -73,8 +76,8 @@ async def authenticate_db_then_env(
             if verify_password(password, db_user.password_hash):
                 return AuthUser(username=db_user.username, role=db_user.role)  # type: ignore[arg-type]
             # Wrong password for known DB user — still fall through to env
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('authenticate_db_then_env: DB lookup failed, falling back to env: %s', exc)
     # Env-based fallback (existing FRYA_AUTH_USERS_JSON users)
     return auth_service.authenticate(username, password)
 
@@ -146,7 +149,8 @@ def verify_password(password: str, stored_hash: str) -> bool:
         iterations = int(raw_iterations)
         salt = base64.b64decode(raw_salt.encode('ascii'))
         expected_digest = base64.b64decode(raw_digest.encode('ascii'))
-    except Exception:
+    except Exception as exc:
+        logger.warning('verify_password: hash decode failed: %s', exc)
         return False
 
     candidate = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations)

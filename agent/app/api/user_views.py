@@ -1,8 +1,11 @@
 """User management API: create users, send invitations."""
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -76,8 +79,8 @@ async def create_user(
             tenant_id=body.tenant_id,
         )
         invite_sent = True
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('create_user: invite mail failed for %s: %s', body.username, exc)
 
     try:
         await get_audit_service().log_event({
@@ -96,8 +99,8 @@ async def create_user(
                 'invite_sent': invite_sent,
             },
         })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('create_user: audit log failed: %s', exc)
 
     return CreateUserResponse(
         username=record.username,

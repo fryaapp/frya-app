@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 
 from app.telegram.communicator.memory.models import ConversationMemory
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationMemoryStore:
@@ -43,7 +46,8 @@ class ConversationMemoryStore:
             if raw is None:
                 return None
             return ConversationMemory.model_validate(json.loads(raw))
-        except Exception:
+        except Exception as exc:
+            logger.warning('ConversationMemoryStore.load failed: %s', exc)
             return None
 
     async def save(self, mem: ConversationMemory) -> None:
@@ -54,8 +58,8 @@ class ConversationMemoryStore:
         try:
             r = await self._get_redis()
             await r.set(self._redis_key(mem.chat_id), raw, ex=self._TTL)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('ConversationMemoryStore.save failed: %s', exc)
 
     async def clear(self, chat_id: str) -> None:
         if self._in_memory:
@@ -64,8 +68,8 @@ class ConversationMemoryStore:
         try:
             r = await self._get_redis()
             await r.delete(self._redis_key(chat_id))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('ConversationMemoryStore.clear failed: %s', exc)
 
 
 def build_updated_conversation_memory(

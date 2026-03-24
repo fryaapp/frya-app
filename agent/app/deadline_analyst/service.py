@@ -202,8 +202,8 @@ class DeadlineAnalystService:
                 skonto_amount = (
                     case.total_amount * Decimal(str(skonto_rate)) / Decimal('100')
                 ).quantize(Decimal('0.01'))
-        except (InvalidOperation, TypeError):
-            pass
+        except (InvalidOperation, TypeError) as exc:
+            logger.debug('_get_skonto_from_metadata: skonto amount calculation failed: %s', exc)
 
         return SkontoInfo(
             skonto_rate=float(skonto_rate),
@@ -323,7 +323,8 @@ def build_deadline_analyst_service(
         if model_str:
             try:
                 api_key = llm_repo.decrypt_key_for_call(llm_config)  # type: ignore[union-attr]
-            except Exception:
+            except Exception as exc:
+                logger.warning('build_deadline_analyst_service: key decrypt failed: %s', exc)
                 api_key = None
         if model_str and api_key:
             provider = (llm_config.get('provider') or '').strip()

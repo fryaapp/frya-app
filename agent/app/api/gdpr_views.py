@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import uuid
 import zipfile
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -167,8 +170,8 @@ async def request_tenant_deletion(
     # Deactivate users of this tenant
     try:
         await user_repo.deactivate_by_tenant(tenant_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('request_tenant_deletion: deactivate_by_tenant failed: %s', exc)
 
     # Audit event
     try:
@@ -187,8 +190,8 @@ async def request_tenant_deletion(
                 'hard_delete_after': hard_delete_after.isoformat(),
             },
         })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('request_tenant_deletion: audit log failed: %s', exc)
 
     return {
         'tenant_id': tenant_id,

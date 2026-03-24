@@ -24,10 +24,13 @@ Document-type mapping (DocumentTypeValue → CaseType):
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.audit.service import AuditService
@@ -207,8 +210,8 @@ async def integrate_document_analysis(
                     reference_type=ref_type,
                     reference_value=ref_value,
                 )
-            except Exception:
-                pass  # duplicate reference — ignore
+            except Exception as exc:
+                logger.debug('integrate_document_analysis: add_reference skipped (duplicate?): %s', exc)
 
         result: dict[str, Any] = {
             'status': 'assigned',
@@ -247,8 +250,8 @@ async def integrate_document_analysis(
                     reference_type=ref_type,
                     reference_value=ref_value,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug('integrate_document_analysis: add_reference (draft) skipped (duplicate?): %s', exc)
 
         result = {
             'status': 'draft_created',
@@ -273,8 +276,8 @@ async def integrate_document_analysis(
                 'line_items': line_items or [],
             }
         })
-    except Exception:
-        pass  # metadata update must not break the integration flow
+    except Exception as exc:
+        logger.warning('integrate_document_analysis: metadata update failed: %s', exc)
 
     if audit_service is not None:
         await audit_service.log_event({

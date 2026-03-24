@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Any
 
 from app.telegram.communicator.memory.models import UserMemory
+
+logger = logging.getLogger(__name__)
 
 # ── Flow State (in-memory, TTL-based) ────────────────────────────────────────
 _FLOW_TTL = 1800  # 30 minutes
@@ -80,7 +83,8 @@ class UserMemoryStore:
                 if row is None:
                     return None
                 return UserMemory.model_validate(json.loads(row['memory_json']))
-        except Exception:
+        except Exception as exc:
+            logger.warning('UserMemoryStore.load failed: %s', exc)
             return None
 
     async def save(self, mem: UserMemory) -> None:
@@ -102,8 +106,8 @@ class UserMemoryStore:
                     mem.sender_id,
                     raw,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('UserMemoryStore.save failed: %s', exc)
 
 
 def build_or_update_user_memory(

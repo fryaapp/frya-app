@@ -13,9 +13,12 @@ Endpoints:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -257,8 +260,8 @@ async def paperless_post_consumption(body: PaperlessPostConsumptionRequest) -> d
         paperless_doc_id_int: int | None = None
         try:
             paperless_doc_id_int = int(paperless_doc_id_str)
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as exc:
+            logger.debug('paperless_post_consumption: doc_id not an int: %s', exc)
 
         if paperless_doc_id_int is not None:
             bulk_repo = get_bulk_upload_repository()
@@ -322,7 +325,8 @@ async def tages_summary(body: N8NTenantRequest) -> dict[str, Any]:
             case_repository=repo,
         )
         dms_state = (await curator.get_dms_state(tid)).model_dump(mode='json')
-    except Exception:
+    except Exception as exc:
+        logger.warning('tages_summary: DMS state fetch failed: %s', exc)
         dms_state = None
 
     return {

@@ -12,9 +12,12 @@ Boundary contract:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 
 from app.audit.service import AuditService
+
+logger = logging.getLogger(__name__)
 from app.banking.models import (
     BankClarificationInput,
     BankClarificationResult,
@@ -879,8 +882,8 @@ class BankReconciliationReviewService:
                 if isinstance(raw_output, str):
                     try:
                         raw_output = _json.loads(raw_output)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug('latest_reconciliation_payload: JSON parse failed: %s', exc)
                 base = {
                     'action': action,
                     'result': getattr(event, 'result', None),
@@ -908,8 +911,8 @@ class BankReconciliationReviewService:
             if isinstance(raw_output, str):
                 try:
                     raw_output = _json.loads(raw_output)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug('_latest_payload_from_actions: JSON parse failed: %s', exc)
             base = {
                 'action': action,
                 'result': getattr(event, 'result', None),

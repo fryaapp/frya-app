@@ -34,7 +34,11 @@ def infer_doc_type(reference: str | None, doc_type: str | None) -> str:
             if ref_upper.startswith(pfx):
                 return 'expense'
     return 'unknown'
+import logging
+
 from app.connectors.accounting_akaunting import AkauntingConnector
+
+logger = logging.getLogger(__name__)
 
 _PROBE_VERSION = 'bank-transaction-probe-v1.2'
 
@@ -86,8 +90,8 @@ def _score_transaction(
                 try:
                     tx_amount = float(raw)
                     break
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as exc:
+                    logger.debug('_score_transaction: amount parse failed for key %s: %s', key, exc)
         if tx_amount is not None:
             if abs(tx_amount - amount) < 0.01:
                 score += 40
@@ -484,8 +488,8 @@ class BankTransactionService:
         try:
             raw_status = await self.akaunting_connector.get_feed_status()
             feed_status = FeedStatus(**raw_status)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('probe_test_transactions: feed status unavailable: %s', exc)
 
         # For test probe, feed_total = len(test_transactions) — they are all "available"
         result_status, candidates, note = _determine_result(
