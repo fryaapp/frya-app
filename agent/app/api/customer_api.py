@@ -472,10 +472,17 @@ async def get_deadlines(
     user: AuthUser = Depends(require_authenticated),
 ) -> DeadlinesResponse:
     """Return deadline overview."""
-    from app.deadline_analyst.service import DeadlineAnalystService
-    from app.dependencies import get_case_repository
+    from app.deadline_analyst.service import build_deadline_analyst_service
+    from app.dependencies import get_case_repository, get_llm_config_repository
     tenant_id = await _resolve_tenant_uuid()
-    svc = DeadlineAnalystService(get_case_repository())
+    _llm_repo = get_llm_config_repository()
+    _llm_config = None
+    if _llm_repo:
+        try:
+            _llm_config = await _llm_repo.get_config_or_fallback('deadline_analyst')
+        except Exception:
+            pass
+    svc = build_deadline_analyst_service(get_case_repository(), _llm_repo, _llm_config)
     report = await svc.check_all_deadlines(tenant_id)
 
     def _item(it: Any) -> dict:
