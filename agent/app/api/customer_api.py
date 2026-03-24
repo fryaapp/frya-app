@@ -926,6 +926,103 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
     await websocket.send_json({'type': 'typing', 'active': False})
 
 
+# ---------------------------------------------------------------------------
+# P-45 Problem 5: POST /admin/backfill-case-metadata
+# ---------------------------------------------------------------------------
+
+@router.post('/admin/backfill-case-metadata')
+async def backfill_case_metadata(
+    user: AuthUser = Depends(require_authenticated),
+) -> dict:
+    """Backfill document_analysis metadata for cases that don't have it."""
+    from app.dependencies import get_case_repository, get_paperless_connector
+    from app.case_engine.tenant_resolver import resolve_tenant_id
+
+    # Resolve tenant
+    tid_str = await resolve_tenant_id()
+    if not tid_str:
+        return {'error': 'no_tenant', 'updated': 0, 'skipped': 0}
+
+    repo = get_case_repository()
+    pc = get_paperless_connector()
+    tid = uuid.UUID(tid_str)
+
+    updated = 0
+    skipped = 0
+    errors = []
+
+    # Get all cases across all statuses
+    all_cases = []
+    for status in ['DRAFT', 'OPEN', 'OVERDUE', 'PAID', 'CLOSED']:
+        try:
+            all_cases.extend(await repo.list_cases_by_status(tid, status))
+        except Exception:
+            pass
+
+    for case in all_cases:
+        meta = case.metadata or {}
+        if meta.get('document_analysis') and meta['document_analysis'].get('line_items'):
+            skipped += 1
+            continue
+
+        # Find linked documents to get Paperless doc ID
+        try:
+            docs = await repo.get_case_documents(case.id)
+            paperless_doc_id = None
+            for d in docs:
+                if d.document_source == 'paperless' and d.document_source_id:
+                    paperless_doc_id = d.document_source_id
+                    break
+                # Also try numeric IDs from source_id
+                src_id = d.document_source_id or ''
+                if src_id.isdigit():
+                    paperless_doc_id = src_id
+                    break
+
+            if not paperless_doc_id:
+                skipped += 1
+                continue
+
+            # Get document content from Paperless
+            paperless_doc = await pc.get_document(str(paperless_doc_id))
+            if not paperless_doc:
+                skipped += 1
+                continue
+
+            # Build analysis dict from existing Paperless metadata + case data
+            existing_analysis = meta.get('document_analysis', {})
+            analysis_update = {
+                'sender': existing_analysis.get('sender') or case.vendor_name,
+                'document_number': existing_analysis.get('document_number'),
+                'document_date': existing_analysis.get('document_date'),
+                'gross_amount': existing_analysis.get('gross_amount') or (float(case.total_amount) if case.total_amount else None),
+                'document_type': existing_analysis.get('document_type') or 'INVOICE',
+            }
+
+            # Merge with existing metadata (don't overwrite existing fields)
+            if meta.get('document_analysis'):
+                for k, v in analysis_update.items():
+                    if not meta['document_analysis'].get(k) and v:
+                        meta['document_analysis'][k] = v
+                await repo.update_metadata(case.id, {'document_analysis': meta['document_analysis']})
+            else:
+                await repo.update_metadata(case.id, {'document_analysis': analysis_update})
+
+            updated += 1
+            logger.info('Backfill: updated case %s (%s)', case.id, case.vendor_name)
+
+        except Exception as exc:
+            errors.append(f'{case.id}: {str(exc)[:100]}')
+            logger.warning('Backfill failed for case %s: %s', case.id, exc)
+
+    return {
+        'updated': updated,
+        'skipped': skipped,
+        'total': len(all_cases),
+        'errors': errors[:10],
+    }
+
+
 @router.websocket('/chat/stream')
 async def chat_websocket(websocket: WebSocket, token: str = Query(default='')):
     """WebSocket for real-time chat with Frya."""
