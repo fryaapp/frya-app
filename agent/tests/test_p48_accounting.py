@@ -107,3 +107,97 @@ async def test_insert_and_list_bookings():
 
     bookings = await repo.list_bookings(tid)
     assert len(bookings) == 1
+
+
+@pytest.mark.asyncio
+async def test_booking_service_create_from_case():
+    from app.accounting.booking_service import BookingService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    svc = BookingService(repo)
+    tid = uuid.uuid4()
+
+    booking = await svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='Test Vendor GmbH', description='Wareneingang Test',
+        account_soll='3300', account_soll_name='Wareneingang 19%',
+        account_haben='1600', account_haben_name='Verbindlichkeiten LuL',
+        gross_amount=Decimal('119.00'), net_amount=Decimal('100.00'),
+        tax_rate=Decimal('19.00'), tax_amount=Decimal('19.00'),
+        document_number='INV-001',
+    )
+    assert booking.booking_number == 1
+    assert booking.gross_amount == Decimal('119.00')
+    assert booking.booking_hash
+    assert len(booking.booking_hash) == 64
+
+    # Contact should have been created
+    contacts = await repo.list_contacts(tid)
+    assert len(contacts) == 1
+    assert contacts[0].name == 'Test Vendor GmbH'
+
+
+@pytest.mark.asyncio
+async def test_booking_service_cancel():
+    from app.accounting.booking_service import BookingService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    svc = BookingService(repo)
+    tid = uuid.uuid4()
+
+    booking = await svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='Cancel Test', description='Test',
+        account_soll='3300', account_soll_name='Wareneingang',
+        account_haben='1600', account_haben_name='Verbindlichkeiten',
+        gross_amount=Decimal('50.00'),
+    )
+
+    reversal = await svc.cancel_booking(
+        booking_id=booking.id, tenant_id=tid,
+        reason='Falsch gebucht', cancelled_by='admin',
+    )
+    assert reversal.booking_type == 'CORRECTION'
+    assert reversal.account_soll == '1600'  # Swapped
+    assert reversal.account_haben == '3300'  # Swapped
+
+
+@pytest.mark.asyncio
+async def test_verify_hash_chain():
+    from app.accounting.booking_service import BookingService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    svc = BookingService(repo)
+    tid = uuid.uuid4()
+
+    await svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='V1', description='B1',
+        account_soll='3300', account_soll_name='W',
+        account_haben='1600', account_haben_name='V',
+        gross_amount=Decimal('100.00'),
+    )
+    await svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='V2', description='B2',
+        account_soll='4200', account_soll_name='M',
+        account_haben='1200', account_haben_name='B',
+        gross_amount=Decimal('50.00'),
+    )
+
+    result = await svc.verify_hash_chain(tid)
+    assert result['valid'] is True
+    assert result['total'] == 2
+
+
+@pytest.mark.asyncio
+async def test_contact_service():
+    from app.accounting.contact_service import ContactService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    svc = ContactService(repo)
+    tid = uuid.uuid4()
+
+    c = await svc.find_or_create_from_analysis(tid, {'sender': 'LUMO UG'})
+    assert c.name == 'LUMO UG'
+    assert c.contact_type == 'VENDOR'

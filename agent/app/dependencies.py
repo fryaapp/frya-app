@@ -424,3 +424,10 @@ def get_bulk_upload_service() -> BulkUploadService:
         paperless=get_paperless_connector(),
         audit_service=get_audit_service(),
     )
+
+
+@lru_cache
+def get_accounting_repository():
+    from app.accounting.repository import AccountingRepository
+    settings = get_settings()
+    return AccountingRepository(settings.database_url)
