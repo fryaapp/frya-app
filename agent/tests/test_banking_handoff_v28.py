@@ -467,54 +467,10 @@ async def test_banking_handoff_visible_in_inspect_and_ui(monkeypatch, tmp_path: 
     monkeypatch.setenv('FRYA_RULES_DIR', str(tmp_path / 'rules'))
     monkeypatch.setenv('FRYA_VERFAHRENSDOKU_DIR', str(tmp_path / 'verfahrensdoku'))
     monkeypatch.setenv('FRYA_PAPERLESS_BASE_URL', 'http://paperless')
-    monkeypatch.setenv('FRYA_AKAUNTING_BASE_URL', 'http://akaunting')
     monkeypatch.setenv('FRYA_N8N_BASE_URL', 'http://n8n')
     monkeypatch.setenv('FRYA_AUTH_USERS_JSON', _build_users_json())
     monkeypatch.setenv('FRYA_AUTH_SESSION_SECRET', 'test-secret')
     monkeypatch.setenv('FRYA_AUTH_COOKIE_SECURE', 'false')
-
-    async def _fake_feed_status(self):
-        return {
-            'reachable': True,
-            'source_url': 'http://akaunting',
-            'accounts_available': 1,
-            'transactions_total': 4,
-            'note': 'ok',
-        }
-
-    async def _fake_search_transactions(self, **kwargs):
-        return [
-            {
-                'id': 6,
-                'amount': '1450.00',
-                'currency_code': 'EUR',
-                'paid_at': '2026-03-12',
-                'reference': 'INV-2026-101',
-                'contact_name': 'Alpha GmbH',
-                'type': 'income',
-            }
-        ]
-
-    async def _fake_search_invoices(self, **kwargs):
-        return [
-            {
-                'id': 101,
-                'document_number': 'INV-2026-101',
-                'amount': '1450.00',
-                'status': 'sent',
-                'contact_name': 'Alpha GmbH',
-            }
-        ]
-
-    async def _fake_search_bills(self, **kwargs):
-        return []
-
-    import app.connectors.accounting_akaunting as akaunting_module
-
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'get_feed_status', _fake_feed_status)
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'search_transactions', _fake_search_transactions)
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'search_invoices', _fake_search_invoices)
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'search_bills', _fake_search_bills)
 
     app = _build_app()
 
@@ -647,54 +603,10 @@ async def test_banking_returned_clarification_visible_in_inspect_and_ui(monkeypa
     monkeypatch.setenv('FRYA_RULES_DIR', str(tmp_path / 'rules'))
     monkeypatch.setenv('FRYA_VERFAHRENSDOKU_DIR', str(tmp_path / 'verfahrensdoku'))
     monkeypatch.setenv('FRYA_PAPERLESS_BASE_URL', 'http://paperless')
-    monkeypatch.setenv('FRYA_AKAUNTING_BASE_URL', 'http://akaunting')
     monkeypatch.setenv('FRYA_N8N_BASE_URL', 'http://n8n')
     monkeypatch.setenv('FRYA_AUTH_USERS_JSON', _build_users_json())
     monkeypatch.setenv('FRYA_AUTH_SESSION_SECRET', 'test-secret')
     monkeypatch.setenv('FRYA_AUTH_COOKIE_SECURE', 'false')
-
-    async def _fake_feed_status(self):
-        return {
-            'reachable': True,
-            'source_url': 'http://akaunting',
-            'accounts_available': 1,
-            'transactions_total': 4,
-            'note': 'ok',
-        }
-
-    async def _fake_search_transactions(self, **kwargs):
-        return [
-            {
-                'id': 7,
-                'amount': '89.90',
-                'currency_code': 'EUR',
-                'paid_at': '2026-03-05',
-                'reference': 'OUT-2026-042',
-                'contact_name': 'City Shop',
-                'type': 'expense',
-            }
-        ]
-
-    async def _fake_search_invoices(self, **kwargs):
-        return []
-
-    async def _fake_search_bills(self, **kwargs):
-        return [
-            {
-                'id': 42,
-                'document_number': 'OUT-2026-042',
-                'amount': '89.90',
-                'status': 'received',
-                'contact_name': 'City Shop',
-            }
-        ]
-
-    import app.connectors.accounting_akaunting as akaunting_module
-
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'get_feed_status', _fake_feed_status)
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'search_transactions', _fake_search_transactions)
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'search_invoices', _fake_search_invoices)
-    monkeypatch.setattr(akaunting_module.AkauntingConnector, 'search_bills', _fake_search_bills)
 
     app = _build_app()
 

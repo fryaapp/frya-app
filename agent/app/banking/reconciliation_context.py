@@ -2,14 +2,14 @@
 
 Builds a read-only operator work context that bundles:
   - document / case context
-  - accounting / Akaunting context
+  - accounting / Buchhaltung context
   - banking / transaction context
   - reconciliation review / handoff / clarification status
   - match / mismatch / gap interpretation
   - next manual action
 
 Conservative boundary:
-  - GET only against Akaunting
+  - GET only against Buchhaltung
   - no synthetic audit event from this builder
   - bank_write_executed is always False
   - no_financial_write is always True
@@ -35,7 +35,6 @@ from app.banking.models import (
     TransactionCandidate,
 )
 from app.banking.service import _determine_result, infer_doc_type
-from app.connectors.accounting_akaunting import AkauntingConnector
 from app.open_items.service import OpenItemsService
 
 _CONTEXT_VERSION = 'reconciliation-context-v1.6'
@@ -147,63 +146,59 @@ def _extract_document_context(
 
 
 def _lookup_accounting_docs(
-    akaunting_connector: AkauntingConnector,
     reference: str | None,
     amount: float | None,
     contact_name: str | None,
     doc_type: str,
 ):
     async def _run() -> tuple[str | None, str, list[dict], dict[str, Any]]:
+        """Search internal accounting bookings for matching documents."""
         docs: list[dict] = []
-        doc_family = 'invoice'
         try:
-            if doc_type == 'expense':
-                docs = await akaunting_connector.search_bills(
-                    reference=reference,
-                    amount=amount,
-                    contact_name=contact_name,
-                )
-                doc_family = 'bill'
-            elif doc_type == 'income':
-                docs = await akaunting_connector.search_invoices(
-                    reference=reference,
-                    amount=amount,
-                    contact_name=contact_name,
-                )
-                doc_family = 'invoice'
-            else:
-                bills = await akaunting_connector.search_bills(
-                    reference=reference,
-                    amount=amount,
-                    contact_name=contact_name,
-                )
-                invoices = await akaunting_connector.search_invoices(
-                    reference=reference,
-                    amount=amount,
-                    contact_name=contact_name,
-                )
-                docs = [*bills, *invoices]
-                doc_family = 'document'
-        except Exception as exc:  # pragma: no cover - network path
+            from app.dependencies import get_accounting_repository
+            import uuid as _uuid
+            repo = get_accounting_repository()
+            tenant_id = _uuid.UUID('00000000-0000-0000-0000-000000000000')
+            bookings = await repo.list_bookings(tenant_id, limit=100)
+
+            for b in bookings:
+                score = 0
+                if reference and reference.lower() in (b.document_number or '').lower():
+                    score += 2
+                if contact_name and contact_name.lower() in (b.description or '').lower():
+                    score += 1
+                if amount is not None and abs(float(b.gross_amount) - amount) <= abs(amount) * 0.05:
+                    score += 2
+                if score >= 2:
+                    docs.append({
+                        'id': str(b.id),
+                        'document_number': b.document_number,
+                        'status': b.status,
+                        'amount': str(b.gross_amount),
+                        'contact_name': b.description,
+                    })
+
+            docs = docs[:5]
+        except Exception as exc:
             return 'UNAVAILABLE', f'Accounting-Lookup fehlgeschlagen: {exc}', [], {}
 
         if len(docs) == 1:
             doc = docs[0]
             result = 'FOUND'
-            note = f'Akaunting-{doc_family} gefunden.'
+            note = 'Buchung gefunden.'
             details = {
                 'doc_id': str(doc.get('id') or doc.get('document_number') or ''),
-                'doc_reference': str(doc.get('document_number') or doc.get('number') or doc.get('reference') or ''),
+                'doc_reference': str(doc.get('document_number') or ''),
                 'doc_status': str(doc.get('status') or ''),
-                'doc_amount': _to_float(doc.get('amount') or doc.get('total')),
-                'doc_contact': str(doc.get('contact_name') or (doc.get('contact') or {}).get('name') or ''),
+                'doc_amount': _to_float(doc.get('amount')),
+                'doc_contact': str(doc.get('contact_name') or ''),
             }
             return result, note, docs[:5], details
 
         if len(docs) > 1:
-            return 'AMBIGUOUS', f'{len(docs)} Akaunting-Treffer gefunden.', docs[:5], {}
+            return 'AMBIGUOUS', f'{len(docs)} Buchungen gefunden.', docs[:5], {}
 
-        return 'NOT_FOUND', 'Kein passender Akaunting-Beleg gefunden.', [], {}
+        return 'NOT_FOUND', 'Keine passende Buchung gefunden.', [], {}
 
     return _run()
 
@@ -650,12 +645,10 @@ class ReconciliationContextService:
     def __init__(
         self,
         bank_service,
-        akaunting_connector: AkauntingConnector,
         audit_service: AuditService,
         open_items_service: OpenItemsService,
     ) -> None:
         self.bank_service = bank_service
-        self.akaunting_connector = akaunting_connector
         self.audit_service = audit_service
         self.open_items_service = open_items_service
 
@@ -689,15 +682,12 @@ class ReconciliationContextService:
         resolved_doc_date = document_context['doc_date']
         resolved_date_from, resolved_date_to = _date_window(resolved_doc_date, date_from, date_to)
 
-        feed_status_raw = await self.akaunting_connector.get_feed_status()
-        feed_status = FeedStatus(**feed_status_raw)
-        transactions = await self.akaunting_connector.search_transactions(
-            reference=resolved_reference,
-            amount=resolved_amount,
-            contact_name=resolved_contact,
-            date_from=resolved_date_from,
-            date_to=resolved_date_to,
+        feed_status = FeedStatus(
+            reachable=True, source_url='internal',
+            accounts_available=0, transactions_total=0,
+            note='FRYA-interne Buchhaltung',
         )
+        transactions: list[dict] = []  # No external transaction source
         bank_result, bank_note, _matches, candidates = _bank_probe_from_live_data(
             transactions=transactions,
             feed_status=feed_status,
@@ -711,14 +701,13 @@ class ReconciliationContextService:
         best = candidates[0] if candidates else None
 
         accounting_result, accounting_note, accounting_matches, accounting_details = await _lookup_accounting_docs(
-            self.akaunting_connector,
             reference=resolved_reference,
             amount=resolved_amount,
             contact_name=resolved_contact,
             doc_type=resolved_doc_type,
         )
 
-        latest_accounting_probe = _latest_payload(chronology, {'AKAUNTING_PROBE_EXECUTED'}) or {}
+        latest_accounting_probe = _latest_payload(chronology, {'ACCOUNTING_PROBE_EXECUTED'}) or {}
         latest_review_outcome: str | None = None
         latest_review_decision: str | None = None
         latest_review_by: str | None = None

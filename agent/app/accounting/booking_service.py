@@ -212,7 +212,7 @@ class BookingService:
     async def get_finance_summary(
         self, tenant_id: uuid.UUID, date_from: date, date_to: date,
     ) -> dict:
-        """Financial summary from bookings (replaces Akaunting get_monthly_summary)."""
+        """Financial summary from bookings."""
         bookings = await self._repo.list_bookings(
             tenant_id, date_from=date_from, date_to=date_to, status='BOOKED',
         )

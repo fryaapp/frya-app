@@ -7,9 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from app.accounting_analysis.akaunting_reconciliation_service import AkauntingProbeResult, AkauntingReconciliationService
 from app.accounting_analysis.models import (
-    AkauntingReconciliationInput,
     AccountingClarificationCompletionInput,
     AccountingManualHandoffInput,
     AccountingManualHandoffResolutionInput,
@@ -44,7 +42,6 @@ from app.banking.review_service import BankReconciliationReviewService
 from app.banking.service import BankTransactionService
 from app.dependencies import (
     get_accounting_operator_review_service,
-    get_akaunting_reconciliation_service,
     get_approval_service,
     get_audit_service,
     get_bank_reconciliation_review_service,
@@ -102,12 +99,6 @@ class ExternalAccountingProcessResolutionBody(BaseModel):
 
 
 class ExternalReturnClarificationCompletionBody(BaseModel):
-    note: str | None = None
-
-
-class AkauntingReconciliationLookupBody(BaseModel):
-    object_type: str
-    object_id: str
     note: str | None = None
 
 
@@ -900,10 +891,10 @@ def _outside_agent_banking_process(events):
     return None
 
 
-def _latest_akaunting_probe(events):
+def _latest_accounting_probe(events):
     for event in reversed(events):
         action = getattr(event, 'action', '') or ''
-        if action == 'AKAUNTING_PROBE_EXECUTED':
+        if action == 'ACCOUNTING_PROBE_EXECUTED':
             payload = _normalize_payload(getattr(event, 'llm_output', None))
             if isinstance(payload, dict):
                 return {'action': action, 'created_at': str(getattr(event, 'created_at', '')), **payload}
@@ -929,7 +920,7 @@ def _latest_accounting_analysis(events):
 
 def _should_build_reconciliation_context(events, doc_refs, acc_refs):
     actions = {getattr(event, 'action', '') or '' for event in events}
-    if any(action.startswith('BANK_') or action.startswith('AKAUNTING_') for action in actions):
+    if any(action.startswith('BANK_') or action.startswith('ACCOUNTING_') for action in actions):
         return True
     refs = [*doc_refs, *acc_refs]
     return any(str(ref).upper().startswith(('INV-', 'OUT-', 'EXP-', 'REC-', 'BILL-')) for ref in refs)
@@ -1177,47 +1168,6 @@ async def case_external_return_clarification_complete(
     return result.model_dump(mode='json')
 
 
-@router.post('/{case_id:path}/akaunting-reconciliation-lookup', dependencies=[Depends(require_csrf)])
-async def case_akaunting_reconciliation_lookup(
-    case_id: str,
-    body: AkauntingReconciliationLookupBody,
-    reconciliation_service: AkauntingReconciliationService = Depends(get_akaunting_reconciliation_service),
-    current_user: AuthUser = Depends(require_admin),
-) -> dict:
-    try:
-        result = await reconciliation_service.lookup(
-            AkauntingReconciliationInput(
-                case_id=case_id,
-                object_type=body.object_type,
-                object_id=body.object_id,
-                triggered_by=current_user.username,
-                note=body.note,
-                source='inspect_case_view',
-            )
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return result.model_dump(mode='json')
-
-
-@router.post('/{case_id:path}/akaunting-probe')
-async def case_akaunting_probe(
-    case_id: str,
-    accounting_data: dict | None = None,
-    reconciliation_service: AkauntingReconciliationService = Depends(get_akaunting_reconciliation_service),
-    audit_service: AuditService = Depends(get_audit_service),
-) -> dict:
-    """Read-only Akaunting probe. No write, no payment, no finalisation."""
-    if accounting_data is None:
-        accounting_data = {}
-    result: AkauntingProbeResult = await reconciliation_service.probe_case(
-        case_id=case_id,
-        accounting_data=accounting_data,
-    )
-    assert result.akaunting_write_executed is False, 'Safety invariant violated'
-    return result.model_dump(mode='json')
-
-
 class BankTransactionProbeBody(BaseModel):
     reference: str | None = None
     amount: float | None = None
@@ -1245,7 +1195,7 @@ async def case_bank_transaction_probe(
     body: BankTransactionProbeBody | None = None,
     bank_service: BankTransactionService = Depends(get_bank_transaction_service),
 ) -> dict:
-    """Read-only bank transaction probe via Akaunting. No write, no payment initiation."""
+    """Read-only bank transaction probe. No write, no payment initiation."""
     if body is None:
         body = BankTransactionProbeBody()
     result: BankTransactionProbeResult = await bank_service.probe_transactions(
@@ -1337,7 +1287,7 @@ async def case_bank_reconciliation_review(
     """V1.3 operator banking review step.
 
     Records the operator's CONFIRM or REJECT decision on a probe candidate.
-    Creates audit event + follow-up open item. No Akaunting write. No payment.
+    Creates audit event + follow-up open item. No external write. No payment.
     bank_write_executed is always False.
     """
     payload = BankReconciliationReviewInput(
@@ -1587,7 +1537,7 @@ async def case_view_json(
         'latest_gate_summary': latest_gate_summary(chronology),
         'accounting_review': _latest_accounting_review(chronology),
         'accounting_analysis': _latest_accounting_analysis(chronology),
-        'akaunting_probe': _latest_akaunting_probe(chronology),
+        'accounting_probe': _latest_accounting_probe(chronology),
         'bank_transaction_probe': _latest_bank_transaction_probe(chronology),
         'banking_reconciliation_context': (
             reconciliation_context.model_dump(mode='json') if reconciliation_context else None

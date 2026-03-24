@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, Query
@@ -201,9 +201,10 @@ async def approve_inbox_item(
     body: ApprovalRequest,
     user: AuthUser = Depends(require_authenticated),
 ) -> dict:
+    from app.accounting.booking_service import BookingService
     from app.booking.approval_service import BookingApprovalService
     from app.dependencies import (
-        get_akaunting_connector, get_approval_service,
+        get_accounting_repository, get_approval_service,
         get_audit_service, get_open_items_service,
     )
 
@@ -215,7 +216,7 @@ async def approve_inbox_item(
 
     booking_svc = BookingApprovalService(
         approval_service=approval_svc, open_items_service=get_open_items_service(),
-        audit_service=get_audit_service(), akaunting_connector=get_akaunting_connector(),
+        audit_service=get_audit_service(), booking_service=BookingService(get_accounting_repository()),
     )
     result = await booking_svc.process_response(
         case_id=case_id, approval_id=pending[0].approval_id,
@@ -529,8 +530,8 @@ async def get_finance_summary(
     period: str = 'month',
 ) -> FinanceSummaryResponse:
     """Return financial summary."""
-    from app.dependencies import get_akaunting_connector
-    ak = get_akaunting_connector()
+    from app.accounting.booking_service import BookingService
+    from app.dependencies import get_accounting_repository
     now = datetime.now(timezone.utc)
 
     if period == 'quarter':
@@ -546,22 +547,21 @@ async def get_finance_summary(
 
     total_income = 0.0
     total_expenses = 0.0
-    for m in months:
-        try:
-            s = await ak.get_monthly_summary(now.year, m)
-            total_income += s.get('total_income', 0.0)
-            total_expenses += s.get('total_expense', 0.0)
-        except Exception as exc:
-            logger.warning('Finance summary failed for %d-%02d: %s', now.year, m, exc)
+    try:
+        tid = await _resolve_tenant_uuid()
+        svc = BookingService(get_accounting_repository())
+        from calendar import monthrange
+        date_from = date(now.year, months[0], 1)
+        last_day = monthrange(now.year, months[-1])[1]
+        date_to = date(now.year, months[-1], last_day)
+        summary = await svc.get_finance_summary(tid, date_from, date_to)
+        total_income = summary.get('total_income', 0.0)
+        total_expenses = summary.get('total_expense', 0.0)
+    except Exception as exc:
+        logger.warning('Finance summary failed: %s', exc)
 
     open_recv = 0.0
     open_pay = 0.0
-    try:
-        oi = await ak.get_open_items_summary()
-        open_recv = oi.get('total_receivable', 0.0)
-        open_pay = oi.get('total_payable', 0.0)
-    except Exception as exc:
-        logger.warning('Open items fetch failed: %s', exc)
 
     overdue_count = 0
     overdue_amount = 0.0

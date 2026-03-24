@@ -36,8 +36,6 @@ def infer_doc_type(reference: str | None, doc_type: str | None) -> str:
     return 'unknown'
 import logging
 
-from app.connectors.accounting_akaunting import AkauntingConnector
-
 logger = logging.getLogger(__name__)
 
 _PROBE_VERSION = 'bank-transaction-probe-v1.2'
@@ -354,7 +352,7 @@ class BankTransactionService:
     """Conservative read-only banking service.
 
     Boundary contract:
-    - Reads bank transactions and accounts from Akaunting via GET-only calls.
+    - Reads bank transactions and accounts from internal accounting.
     - Never initiates payments, transfers, or any write operation.
     - Every probe is logged to the audit service.
     - bank_write_executed is always False (asserted by caller).
@@ -366,10 +364,8 @@ class BankTransactionService:
 
     def __init__(
         self,
-        akaunting_connector: AkauntingConnector,
         audit_service: AuditService,
     ) -> None:
-        self.akaunting_connector = akaunting_connector
         self.audit_service = audit_service
 
     async def probe_transactions(
@@ -382,7 +378,7 @@ class BankTransactionService:
         date_to: str | None = None,
         doc_type: str | None = None,  # V1.5: 'income'|'expense'|'unknown' for TYPE_MISMATCH
     ) -> BankTransactionProbeResult:
-        """Read-only probe: search Akaunting banking transactions. Never writes.
+        """Read-only probe: search internal bookings for matching transactions. Never writes.
 
         V1.2: also fetches FeedStatus so operators can see feed health inline.
         V1.5: doc_type enables TYPE_MISMATCH detection in reason_codes.
@@ -404,17 +400,14 @@ class BankTransactionService:
         feed_status: FeedStatus | None = None
 
         try:
-            # V1.2: get feed health first
-            raw_status = await self.akaunting_connector.get_feed_status()
-            feed_status = FeedStatus(**raw_status)
-
-            transactions = await self.akaunting_connector.search_transactions(
-                reference=reference,
-                amount=amount,
-                contact_name=contact_name,
-                date_from=date_from,
-                date_to=date_to,
+            # Internal accounting — no external feed
+            feed_status = FeedStatus(
+                reachable=True, source_url='internal',
+                accounts_available=0, transactions_total=0,
+                note='FRYA-interne Buchhaltung',
             )
+
+            transactions: list[dict] = []  # Bank transaction probe is now a stub — no external source
             matches = transactions[:10]
 
             result_status, candidates, note = _determine_result(
@@ -467,7 +460,7 @@ class BankTransactionService:
     ) -> BankTransactionProbeResult:
         """Read-only probe on operator-supplied test transactions.
 
-        V1.2: allows demonstrating the scoring pipeline without live Akaunting data.
+        V1.2: allows demonstrating the scoring pipeline without live data.
         The result is clearly flagged with is_test_data=True and logged as
         BANK_TEST_PROBE_EXECUTED (not BANK_TRANSACTION_PROBE_EXECUTED).
 
@@ -483,13 +476,12 @@ class BankTransactionService:
             '_test_transaction_count': len(test_transactions),
         }
 
-        # Feed status: still call to show real feed health alongside test results
-        feed_status: FeedStatus | None = None
-        try:
-            raw_status = await self.akaunting_connector.get_feed_status()
-            feed_status = FeedStatus(**raw_status)
-        except Exception as exc:
-            logger.warning('probe_test_transactions: feed status unavailable: %s', exc)
+        # Feed status: internal accounting — no external feed
+        feed_status = FeedStatus(
+            reachable=True, source_url='internal',
+            accounts_available=0, transactions_total=0,
+            note='FRYA-interne Buchhaltung (Testdaten)',
+        )
 
         # For test probe, feed_total = len(test_transactions) — they are all "available"
         result_status, candidates, note = _determine_result(
@@ -528,10 +520,13 @@ class BankTransactionService:
         return probe_result
 
     async def get_accounts(self) -> list[dict]:
-        """Read-only: return available bank accounts from Akaunting."""
-        return await self.akaunting_connector.search_accounts()
+        """Read-only: return available bank accounts. Stub — no external source."""
+        return []
 
     async def get_feed_status(self) -> FeedStatus:
-        """Read-only: return live feed health metadata."""
-        raw = await self.akaunting_connector.get_feed_status()
-        return FeedStatus(**raw)
+        """Read-only: return feed health metadata. Internal accounting only."""
+        return FeedStatus(
+            reachable=True, source_url='internal',
+            accounts_available=0, transactions_total=0,
+            note='FRYA-interne Buchhaltung',
+        )

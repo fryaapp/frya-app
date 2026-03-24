@@ -9,7 +9,6 @@ from fastapi.responses import Response
 from app.auth.dependencies import require_admin
 from app.auth.models import AuthUser
 from app.config import get_settings
-from app.dependencies import get_akaunting_connector
 from app.export.gobd_service import GoBDExportService
 from app.export.datev_service import DATEVExportService
 
@@ -24,8 +23,7 @@ async def export_gobd(
 ):
     """GoBD-konformer GDPdU-Export als ZIP-Download."""
     settings = get_settings()
-    akaunting = get_akaunting_connector()
-    service = GoBDExportService(settings.database_url, akaunting)
+    service = GoBDExportService(settings.database_url)
 
     d_from = date.fromisoformat(date_from)
     d_to = date.fromisoformat(date_to)
@@ -48,8 +46,8 @@ async def export_datev(
     _admin: AuthUser = Depends(require_admin),
 ):
     """DATEV-Buchungsstapel als ZIP-Download."""
-    akaunting = get_akaunting_connector()
-    service = DATEVExportService(akaunting)
+    settings = get_settings()
+    service = DATEVExportService(settings.database_url)
 
     d_from = date.fromisoformat(date_from)
     d_to = date.fromisoformat(date_to)

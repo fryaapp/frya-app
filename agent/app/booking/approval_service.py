@@ -1,7 +1,7 @@
 """Booking approval flow — channel-agnostic.
 
 Handles the user decision after the Accounting Analyst creates a BOOKING_PROPOSAL:
-  APPROVE  → create Akaunting bill draft, mark open item COMPLETED
+  APPROVE  → create booking via BookingService, mark open item COMPLETED
   REJECT   → mark open item CANCELLED, ask Communicator for follow-up
   CORRECT  → re-validate with corrected fields, then proceed as APPROVE
   DEFER    → keep PENDING_APPROVAL, no follow-up now
@@ -13,15 +13,16 @@ from __future__ import annotations
 
 import logging
 import uuid
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from app.accounting.booking_service import BookingService
 from app.accounting_analysis.models import AccountingAnalysisResult
 from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
-from app.connectors.accounting_akaunting import AkauntingConnector
 from app.document_analysis.models import Annotation
 from app.open_items.service import OpenItemsService
 
@@ -61,8 +62,8 @@ def _load_skr03_map() -> dict:
     return {}
 
 
-def skr03_to_akaunting_category(skr03_konto: str | None) -> str:
-    """Map a SKR03 account number to an Akaunting category name."""
+def skr03_to_category(skr03_konto: str | None) -> str:
+    """Map a SKR03 account number to a category name."""
     if not skr03_konto:
         return 'Sonstiges'
     data = _load_skr03_map()
@@ -71,9 +72,9 @@ def skr03_to_akaunting_category(skr03_konto: str | None) -> str:
         if key is not None and key in data:
             entry = data[key]
             if isinstance(entry, dict):
-                return str(entry.get('akaunting_category') or 'Sonstiges')
+                return str(entry.get('category') or entry.get('akaunting_category') or entry.get('name') or 'Sonstiges')
     default = data.get('default', {})
-    return str(default.get('akaunting_category', 'Sonstiges')) if isinstance(default, dict) else 'Sonstiges'
+    return str(default.get('category', default.get('akaunting_category', 'Sonstiges'))) if isinstance(default, dict) else 'Sonstiges'
 
 
 def format_booking_proposal_message(
@@ -156,12 +157,12 @@ class BookingApprovalService:
         approval_service: ApprovalService,
         open_items_service: OpenItemsService,
         audit_service: AuditService,
-        akaunting_connector: AkauntingConnector,
+        booking_service: BookingService,
     ) -> None:
         self.approval_service = approval_service
         self.open_items_service = open_items_service
         self.audit_service = audit_service
-        self.akaunting_connector = akaunting_connector
+        self.booking_service = booking_service
 
     async def process_response(
         self,
@@ -178,7 +179,7 @@ class BookingApprovalService:
             'decision': str,
             'approval_status': str,
             'open_item_status': str,
-            'akaunting_bill_id': int|None,
+            'booking_id': str|None,
             'message': str,
         }
         """
@@ -242,16 +243,42 @@ class BookingApprovalService:
         decided_by: str,
         source: str,
     ) -> dict[str, Any]:
-        # Build bill data from accounting analysis
+        # Build booking data from accounting analysis
         bill_data = _build_bill_data(accounting_payload, correction_payload)
-        bill_result: dict = {}
-        akaunting_bill_id = None
+        booking_result: dict = {}
+        booking_id = None
         try:
-            bill_result = await self.akaunting_connector.create_bill_draft(bill_data)
-            akaunting_bill_id = bill_result.get('bill_id')
+            from app.dependencies import get_accounting_repository
+            # Resolve tenant_id from case if available
+            tenant_id = None
+            try:
+                from app.dependencies import get_case_repository
+                case = await get_case_repository().get_case(case_id)
+                if case:
+                    tenant_id = getattr(case, 'tenant_id', None)
+            except Exception:
+                pass
+            if tenant_id is None:
+                import uuid as _uuid
+                tenant_id = _uuid.UUID('00000000-0000-0000-0000-000000000000')
+
+            booking = await self.booking_service.create_booking_from_case(
+                case_id=case_id,
+                tenant_id=tenant_id,
+                vendor_name=bill_data.get('vendor_name', 'Unbekannt'),
+                description=f"Buchung: {bill_data.get('vendor_name', '')} {bill_data.get('amount', '')} EUR",
+                account_soll=str(bill_data.get('skr03_soll', '4900')),
+                account_soll_name=bill_data.get('category_name', 'Sonstiges'),
+                account_haben='1200',
+                account_haben_name='Bank',
+                gross_amount=Decimal(str(bill_data.get('amount', 0))),
+                document_number=bill_data.get('bill_number'),
+            )
+            booking_id = str(booking.id) if hasattr(booking, 'id') else None
+            booking_result = {'booking_id': booking_id, 'status': 'BOOKED'}
         except Exception as exc:
-            logger.warning('Akaunting bill draft failed for case %s: %s', case_id, exc)
-            bill_result = {'error': str(exc)}
+            logger.warning('Booking creation failed for case %s: %s', case_id, exc)
+            booking_result = {'error': str(exc)}
 
         # Update approval
         await self.approval_service.decide_approval(
@@ -273,17 +300,17 @@ class BookingApprovalService:
             'agent_name': 'booking-approval',
             'approval_status': 'APPROVED',
             'action': 'USER_APPROVED_BOOKING',
-            'result': f'Bill draft created. Akaunting bill_id={akaunting_bill_id}',
-            'llm_output': bill_result,
+            'result': f'Booking created. booking_id={booking_id}',
+            'llm_output': booking_result,
         })
 
         return {
             'decision': 'APPROVE',
             'approval_status': 'APPROVED',
             'open_item_status': 'COMPLETED',
-            'akaunting_bill_id': akaunting_bill_id,
-            'akaunting_result': bill_result,
-            'message': 'Buchungsentwurf wurde in Akaunting angelegt.',
+            'booking_id': booking_id,
+            'booking_result': booking_result,
+            'message': 'Buchung wurde erfolgreich erstellt.',
         }
 
     async def _handle_reject(
@@ -318,7 +345,7 @@ class BookingApprovalService:
             'decision': 'REJECT',
             'approval_status': 'REJECTED',
             'open_item_status': 'CANCELLED',
-            'akaunting_bill_id': None,
+            'booking_id': None,
             'message': 'Buchungsvorschlag abgelehnt. Soll ich ihn anders buchen oder komplett ignorieren?',
         }
 
@@ -340,7 +367,7 @@ class BookingApprovalService:
 
         # If SKR03 account changed, update category
         if 'skr03_soll' in correction_payload:
-            corrected_payload['category_name'] = skr03_to_akaunting_category(correction_payload['skr03_soll'])
+            corrected_payload['category_name'] = skr03_to_category(correction_payload['skr03_soll'])
 
         # Validate corrected proposal
         validation = validate_booking_proposal(type('P', (), corrected_payload)())
@@ -349,7 +376,7 @@ class BookingApprovalService:
                 'decision': 'CORRECT',
                 'approval_status': 'PENDING',
                 'open_item_status': 'PENDING_APPROVAL',
-                'akaunting_bill_id': None,
+                'booking_id': None,
                 'message': f'Korrektur ungültig: {validation.findings[0].detail if validation.findings else "Unbekannter Fehler"}',
             }
 
@@ -386,7 +413,7 @@ class BookingApprovalService:
             'decision': 'DEFER',
             'approval_status': 'PENDING',
             'open_item_status': 'PENDING_APPROVAL',
-            'akaunting_bill_id': None,
+            'booking_id': None,
             'message': 'Buchungsvorschlag aufgeschoben. Erscheint in der nächsten Tages-Übersicht.',
         }
 
@@ -419,9 +446,9 @@ def _build_bill_data(accounting_payload: dict, correction: dict | None) -> dict:
         or merged.get('bill_number')
     )
 
-    # SKR03 → Akaunting category
+    # SKR03 → category
     skr03_soll = merged.get('skr03_soll')
-    category_name = merged.get('category_name') or skr03_to_akaunting_category(str(skr03_soll) if skr03_soll else None)
+    category_name = merged.get('category_name') or skr03_to_category(str(skr03_soll) if skr03_soll else None)
 
     return {
         'vendor_name': vendor,

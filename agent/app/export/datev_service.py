@@ -65,8 +65,8 @@ def _german_amount(amount) -> str:
 
 
 class DATEVExportService:
-    def __init__(self, akaunting_connector=None) -> None:
-        self.akaunting = akaunting_connector
+    def __init__(self, database_url: str | None = None) -> None:
+        self.database_url = database_url
 
     async def generate_export(
         self,
@@ -108,7 +108,7 @@ class DATEVExportService:
         # Column headers
         writer.writerow(DATEV_COLUMNS)
 
-        # Booking rows from Akaunting
+        # Booking rows from FRYA accounting
         transactions = await self._get_transactions(date_from, date_to)
         for tx in transactions:
             amount = float(tx.get('amount', 0) or 0)
@@ -141,13 +141,37 @@ class DATEVExportService:
         return out.getvalue()
 
     async def _get_transactions(self, date_from: date, date_to: date) -> list[dict]:
-        if self.akaunting is None:
+        if self.database_url is None:
             return []
         try:
-            return await self.akaunting.search_transactions(
-                date_from=date_from.isoformat(),
-                date_to=date_to.isoformat(),
-            )
+            import asyncpg
+            conn = await asyncpg.connect(self.database_url)
+            try:
+                rows = await conn.fetch(
+                    """
+                    SELECT booking_date, document_number, account_soll, account_haben,
+                           gross_amount, tax_rate, description
+                    FROM accounting_bookings
+                    WHERE booking_date >= $1::date AND booking_date <= $2::date
+                    ORDER BY booking_number
+                    """,
+                    date_from, date_to,
+                )
+                return [
+                    {
+                        'paid_at': str(r['booking_date'] or ''),
+                        'reference': r['document_number'] or '',
+                        'account_id': r['account_soll'] or '',
+                        'category_id': r['account_haben'] or '',
+                        'amount': float(r['gross_amount'] or 0),
+                        'tax_rate': float(r['tax_rate']) if r['tax_rate'] else None,
+                        'description': r['description'] or '',
+                        'currency_code': 'EUR',
+                    }
+                    for r in rows
+                ]
+            finally:
+                await conn.close()
         except Exception as exc:
             logger.warning('DATEV transaction fetch failed: %s', exc)
             return []
@@ -156,19 +180,32 @@ class DATEVExportService:
         """Collect document references and generate Belegverzeichnis CSV."""
         belege: list[dict] = []
 
-        if self.akaunting is not None:
+        if self.database_url is not None:
             try:
-                bills = await self.akaunting.search_bills(
-                    date_from=date_from.isoformat(),
-                    date_to=date_to.isoformat(),
-                )
-                for b in bills:
-                    belege.append({
-                        'document_number': b.get('document_number') or b.get('number') or '',
-                        'vendor': b.get('contact_name') or '',
-                        'amount': str(b.get('amount', '')),
-                        'date': b.get('issued_at') or b.get('paid_at') or '',
-                    })
+                import asyncpg
+                conn = await asyncpg.connect(self.database_url)
+                try:
+                    rows = await conn.fetch(
+                        """
+                        SELECT b.document_number, c.name AS vendor_name,
+                               b.gross_amount, b.booking_date
+                        FROM accounting_bookings b
+                        LEFT JOIN accounting_contacts c ON c.id = b.contact_id
+                        WHERE b.booking_date >= $1::date AND b.booking_date <= $2::date
+                          AND b.booking_type = 'EXPENSE'
+                        ORDER BY b.booking_number
+                        """,
+                        date_from, date_to,
+                    )
+                    for r in rows:
+                        belege.append({
+                            'document_number': r['document_number'] or '',
+                            'vendor': r['vendor_name'] or '',
+                            'amount': str(r['gross_amount'] or ''),
+                            'date': str(r['booking_date'] or ''),
+                        })
+                finally:
+                    await conn.close()
             except Exception as exc:
                 logger.warning('DATEV belege fetch failed: %s', exc)
 

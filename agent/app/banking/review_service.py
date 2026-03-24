@@ -6,7 +6,7 @@ V1.4 — Manual handoff path (after CONFIRMED) + clarification path (after REJEC
 Boundary contract:
 - Reads audit + open items to validate state.
 - Writes ONLY to audit log and open items table (Frya-internal).
-- Never writes to Akaunting, never triggers a payment, never finalises.
+- Never writes to externe Buchhaltung, never triggers a payment, never finalises.
 - bank_write_executed is always False (asserted by caller).
 - no_financial_write is always True.
 """
@@ -56,7 +56,7 @@ class BankReconciliationReviewService:
     or REJECT it.  This service records that decision in the audit log and
     creates / updates open items accordingly.
 
-    It does NOT connect the transaction in Akaunting, does NOT trigger any
+    It does NOT connect the transaction in externe Buchhaltung, does NOT trigger any
     payment, and does NOT finalise anything.
     """
 
@@ -84,7 +84,7 @@ class BankReconciliationReviewService:
                     handoff / external matching created as WAITING_DATA.
         REJECTED  → open item COMPLETED; follow-up clarification item OPEN.
 
-        Safety: bank_write_executed is always False; no Akaunting write.
+        Safety: bank_write_executed is always False; no externe Buchhaltung write.
         """
         review_id = str(uuid.uuid4())
         audit_event_id = str(uuid.uuid4())
@@ -137,7 +137,7 @@ class BankReconciliationReviewService:
             summary = (
                 f'Operator hat Kandidat {candidate.transaction_id if candidate else payload.transaction_id} BESTAETIGT. '
                 f'Workbench={context.review_anchor_ref}, Signal={context.match_signal.value}. '
-                f'Folge-Open-Item für manuellen Handoff erstellt. Kein Akaunting-Write.'
+                f'Folge-Open-Item für manuellen Handoff erstellt. Kein externe Buchhaltung-Write.'
             )
         else:
             outcome_status = 'BANK_RECONCILIATION_REJECTED'
@@ -624,7 +624,7 @@ class BankReconciliationReviewService:
         summary = (
             f'Klärung für Transaktion {payload.transaction_id} ABGESCHLOSSEN. '
             f'Auflösungshinweis: {payload.resolution_note or "-"}. '
-            f'Kein Akaunting-Write.'
+            f'Kein externe Buchhaltung-Write.'
         )
 
         # Audit log
@@ -1056,5 +1056,5 @@ class BankReconciliationReviewService:
             f'Konservativer read-only Banking-Fall fuer Transaktion {transaction_id or "?"} '
             f'und Referenz {candidate_reference or "-"}. '
             f'Nur dokumentieren, dass die externe manuelle Weiterbearbeitung ausserhalb Frya erfolgt oder abgeschlossen wurde. '
-            f'Notiz: {note or "-"}. Kein Bank-Write. Kein Akaunting-Write. Keine Zahlung.'
+            f'Notiz: {note or "-"}. Kein Bank-Write. Kein externe Buchhaltung-Write. Keine Zahlung.'
         )

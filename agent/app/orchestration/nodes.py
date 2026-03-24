@@ -15,7 +15,6 @@ from app.accounting_analysis.models import AccountingAnalysisInput, AccountingAn
 from app.accounting_review.models import AccountingReviewDraft
 from app.dependencies import (
     get_accounting_analysis_service,
-    get_akaunting_connector,
     get_approval_service,
     get_audit_service,
     get_case_repository,
@@ -71,7 +70,7 @@ Du erhältst:
 - [MEMORY]: Langzeitgedächtnis mit Nutzerpräferenzen und gelernten Mustern
 
 Quellen der Wahrheit:
-- Akaunting = finanzielle Wahrheit (Buchungen, Konten, Rechnungen)
+- FRYA Buchhaltung (PostgreSQL) = finanzielle Wahrheit (Buchungen, Konten, Rechnungen)
 - Paperless = Dokumentwahrheit (Originale, OCR-Rohtext, Archiv)
 - CaseEngine (PostgreSQL) = Vorgangswahrheit (Cases, Timeline, Open Items, Audit)
 
@@ -98,7 +97,7 @@ Dein Output ist ausschließlich ein einzelnes JSON-Objekt:
 
 Gültige action-Werte:
   document_type_detect, tags_set, correspondent_assign, ocr_reanalyze,
-  akaunting_bill_invoice_draft_create, booking_proposal_create, booking_finalize,
+  booking_create, booking_proposal_create, booking_finalize,
   payment_proposal_create, payment_execute, document_mark_done, open_item_create,
   reminder_send, problem_case_create, human_readable_review_generate,
   recurring_document_draft_create, correction_case_mark, side_effect_run_start,
@@ -773,29 +772,40 @@ async def finalize_document_review(state: AgentState) -> AgentState:
     # ── Annotation action handling (handwritten notes from Der Kopf) ──────────
     for _ann in result.annotations:
         if _ann.action_suggested == 'CHECK_PAYMENT_EXISTS':
-            # Check Akaunting for existing payment matching vendor + amount
+            # Check FRYA bookings for existing payment matching vendor + amount
             _payment_found = False
             try:
+                from app.accounting.booking_service import BookingService
+                from app.dependencies import get_accounting_repository
                 _vendor_hint = result.sender.value if result.sender.status == 'FOUND' else None
                 _total_hint = next(
                     (a.amount for a in result.amounts if a.label == 'TOTAL' and a.status == 'FOUND'),
                     None,
                 )
                 if _vendor_hint or _total_hint:
-                    _txs = await get_akaunting_connector().search_transactions(
-                        contact_name=_vendor_hint,
-                        amount=float(_total_hint) if _total_hint is not None else None,
-                    )
-                    _payment_found = bool(_txs)
-            except Exception as _ak_exc:
-                _logger.debug('CHECK_PAYMENT_EXISTS Akaunting lookup failed: %s', _ak_exc)
+                    # Search bookings in DB for matching vendor/amount
+                    _repo = get_accounting_repository()
+                    import uuid as _uuid
+                    _tenant_id = _uuid.UUID('00000000-0000-0000-0000-000000000000')
+                    _bookings = await _repo.list_bookings(_tenant_id, limit=50)
+                    for _b in _bookings:
+                        _match = True
+                        if _vendor_hint and _vendor_hint.lower() not in (_b.description or '').lower():
+                            _match = False
+                        if _total_hint is not None and abs(float(_b.gross_amount) - float(_total_hint)) > abs(float(_total_hint)) * 0.05:
+                            _match = False
+                        if _match:
+                            _payment_found = True
+                            break
+            except Exception as _bk_exc:
+                _logger.debug('CHECK_PAYMENT_EXISTS booking lookup failed: %s', _bk_exc)
 
             _description = (
                 f'Handschriftlicher Zahlungsvermerk erkannt: "{_ann.raw_text}"\n'
                 f'Interpretation: {_ann.interpreted}\n'
             )
             if _payment_found:
-                _description += 'Zahlungseingang in Akaunting gefunden — Beleg möglicherweise bereits gebucht.'
+                _description += 'Zahlungseingang in Buchhaltung gefunden — Beleg moeglicherweise bereits gebucht.'
             else:
                 _description += 'Bitte pruefen ob Zahlungseingang in der Buchhaltung erfasst ist.'
 

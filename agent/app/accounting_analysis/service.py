@@ -103,7 +103,7 @@ class AccountingAnalysisService:
                     'Betrag, Steuerhinweis und Belegdatum vor manueller Weiterarbeit pruefen.',
                 ],
                 notes=[
-                    'Kein Akaunting-Write in V1.',
+                    'Kein externer Write in V1.',
                     'Keine Konten- oder Zahlungsfinalisierung durch den Agenten.',
                 ],
             )
@@ -122,7 +122,7 @@ class AccountingAnalysisService:
                     'Kein neuer freier Buchungsvorschlag ohne vorhandenen Rechnungsbezug.',
                 ],
                 notes=[
-                    'Kein Akaunting-Write in V1.',
+                    'Kein externer Write in V1.',
                     'Mahnung bleibt ein konservativer Review-Fall.',
                 ],
             )

@@ -142,7 +142,7 @@ def build_response(
     if intent == 'FINANCIAL_QUERY':
         return (
             'FRYA: Ich pruefe deine Finanzdaten. '
-            'Offene Posten und Monatsauswertungen kann ich direkt aus Akaunting holen. '
+            'Offene Posten und Monatsauswertungen kann ich direkt aus der Buchhaltung holen. '
             'Was genau moechtest du wissen — offene Rechnungen, Ausgaben diesen Monat, oder Forderungen?',
             'COMMUNICATOR_REPLY_FINANCIAL_QUERY',
         )
@@ -187,7 +187,7 @@ def build_response(
     if intent == 'CREATE_CUSTOMER':
         return (
             'FRYA: Kontakt anlegen — wie heisst die Firma? '
-            'Ich lege sie als Kunden in Akaunting an. '
+            'Ich lege sie als Kunden in der Buchhaltung an. '
             'Optional: Adresse, E-Mail, USt-ID.',
             'COMMUNICATOR_REPLY_CREATE_CUSTOMER',
         )

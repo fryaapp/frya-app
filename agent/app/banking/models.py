@@ -75,7 +75,7 @@ class BankTransactionProbeResult(BaseModel):
     bank_write_executed: bool = False
     # V1.2: live feed metadata
     feed_status: FeedStatus | None = None
-    # V1.2: True when probe ran on caller-supplied test data, not live Akaunting
+    # V1.2: True when probe ran on caller-supplied test data, not live Buchhaltung
     is_test_data: bool = False
 
 
@@ -172,7 +172,7 @@ class ReconciliationContext(BaseModel):
     best_candidate: TransactionCandidate | None = None
     all_candidates: list[TransactionCandidate] = []
 
-    # Accounting context (from Akaunting document lookup — read-only)
+    # Accounting context (from internal booking lookup — read-only)
     accounting_result: str | None = None  # 'FOUND'|'NOT_FOUND'|'AMBIGUOUS'|'UNAVAILABLE'
     accounting_doc_id: str | None = None
     accounting_doc_reference: str | None = None
@@ -223,7 +223,7 @@ class ReconciliationContext(BaseModel):
 
 
 class BankAccountSummary(BaseModel):
-    """Lightweight summary of a bank account from Akaunting."""
+    """Lightweight summary of a bank account from Buchhaltung."""
     account_id: str | int | None = None
     name: str | None = None
     number: str | None = None
@@ -238,7 +238,7 @@ class BankAccountSummary(BaseModel):
 class BankReconciliationDecision(str, Enum):
     """Operator's decision on a bank transaction candidate.
 
-    CONFIRMED: candidate is accepted as matching the case (no Akaunting write).
+    CONFIRMED: candidate is accepted as matching the case (no Buchhaltung write).
     REJECTED:  candidate is dismissed; follow-up clarification needed.
     """
     CONFIRMED = 'CONFIRMED'
@@ -468,7 +468,7 @@ class BankManualHandoffInput(BaseModel):
     """Operator input after initiating / completing manual banking reconciliation.
 
     Conservative: records the outcome of a human action in an external system.
-    No write to Akaunting, no payment, no finalization.
+    No write to Buchhaltung, no payment, no finalization.
     """
     case_id: str
     transaction_id: str | int | None = None
@@ -503,7 +503,7 @@ class BankClarificationInput(BaseModel):
     """Operator input to resolve a banking clarification item (after REJECTED or RETURNED).
 
     Conservative: records that the clarification step is done.
-    No write to Akaunting, no payment, no finalization.
+    No write to Buchhaltung, no payment, no finalization.
     """
     case_id: str
     transaction_id: str | int | None = None

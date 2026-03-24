@@ -15,7 +15,7 @@ import pytest
 async def test_gobd_export_creates_zip():
     from app.export.gobd_service import GoBDExportService
 
-    svc = GoBDExportService('memory://', akaunting_connector=None)
+    svc = GoBDExportService('memory://')
     data = await svc.generate_export(date(2026, 1, 1), date(2026, 3, 22))
     assert len(data) > 0
 
@@ -34,7 +34,7 @@ async def test_gobd_export_creates_zip():
 async def test_gobd_index_xml_valid():
     from app.export.gobd_service import GoBDExportService
 
-    svc = GoBDExportService('memory://', akaunting_connector=None)
+    svc = GoBDExportService('memory://')
     data = await svc.generate_export(date(2026, 1, 1), date(2026, 3, 22))
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -48,7 +48,7 @@ async def test_gobd_index_xml_valid():
 async def test_gobd_buchungen_csv_has_headers():
     from app.export.gobd_service import GoBDExportService
 
-    svc = GoBDExportService('memory://', akaunting_connector=None)
+    svc = GoBDExportService('memory://')
     data = await svc.generate_export(date(2026, 1, 1), date(2026, 3, 22))
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -64,7 +64,7 @@ async def test_gobd_buchungen_csv_has_headers():
 async def test_gobd_verdoku_contains_zeitraum():
     from app.export.gobd_service import GoBDExportService
 
-    svc = GoBDExportService('memory://', akaunting_connector=None)
+    svc = GoBDExportService('memory://')
     data = await svc.generate_export(date(2026, 1, 1), date(2026, 3, 22))
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -80,7 +80,7 @@ async def test_gobd_verdoku_contains_zeitraum():
 async def test_datev_export_creates_zip():
     from app.export.datev_service import DATEVExportService
 
-    svc = DATEVExportService(akaunting_connector=None)
+    svc = DATEVExportService()
     data = await svc.generate_export(date(2026, 1, 1), date(2026, 3, 22))
     assert len(data) > 0
 
@@ -94,7 +94,7 @@ async def test_datev_export_creates_zip():
 async def test_datev_csv_header_format():
     from app.export.datev_service import DATEVExportService
 
-    svc = DATEVExportService(akaunting_connector=None)
+    svc = DATEVExportService()
     data = await svc.generate_export(date(2026, 1, 1), date(2026, 3, 22))
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -110,7 +110,7 @@ async def test_datev_csv_header_format():
 async def test_datev_csv_columns():
     from app.export.datev_service import DATEVExportService
 
-    svc = DATEVExportService(akaunting_connector=None)
+    svc = DATEVExportService()
     data = await svc.generate_export(date(2026, 1, 1), date(2026, 3, 22))
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -128,7 +128,7 @@ async def test_datev_csv_columns():
 async def test_datev_berater_mandant_nr():
     from app.export.datev_service import DATEVExportService
 
-    svc = DATEVExportService(akaunting_connector=None)
+    svc = DATEVExportService()
     data = await svc.generate_export(
         date(2026, 1, 1), date(2026, 3, 22),
         berater_nr='12345', mandant_nr='67890',

@@ -43,9 +43,8 @@ _OFFENE_POSTEN_COLS = [
 
 
 class GoBDExportService:
-    def __init__(self, database_url: str, akaunting_connector=None) -> None:
+    def __init__(self, database_url: str) -> None:
         self.database_url = database_url
-        self.akaunting = akaunting_connector
 
     async def generate_export(self, date_from: date, date_to: date) -> bytes:
         buffer = io.BytesIO()
@@ -64,26 +63,35 @@ class GoBDExportService:
 
     async def _export_buchungen(self, date_from: date, date_to: date) -> str:
         rows: list[list[str]] = []
-        if self.akaunting is not None:
+        try:
+            conn = await asyncpg.connect(self.database_url)
             try:
-                txs = await self.akaunting.search_transactions(
-                    date_from=date_from.isoformat(),
-                    date_to=date_to.isoformat(),
+                db_rows = await conn.fetch(
+                    """
+                    SELECT booking_date, document_number, account_soll, account_haben,
+                           gross_amount, tax_rate, tax_amount, description
+                    FROM accounting_bookings
+                    WHERE booking_date >= $1::date AND booking_date <= $2::date
+                    ORDER BY booking_number
+                    """,
+                    date_from, date_to,
                 )
-                for tx in txs:
+                for r in db_rows:
                     rows.append([
-                        tx.get('paid_at') or tx.get('date') or '',
-                        tx.get('reference') or tx.get('number') or '',
-                        tx.get('account_id') or '',
-                        tx.get('category_id') or '',
-                        str(tx.get('amount', '')),
-                        '',  # Steuersatz
-                        '',  # Steuerbetrag
-                        (tx.get('description') or '')[:120],
-                        tx.get('currency_code') or 'EUR',
+                        str(r['booking_date'] or ''),
+                        r['document_number'] or '',
+                        r['account_soll'] or '',
+                        r['account_haben'] or '',
+                        str(r['gross_amount'] or ''),
+                        str(r['tax_rate'] or ''),
+                        str(r['tax_amount'] or ''),
+                        (r['description'] or '')[:120],
+                        'EUR',
                     ])
-            except Exception as exc:
-                logger.warning('GoBD buchungen export failed: %s', exc)
+            finally:
+                await conn.close()
+        except Exception as exc:
+            logger.warning('GoBD buchungen export failed: %s', exc)
         return self._to_csv(_BUCHUNGEN_COLS, rows)
 
     # ── Belege ────────────────────────────────────────────────────────────────
@@ -158,18 +166,27 @@ class GoBDExportService:
 
     async def _export_kontakte(self) -> str:
         rows: list[list[str]] = []
-        if self.akaunting is not None:
+        try:
+            conn = await asyncpg.connect(self.database_url)
             try:
-                contacts = await self.akaunting.search_contacts()
-                for c in contacts:
+                db_rows = await conn.fetch(
+                    """
+                    SELECT id, name, contact_type, email
+                    FROM accounting_contacts
+                    ORDER BY name
+                    """,
+                )
+                for c in db_rows:
                     rows.append([
-                        str(c.get('id', '')),
-                        c.get('name', ''),
-                        c.get('type', ''),
-                        c.get('email', ''),
+                        str(c['id']),
+                        c['name'] or '',
+                        c['contact_type'] or '',
+                        c['email'] or '',
                     ])
-            except Exception as exc:
-                logger.warning('GoBD kontakte export failed: %s', exc)
+            finally:
+                await conn.close()
+        except Exception as exc:
+            logger.warning('GoBD kontakte export failed: %s', exc)
         return self._to_csv(_KONTAKTE_COLS, rows)
 
     # ── Offene Posten ─────────────────────────────────────────────────────────
@@ -241,10 +258,10 @@ class GoBDExportService:
             '==========================================\n\n'
             f'Exportzeitraum: {date_from.isoformat()} bis {date_to.isoformat()}\n\n'
             'Dieses Archiv enthaelt:\n'
-            '  - buchungen.csv: Alle Buchungen im Zeitraum (Quelle: Akaunting)\n'
+            '  - buchungen.csv: Alle Buchungen im Zeitraum (Quelle: FRYA Buchhaltung)\n'
             '  - belege.csv: Alle Belege/Dokumente (Quelle: CaseEngine + Paperless)\n'
             '  - audit_trail.csv: Lueckenloses Pruefprotokoll aller Agenten-Aktionen\n'
-            '  - kontakte.csv: Kunden- und Lieferantenstammdaten (Quelle: Akaunting)\n'
+            '  - kontakte.csv: Kunden- und Lieferantenstammdaten (Quelle: FRYA Buchhaltung)\n'
             '  - offene_posten.csv: Offene Forderungen und Verbindlichkeiten\n'
             '  - index.xml: GDPdU-Indexdatei (Tabellenbeschreibungen)\n\n'
             'Aufbewahrungsfristen (§147 AO / §14b UStG):\n'

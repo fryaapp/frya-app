@@ -718,7 +718,7 @@ class AccountingOperatorReviewService:
             f'Bestaetigter Vorschlag {analysis.booking_candidate_type} fuer {counterparty}; '
             f'Referenz={invoice_ref}; Betrag={amount} {currency}; '
             f'naechster manueller Schritt ausserhalb Frya; review_note={operator_review.decision_note or "-"}; '
-            f'handoff_note={note}; kein Akaunting-Write, keine Finalisierung, keine Zahlung.'
+            f'handoff_note={note}; kein externer Write, keine Finalisierung, keine Zahlung.'
         )
 
     def _manual_handoff_summary(self, analysis: AccountingAnalysisResult, open_item_title: str, handoff_note: str | None) -> str:
@@ -742,21 +742,21 @@ class AccountingOperatorReviewService:
         summary_note = note.strip() if note else '-'
         return (
             f'Externe menschliche Accounting-Bearbeitung fuer {analysis.booking_candidate_type} dokumentieren; '
-            f'naechster Schritt ausserhalb Frya; note={summary_note}; kein Akaunting-Write, keine Finalisierung, keine Zahlung.'
+            f'naechster Schritt ausserhalb Frya; note={summary_note}; kein externer Write, keine Finalisierung, keine Zahlung.'
         )
 
     def _external_return_description(self, analysis: AccountingAnalysisResult, note: str | None) -> str:
         summary_note = note.strip() if note else '-'
         return (
             f'Externe menschliche Accounting-Bearbeitung fuer {analysis.booking_candidate_type} kam mit Ruecklauf zurueck; '
-            f'next=ACCOUNTING_CLARIFICATION; note={summary_note}; kein Akaunting-Write, keine Finalisierung, keine Zahlung.'
+            f'next=ACCOUNTING_CLARIFICATION; note={summary_note}; kein externer Write, keine Finalisierung, keine Zahlung.'
         )
 
     def _manual_handoff_return_description(self, analysis: AccountingAnalysisResult, resolution_note: str | None) -> str:
         note = resolution_note.strip() if resolution_note else '-'
         return (
             f'Manueller Accounting-Handoff fuer {analysis.booking_candidate_type} konnte nicht sauber uebernommen werden; '
-            f'next=ACCOUNTING_CLARIFICATION; note={note}; kein Akaunting-Write, keine Finalisierung, keine Zahlung.'
+            f'next=ACCOUNTING_CLARIFICATION; note={note}; kein externer Write, keine Finalisierung, keine Zahlung.'
         )
 
     def _clarification_completion_summary(self, clarification_item_title: str, clarification_note: str | None) -> str:

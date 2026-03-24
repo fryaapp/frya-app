@@ -1,12 +1,10 @@
 from functools import lru_cache
 
-from app.accounting_analysis.akaunting_reconciliation_service import AkauntingReconciliationService
 from app.banking.reconciliation_context import ReconciliationContextService
 from app.banking.review_service import BankReconciliationReviewService
 from app.banking.service import BankTransactionService
 from app.accounting_analysis.review_service import AccountingOperatorReviewService
 from app.accounting_analysis.service import AccountingAnalysisService
-from app.connectors.accounting_akaunting import AkauntingConnector
 from app.approvals.repository import ApprovalRepository
 from app.approvals.service import ApprovalService
 from app.audit.repository import AuditRepository
@@ -291,28 +289,8 @@ def get_accounting_operator_review_service() -> AccountingOperatorReviewService:
 
 
 @lru_cache
-def get_akaunting_connector() -> AkauntingConnector:
-    settings = get_settings()
-    return AkauntingConnector(
-        settings.akaunting_base_url,
-        token=settings.akaunting_token,
-        email=settings.akaunting_email,
-        password=settings.akaunting_password,
-    )
-
-
-@lru_cache
-def get_akaunting_reconciliation_service() -> AkauntingReconciliationService:
-    return AkauntingReconciliationService(
-        akaunting_connector=get_akaunting_connector(),
-        audit_service=get_audit_service(),
-    )
-
-
-@lru_cache
 def get_bank_transaction_service() -> BankTransactionService:
     return BankTransactionService(
-        akaunting_connector=get_akaunting_connector(),
         audit_service=get_audit_service(),
     )
 
@@ -321,7 +299,6 @@ def get_bank_transaction_service() -> BankTransactionService:
 def get_reconciliation_context_service() -> ReconciliationContextService:
     return ReconciliationContextService(
         bank_service=get_bank_transaction_service(),
-        akaunting_connector=get_akaunting_connector(),
         audit_service=get_audit_service(),
         open_items_service=get_open_items_service(),
     )

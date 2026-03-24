@@ -911,9 +911,10 @@ async def _handle_telegram_callback_query(
         }
     )
 
+    from app.accounting.booking_service import BookingService
     from app.booking.approval_service import BookingApprovalService
     from app.dependencies import (
-        get_akaunting_connector,
+        get_accounting_repository,
         get_approval_service as _get_approval_svc,
         get_open_items_service as _get_oi_svc,
     )
@@ -932,7 +933,7 @@ async def _handle_telegram_callback_query(
         approval_service=_approval_svc,
         open_items_service=_get_oi_svc(),
         audit_service=audit_service,
-        akaunting_connector=get_akaunting_connector(),
+        booking_service=BookingService(get_accounting_repository()),
     )
 
     result = await booking_svc.process_response(

@@ -30,7 +30,6 @@ from app.api.preferences_views import router as preferences_router
 from app.api.feedback_views import router as feedback_router
 from app.api.dunning_views import router as dunning_router
 from app.api.export_views import router as export_router
-from app.api.akaunting_health import router as akaunting_health_router
 from app.api.approval_views import router as approval_router
 from app.api.booking_approval import router as booking_approval_router
 from app.api.audit_views import router as audit_router
@@ -303,7 +302,6 @@ app.include_router(preferences_router)
 app.include_router(feedback_router)
 app.include_router(dunning_router)
 app.include_router(export_router)
-app.include_router(akaunting_health_router)
 app.include_router(customer_router)
 app.include_router(ui_router)
 

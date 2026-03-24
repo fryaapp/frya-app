@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.status import HTTP_303_SEE_OTHER
 
-from app.accounting_analysis.akaunting_reconciliation_service import AkauntingReconciliationService
+from app.accounting_analysis.reconciliation_service import AccountingReconciliationService
 from app.accounting_analysis.models import (
     AccountingClarificationCompletionInput,
     AccountingOperatorReviewDecisionInput,
@@ -43,7 +43,6 @@ from app.banking.reconciliation_context import ReconciliationContextService
 from app.banking.service import BankTransactionService
 from app.dependencies import (
     get_accounting_operator_review_service,
-    get_akaunting_reconciliation_service,
     get_approval_service,
     get_audit_service,
     get_bank_reconciliation_review_service,
@@ -472,9 +471,9 @@ def _latest_external_return_clarification_completion(events: list[Any]) -> dict[
     return None
 
 
-def _latest_akaunting_probe(events: list[Any]) -> dict[str, Any] | None:
+def _latest_accounting_probe(events: list[Any]) -> dict[str, Any] | None:
     for event in reversed(events):
-        if getattr(event, 'action', None) != 'AKAUNTING_PROBE_EXECUTED':
+        if getattr(event, 'action', None) != 'ACCOUNTING_PROBE_EXECUTED':
             continue
         if not getattr(event, 'llm_output', None):
             continue
@@ -622,7 +621,7 @@ def _should_build_reconciliation_context(
     accounting_refs: list[str],
 ) -> bool:
     actions = {getattr(event, 'action', '') or '' for event in events}
-    if any(action.startswith('BANK_') or action.startswith('AKAUNTING_') for action in actions):
+    if any(action.startswith('BANK_') or action.startswith('ACCOUNTING_') for action in actions):
         return True
     refs = [*document_refs, *accounting_refs]
     return any(str(ref).upper().startswith(('INV-', 'OUT-', 'EXP-', 'REC-', 'BILL-')) for ref in refs)
@@ -1055,15 +1054,17 @@ async def ui_case_external_return_clarification_complete(
         msg = str(exc)
     return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
 
-@router.post('/cases/{case_id:path}/akaunting-probe', dependencies=[Depends(require_csrf)])
-async def ui_case_akaunting_probe(
+@router.post('/cases/{case_id:path}/accounting-probe', dependencies=[Depends(require_csrf)])
+async def ui_case_accounting_probe(
     request: Request,
     case_id: str,
-    reconciliation_service: AkauntingReconciliationService = Depends(get_akaunting_reconciliation_service),
 ) -> RedirectResponse:
     try:
-        await reconciliation_service.probe_case(case_id=case_id, accounting_data={})
-        msg = 'Akaunting-Abgleich ausgefuehrt.'
+        from app.accounting_analysis.reconciliation_service import AccountingReconciliationService
+        from app.dependencies import get_audit_service
+        svc = AccountingReconciliationService(audit_service=get_audit_service())
+        await svc.probe_case(case_id=case_id, accounting_data={})
+        msg = 'Buchhaltungs-Abgleich ausgefuehrt.'
     except Exception as exc:
         msg = f'Probe-Fehler: {exc}'
     return RedirectResponse(url=f'{ui_case_href(case_id)}?msg={quote(msg)}', status_code=HTTP_303_SEE_OTHER)
@@ -1478,7 +1479,7 @@ async def ui_case_detail(
         external_accounting_process_resolution,
         external_return_clarification_completion,
     )
-    akaunting_probe = _latest_akaunting_probe(chronology)
+    accounting_probe = _latest_accounting_probe(chronology)
     bank_transaction_probe = _latest_bank_transaction(chronology)
     bank_reconciliation_review = _latest_bank_reconciliation_review(chronology)
     banking_handoff_ready = _latest_bank_handoff_ready(chronology)
@@ -1546,7 +1547,7 @@ async def ui_case_detail(
             outside_agent_accounting_process=outside_agent_accounting_process,
             external_accounting_process_resolution=external_accounting_process_resolution,
             external_return_clarification_completion=external_return_clarification_completion,
-            akaunting_probe=akaunting_probe,
+            accounting_probe=accounting_probe,
             bank_transaction_probe=bank_transaction_probe,
             bank_reconciliation_review=bank_reconciliation_review,
             banking_handoff_ready=banking_handoff_ready,
@@ -1887,7 +1888,6 @@ async def ui_system(
 
     connectors = [
         {'name': 'paperless', 'base_url': settings.paperless_public_url or settings.paperless_base_url, 'configured': bool(settings.paperless_base_url)},
-        {'name': 'akaunting', 'base_url': settings.akaunting_base_url, 'configured': bool(settings.akaunting_base_url)},
         {'name': 'n8n', 'base_url': settings.n8n_base_url, 'configured': bool(settings.n8n_base_url)},
     ]
 
@@ -2602,9 +2602,8 @@ async def ui_services(request: Request) -> HTMLResponse:
     redis_host, redis_port = _host_port(settings.redis_url)
 
     # Check web services in parallel
-    paperless_status, akaunting_status, n8n_status, uptime_status, tika_status, gotenberg_status = (
+    paperless_status, n8n_status, uptime_status, tika_status, gotenberg_status = (
         await _http_check(settings.paperless_base_url),
-        await _http_check(settings.akaunting_base_url),
         await _http_check(settings.n8n_base_url),
         await _http_check('http://frya-uptime-kuma:3001'),
         await _http_check('http://frya-tika:9998'),
@@ -2621,18 +2620,6 @@ async def ui_services(request: Request) -> HTMLResponse:
             'credentials': {
                 'URL': settings.paperless_public_url or settings.paperless_base_url or '(nicht gesetzt)',
                 'Token': _mask(settings.paperless_token),
-            },
-        },
-        {
-            'kind': 'web',
-            'name': 'Akaunting',
-            'description': 'Buchhaltungs-Software — Verwaltung von Rechnungen, Zahlungen, Konten',
-            'url': settings.akaunting_base_url,
-            'status': akaunting_status,
-            'credentials': {
-                'URL': settings.akaunting_base_url or '(nicht gesetzt)',
-                'E-Mail': settings.akaunting_email or '(nicht gesetzt)',
-                'Passwort': _mask(settings.akaunting_password),
             },
         },
         {
@@ -2694,16 +2681,6 @@ async def ui_services(request: Request) -> HTMLResponse:
             'port': redis_port,
             'status': 'configured' if settings.redis_url else 'unknown',
             'note': 'Kein Web-UI — Verbindung via REDIS_URL',
-            'credentials': None,
-        },
-        {
-            'kind': 'db',
-            'name': 'MariaDB',
-            'description': 'Akaunting-Datenbank — wird exklusiv von Akaunting verwendet',
-            'host': 'frya-mariadb',
-            'port': '3306',
-            'status': 'configured',
-            'note': 'Kein Web-UI — nur Akaunting-intern',
             'credentials': None,
         },
     ]

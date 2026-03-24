@@ -18,11 +18,12 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from app.accounting.booking_service import BookingService
 from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
 from app.booking.approval_service import BookingApprovalService
-from app.connectors.accounting_akaunting import AkauntingConnector
 from app.dependencies import (
+    get_accounting_repository,
     get_approval_service,
     get_audit_service,
     get_open_items_service,
@@ -37,12 +38,11 @@ def _get_booking_approval_service(
     open_items_service: OpenItemsService = Depends(get_open_items_service),
     audit_service: AuditService = Depends(get_audit_service),
 ) -> BookingApprovalService:
-    from app.dependencies import get_akaunting_connector
     return BookingApprovalService(
         approval_service=approval_service,
         open_items_service=open_items_service,
         audit_service=audit_service,
-        akaunting_connector=get_akaunting_connector(),
+        booking_service=BookingService(get_accounting_repository()),
     )
 
 

@@ -32,7 +32,7 @@ def _make_approval_record(approval_id='appr-001', case_id='case-001', open_item_
     )
 
 
-def _make_service(bill_result=None, approval_record=None):
+def _make_service(booking_result=None, approval_record=None):
     approval_svc = MagicMock()
     approval_svc.repository = MagicMock()
     approval_svc.repository.get = AsyncMock(return_value=approval_record or _make_approval_record())
@@ -44,28 +44,33 @@ def _make_service(bill_result=None, approval_record=None):
     audit_svc = MagicMock()
     audit_svc.log_event = AsyncMock()
 
-    akaunting = MagicMock()
-    akaunting.create_bill_draft = AsyncMock(return_value=bill_result or {'bill_id': 42, 'contact_id': 5, 'status': 'draft'})
+    booking_svc = MagicMock()
+    _mock_booking = MagicMock()
+    _mock_booking.id = 'booking-42'
+    _mock_booking.booking_number = 42
+    booking_svc.create_booking_from_case = AsyncMock(
+        return_value=_mock_booking,
+    )
 
     return BookingApprovalService(
         approval_service=approval_svc,
         open_items_service=open_items_svc,
         audit_service=audit_svc,
-        akaunting_connector=akaunting,
+        booking_service=booking_svc,
     )
 
 
 @pytest.mark.asyncio
-async def test_approve_creates_akaunting_bill_draft():
-    """APPROVE → Akaunting bill draft created, open item COMPLETED."""
+async def test_approve_creates_booking():
+    """APPROVE -> booking created, open item COMPLETED."""
     svc = _make_service()
     result = await svc.process_response('case-001', 'appr-001', 'APPROVE', 'user')
 
     assert result['decision'] == 'APPROVE'
     assert result['approval_status'] == 'APPROVED'
     assert result['open_item_status'] == 'COMPLETED'
-    assert result['akaunting_bill_id'] == 42
-    svc.akaunting_connector.create_bill_draft.assert_called_once()
+    assert result['booking_id'] == 'booking-42'
+    svc.booking_service.create_booking_from_case.assert_called_once()
     svc.open_items_service.update_status.assert_called_with('oi-001', 'COMPLETED')
 
 
@@ -79,36 +84,36 @@ async def test_approve_aliases_ja_buchen():
 
 
 @pytest.mark.asyncio
-async def test_reject_no_akaunting_call():
-    """REJECT → no Akaunting call, open item CANCELLED."""
+async def test_reject_no_booking_call():
+    """REJECT -> no booking call, open item CANCELLED."""
     svc = _make_service()
     result = await svc.process_response('case-001', 'appr-001', 'REJECT', 'user')
 
     assert result['decision'] == 'REJECT'
     assert result['approval_status'] == 'REJECTED'
     assert result['open_item_status'] == 'CANCELLED'
-    assert result['akaunting_bill_id'] is None
-    svc.akaunting_connector.create_bill_draft.assert_not_called()
+    assert result['booking_id'] is None
+    svc.booking_service.create_booking_from_case.assert_not_called()
     svc.open_items_service.update_status.assert_called_with('oi-001', 'CANCELLED')
 
 
 @pytest.mark.asyncio
 async def test_defer_keeps_pending_approval():
-    """DEFER → open item stays PENDING_APPROVAL, no Akaunting call."""
+    """DEFER -> open item stays PENDING_APPROVAL, no booking call."""
     svc = _make_service()
     result = await svc.process_response('case-001', 'appr-001', 'DEFER', 'user')
 
     assert result['decision'] == 'DEFER'
     assert result['approval_status'] == 'PENDING'
     assert result['open_item_status'] == 'PENDING_APPROVAL'
-    assert result['akaunting_bill_id'] is None
-    svc.akaunting_connector.create_bill_draft.assert_not_called()
+    assert result['booking_id'] is None
+    svc.booking_service.create_booking_from_case.assert_not_called()
     svc.open_items_service.update_status.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_approve_audit_event_logged():
-    """APPROVE → USER_APPROVED_BOOKING audit event logged."""
+    """APPROVE -> USER_APPROVED_BOOKING audit event logged."""
     svc = _make_service()
     await svc.process_response('case-001', 'appr-001', 'APPROVE', 'user')
 
@@ -119,7 +124,7 @@ async def test_approve_audit_event_logged():
 
 @pytest.mark.asyncio
 async def test_reject_audit_event_logged():
-    """REJECT → USER_REJECTED_BOOKING audit event logged."""
+    """REJECT -> USER_REJECTED_BOOKING audit event logged."""
     svc = _make_service()
     await svc.process_response('case-001', 'appr-001', 'REJECT', 'user')
 

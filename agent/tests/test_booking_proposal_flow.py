@@ -13,7 +13,7 @@ from app.accounting_analysis.models import (
 )
 from app.booking.approval_service import (
     format_booking_proposal_message,
-    skr03_to_akaunting_category,
+    skr03_to_category,
 )
 from app.document_analysis.models import Annotation
 
@@ -111,19 +111,19 @@ def test_format_proposal_tax_advisor_mentioned():
     assert 'steuerberater' in msg.lower() or 'markiert' in msg.lower()
 
 
-def test_skr03_to_akaunting_category_known():
+def test_skr03_to_category_known():
     """SKR03 4920 → Telekommunikation."""
-    cat = skr03_to_akaunting_category('4920')
+    cat = skr03_to_category('4920')
     assert cat == 'Telekommunikation'
 
 
-def test_skr03_to_akaunting_category_unknown():
+def test_skr03_to_category_unknown():
     """Unknown SKR03 → Sonstiges fallback."""
-    cat = skr03_to_akaunting_category('9999')
+    cat = skr03_to_category('9999')
     assert cat == 'Sonstiges'
 
 
-def test_skr03_to_akaunting_category_none():
+def test_skr03_to_category_none():
     """None → Sonstiges."""
-    cat = skr03_to_akaunting_category(None)
+    cat = skr03_to_category(None)
     assert cat == 'Sonstiges'

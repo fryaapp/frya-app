@@ -50,7 +50,7 @@ def _make_service(transactions: list[dict], feed_status: dict | None = None) -> 
     audit = AsyncMock()
     audit.log_event = AsyncMock()
 
-    return BankTransactionService(connector, audit)
+    return BankTransactionService(audit_service=audit)
 
 
 _TX_EXACT_AMOUNT = {
