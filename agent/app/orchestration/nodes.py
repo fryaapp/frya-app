@@ -1094,7 +1094,7 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                         await _cs_n.save(_upd_n)
                     _hs_n = get_chat_history_store()
                     if _hs_n and _chat_id_notify:
-                        await _hs_n.append(_chat_id_notify, '', _status_text)
+                        await _hs_n.append(_chat_id_notify, '[Analyse-Status]', _status_text)
                 except Exception as _mem_n_exc:
                     _logger.warning('Analysis status memory update failed: %s', _mem_n_exc)
         except Exception as _notify_status_exc:
@@ -1303,7 +1303,7 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
                         )
                         await _hist_store.append(
                             _chat_id,
-                            '',
+                            '[Buchungsvorschlag gesendet]',
                             f'FRYA: Buchungsvorschlag für {_vendor}. Case: {review.case_id}',
                         )
                 except Exception as _mem_exc:

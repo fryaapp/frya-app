@@ -131,7 +131,10 @@ def build_llm_context_payload(
 
     messages = [system_msg]
     if chat_history:
-        messages.extend(chat_history)
+        # Filter out empty content blocks — Anthropic rejects them
+        for msg in chat_history:
+            if msg.get('content', '').strip():
+                messages.append(msg)
     messages.append({'role': 'user', 'content': '\n'.join(lines)})
 
     return {
