@@ -565,9 +565,15 @@ class TelegramCommunicatorService:
                     if intent == 'GENERAL_CONVERSATION':
                         sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
 
+                    # Prefer core_ctx over effective_ctx for FALLKONTEXT —
+                    # truth arbitrator returns None for non-context intents,
+                    # but core_ctx has the doc-ref / vendor search result.
+                    _ctx_for_payload = effective_ctx
+                    if _ctx_for_payload is None and core_ctx and core_ctx.resolution_status == 'FOUND':
+                        _ctx_for_payload = core_ctx
                     payload = build_llm_context_payload(
                         intent=intent,
-                        context_resolution=effective_ctx,
+                        context_resolution=_ctx_for_payload,
                         truth_annotation=truth_annotation,
                         conversation_memory=conv_memory,
                         user_message=normalized.text or '',
