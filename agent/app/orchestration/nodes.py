@@ -1207,8 +1207,12 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
                         await _conv_store.save(_updated)
                     _hist_store = get_chat_history_store()
                     if _hist_store and _chat_id:
-                        _vendor = accounting_analysis.vendor_name or review.case_id
-                        _amt = accounting_analysis.total_amount if hasattr(accounting_analysis, 'total_amount') else ''
+                        _vendor = (
+                            accounting_analysis.supplier_or_counterparty_hint.value
+                            if hasattr(accounting_analysis, 'supplier_or_counterparty_hint')
+                            and accounting_analysis.supplier_or_counterparty_hint.value
+                            else review.case_id
+                        )
                         await _hist_store.append(
                             _chat_id,
                             '',
