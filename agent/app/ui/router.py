@@ -2765,7 +2765,9 @@ async def _load_avv_documents() -> list:
         settings = get_settings()
         repo = AvvRepository(settings.database_url, settings.data_dir)
         await repo.initialize()
-        return await repo.list_all('default')
+        from app.case_engine.tenant_resolver import resolve_tenant_id as _avv_list_tid
+        _tid = await _avv_list_tid() or 'default'
+        return await repo.list_all(_tid)
     except Exception as exc:
         _legal_logger.warning('Failed to load AVV documents: %s', exc)
         return []
@@ -2847,9 +2849,12 @@ async def upload_avv(
     repo = AvvRepository(settings.database_url, settings.data_dir)
     await repo.initialize()
 
+    from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_avv_tid
+    _avv_tid = await _resolve_avv_tid() or 'default'
+
     content = await file.read()
     await repo.upload(
-        tenant_id='default',
+        tenant_id=_avv_tid,
         provider_name=form.get('provider_name', ''),
         document_type=form.get('document_type', 'AVV'),
         filename=file.filename or 'upload.pdf',
