@@ -6,8 +6,11 @@ returns a single RiskCheck with the appropriate severity.
 from __future__ import annotations
 
 import difflib
+import logging
 from datetime import date
 from decimal import Decimal, InvalidOperation
+
+logger = logging.getLogger(__name__)
 
 from app.accounting_analyst.schemas import SKR03_COMMON_ACCOUNTS
 from app.case_engine.models import CaseDocumentRecord, CaseRecord
@@ -47,8 +50,8 @@ def check_amount_consistency(
                 try:
                     comparison_amounts.append(Decimal(str(val)))
                     break
-                except (InvalidOperation, ValueError):
-                    pass
+                except (InvalidOperation, ValueError) as exc:
+                    logger.debug('Document amount parsing failed for key %s: %s', key, exc)
 
     # From case-level document_analysis metadata
     doc_analysis = case.metadata.get('document_analysis')
@@ -59,16 +62,16 @@ def check_amount_consistency(
                 try:
                     comparison_amounts.append(Decimal(str(val)))
                     break
-                except (InvalidOperation, ValueError):
-                    pass
+                except (InvalidOperation, ValueError) as exc:
+                    logger.debug('Case-level amount parsing failed for key %s: %s', key, exc)
 
     # From booking_proposal gross_amount
     bp = case.metadata.get('booking_proposal')
     if isinstance(bp, dict) and bp.get('gross_amount') is not None:
         try:
             comparison_amounts.append(Decimal(str(bp['gross_amount'])))
-        except (InvalidOperation, ValueError):
-            pass
+        except (InvalidOperation, ValueError) as exc:
+            logger.debug('Booking proposal gross_amount parsing failed: %s', exc)
 
     if not comparison_amounts:
         return RiskCheck(

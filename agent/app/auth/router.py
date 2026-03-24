@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -102,7 +105,8 @@ async def login_submit(
     try:
         repo = get_user_repository()
         session_ver = await repo.get_session_version(user.username)
-    except Exception:
+    except Exception as exc:
+        logger.warning('Failed to get session version for %s: %s', user.username, exc)
         session_ver = 1
 
     # Check if 2FA is enabled for this user
@@ -116,8 +120,8 @@ async def login_submit(
             request.session['totp_pending_session_ver'] = session_ver
             request.session['totp_pending_next'] = _safe_next(next)
             return RedirectResponse(url='/auth/verify-totp', status_code=HTTP_303_SEE_OTHER)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('2FA check failed for %s: %s', user.username, exc)
 
     request.session.clear()
     request.session['auth_user'] = build_session_payload(user)
@@ -179,8 +183,8 @@ async def forgot_password_submit(
                 body_text=_reset_mail_text(reset_link, first=False),
                 tenant_id=user.tenant_id,
             )
-        except Exception:
-            pass  # Never expose mail errors to the user
+        except Exception as exc:
+            logger.warning('Failed to send password reset mail: %s', exc)  # Never expose mail errors to the user
         try:
             from app.dependencies import get_audit_service
             import uuid
@@ -194,8 +198,8 @@ async def forgot_password_submit(
                 'result': user.username,
                 'llm_output': {'username': user.username, 'ip': ip},
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('Audit logging failed for password reset request: %s', exc)
 
     # Always return 200 — never reveal whether e-mail exists
     return TEMPLATES.TemplateResponse(
@@ -303,8 +307,8 @@ async def reset_password_submit(
             'result': confirmed_username,
             'llm_output': {'username': confirmed_username},
         })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('Audit logging failed for password reset completion: %s', exc)
 
     return RedirectResponse(
         url='/auth/login?reset=1',

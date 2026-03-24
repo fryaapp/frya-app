@@ -184,8 +184,8 @@ async def _build_system_context(
             # Try direct UUID parse first
             try:
                 _case_uuid = _uuid_mod.UUID(_case_ref)
-            except (ValueError, AttributeError):
-                pass
+            except (ValueError, AttributeError) as exc:
+                logger.debug('Case ref %s is not a UUID: %s', _case_ref, exc)
 
             # If not a UUID (e.g. "doc-19", "tg-chat-msg"), resolve via audit trail
             if _case_uuid is None and audit_service is not None:
@@ -198,8 +198,8 @@ async def _build_system_context(
                             if _m:
                                 _case_uuid = _uuid_mod.UUID(_m.group(1))
                                 break
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning('Audit trail lookup failed for case ref %s: %s', _case_ref, exc)
 
             case_detail = await case_repository.get_case(_case_uuid) if _case_uuid else None
             if case_detail:
@@ -239,9 +239,9 @@ async def _build_system_context(
                 _vorgang_text = 'Vorgang-Details:\n' + '\n'.join(f'  - {p}' for p in detail_parts)
                 parts.insert(0, _vorgang_text)
             else:
-                pass
-        except Exception:
-            pass
+                logger.debug('No case detail found for case ref %s', _effective_case_ref)
+        except Exception as exc:
+            logger.warning('Failed to build detailed case context for %s: %s', _effective_case_ref, exc)
 
     # Open cases
     if case_repository is not None and tenant_id is not None:
@@ -292,8 +292,8 @@ async def _build_system_context(
             interests = getattr(user_memory, 'known_interests', None)
             if interests:
                 parts.append(f'Nutzer-Kontext: {", ".join(interests[:5])}')
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('Failed to load user memory for system context: %s', exc)
 
     if not parts:
         return None
@@ -383,8 +383,8 @@ class TelegramCommunicatorService:
                     _co = await case_repository.get_case(_uuid_mod.UUID(case_id))
                     if _co:
                         _tenant_for_vendor = _co.tenant_id
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug('Tenant lookup from case_id failed: %s', exc)
             # Fallback: try tenant from conversation memory
             if _tenant_for_vendor is None and conv_memory and conv_memory.last_case_ref:
                 try:
@@ -392,8 +392,8 @@ class TelegramCommunicatorService:
                     _co2 = await case_repository.get_case(_uuid_mod.UUID(conv_memory.last_case_ref))
                     if _co2:
                         _tenant_for_vendor = _co2.tenant_id
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug('Tenant lookup from conv memory case ref failed: %s', exc)
             # Fallback: tenant resolver
             if _tenant_for_vendor is None:
                 try:
@@ -402,8 +402,8 @@ class TelegramCommunicatorService:
                     if _tid_v:
                         import uuid as _uuid_mod
                         _tenant_for_vendor = _uuid_mod.UUID(_tid_v)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug('Tenant resolver fallback failed: %s', exc)
 
             if _tenant_for_vendor is not None:
                 vendor_case_id = await search_case_by_vendor(
@@ -474,14 +474,16 @@ class TelegramCommunicatorService:
                 try:
                     from app.dependencies import get_llm_config_repository as _get_repo
                     _repo = _get_repo()
-                except Exception:
+                except Exception as exc:
+                    logger.debug('Failed to get LLM config repository: %s', exc)
                     _repo = None
 
             if _repo is not None:
                 try:
                     llm_config = await _repo.get_config_or_fallback('communicator')
                     model_str = (llm_config.get('model') or '').strip()
-                except Exception:
+                except Exception as exc:
+                    logger.warning('Failed to load communicator LLM config: %s', exc)
                     model_str = ''
 
             if not model_str:
@@ -515,7 +517,8 @@ class TelegramCommunicatorService:
                         try:
                             from app.dependencies import get_case_repository as _get_case_repo
                             _case_repo = _get_case_repo()
-                        except Exception:
+                        except Exception as exc:
+                            logger.debug('Failed to get case repository: %s', exc)
                             _case_repo = None
 
                     # Determine tenant_id for open-cases lookup
@@ -526,10 +529,10 @@ class TelegramCommunicatorService:
                             _case_obj = await _case_repo.get_case(_uuid_mod.UUID(case_id))
                             if _case_obj is not None:
                                 _tenant_id = _case_obj.tenant_id
-                        except (ValueError, AttributeError):
-                            pass  # case_id is not a UUID (e.g. tg-chat-msg, doc-N)
-                        except Exception:
-                            pass
+                        except (ValueError, AttributeError) as exc:
+                            logger.debug('case_id is not a UUID (e.g. tg-chat-msg, doc-N): %s', exc)
+                        except Exception as exc:
+                            logger.warning('Failed to resolve tenant from case_id: %s', exc)
 
                     # Fallback: resolve tenant from default tenant resolver
                     if _tenant_id is None:
@@ -539,8 +542,8 @@ class TelegramCommunicatorService:
                             if _tid_str:
                                 import uuid as _uuid_mod
                                 _tenant_id = _uuid_mod.UUID(_tid_str)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug('Tenant resolver fallback failed: %s', exc)
 
                     # Prefer core_ctx (vendor search / context resolver) over effective_ctx
                     # because truth arbitrator returns None for non-context intents
@@ -651,8 +654,8 @@ class TelegramCommunicatorService:
                                 response=resp,
                                 case_id=case_id,
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug('Token usage logging failed: %s', exc)
 
                         raw_text = (resp.choices[0].message.content or '').strip()
 

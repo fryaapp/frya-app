@@ -1,8 +1,11 @@
 """Tenant management API: soft-delete, hard-delete, status."""
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -70,8 +73,8 @@ async def delete_tenant(
     try:
         user_repo = get_user_repository()
         await user_repo.deactivate_by_tenant(tenant_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('Failed to deactivate users for tenant %s: %s', tenant_id, exc)
 
     # Audit event
     try:
@@ -89,8 +92,8 @@ async def delete_tenant(
                 'hard_delete_after': hard_delete_after.isoformat(),
             },
         })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('Audit logging failed for tenant deletion %s: %s', tenant_id, exc)
 
     # Notify tenant admin by mail
     if tenant.admin_email:
@@ -102,8 +105,8 @@ async def delete_tenant(
                 body_text=_deletion_mail_text(tenant, hard_delete_after),
                 tenant_id=tenant_id,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('Failed to send deletion notification mail for tenant %s: %s', tenant_id, exc)
 
     return TenantDeleteResponse(
         tenant_id=tenant_id,
@@ -171,8 +174,8 @@ async def hard_delete_tenant(
                 'deleted_by': current_user.username,
             },
         })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('Audit logging failed for tenant hard-delete %s: %s', tenant_id, exc)
 
     return {'tenant_id': tenant_id, 'status': 'deleted'}
 

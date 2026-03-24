@@ -193,8 +193,8 @@ Input: Betrag im Dokument 100€, im Case 95€
         from app.dependencies import get_llm_config_repository as _get_repo
         _repo = _get_repo()
         llm_config = await _repo.get_config_or_fallback('orchestrator')
-    except Exception:
-        pass
+    except Exception as exc:
+        _logger.warning('Failed to load orchestrator LLM config: %s', exc)
 
     model_str = (llm_config.get('model') or '').strip() if llm_config else ''
 
@@ -235,8 +235,8 @@ Input: Betrag im Dokument 100€, im Case 95€
             parsed_candidate = json.loads(content)
             if isinstance(parsed_candidate, dict):
                 parsed = parsed_candidate
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug('Failed to parse LLM response as JSON: %s', exc)
         state['planned_action'] = parsed
 
         # ── Log orchestrator decision to audit trail ───────────────────────
@@ -349,8 +349,8 @@ async def run_document_analyst(state: AgentState) -> AgentState:
                 )
                 state['document_analysis'] = _e_result.model_dump(mode='json')
                 return state
-        except Exception:
-            pass  # Fall through to normal OCR/LLM analysis on parse failure
+        except Exception as exc:
+            _logger.debug('E-invoice parsing failed, falling through to OCR/LLM: %s', exc)
 
     # Load both document analyst configs (DB first, then ENV fallback).
     # document_analyst          = LightOnOCR-2-1B — Stage 1: visual OCR from PDF images
@@ -364,7 +364,8 @@ async def run_document_analyst(state: AgentState) -> AgentState:
         _da_config = await _da_repo.get_config_or_fallback('document_analyst')
         _semantic_config = await _da_repo.get_config_or_fallback('document_analyst_semantic')
         state['document_analyst_model'] = (_da_config.get('model') or '').strip() or None
-    except Exception:
+    except Exception as exc:
+        _logger.warning('Failed to load document analyst LLM configs: %s', exc)
         state['document_analyst_model'] = None
 
     # Choose analysis service:
@@ -471,7 +472,8 @@ def _build_document_analysis_service(
 
     try:
         api_key = repo.decrypt_key_for_call(semantic_config)  # type: ignore[union-attr]
-    except Exception:
+    except Exception as exc:
+        _logger.debug('Failed to decrypt API key for semantic config: %s', exc)
         api_key = None
 
     if not api_key:
@@ -852,7 +854,8 @@ async def finalize_document_review(state: AgentState) -> AgentState:
     if _tenant_raw:
         try:
             _tenant_uuid = uuid.UUID(str(_tenant_raw))
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError) as exc:
+            _logger.debug('tenant_id is not a valid UUID: %s', exc)
             _tenant_uuid = None
         if _tenant_uuid is not None:
             _logger.info('CaseEngine: tenant_id resolved: %s', _tenant_uuid)
@@ -1025,7 +1028,8 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                 if isinstance(_meta_n, str):
                     try:
                         _meta_n = _json_notify.loads(_meta_n)
-                    except Exception:
+                    except Exception as exc:
+                        _logger.debug('Failed to parse llm_output JSON for notification: %s', exc)
                         _meta_n = {}
                 if isinstance(_meta_n, dict) and _meta_n.get('telegram_chat_id'):
                     _chat_id_notify = str(_meta_n['telegram_chat_id'])
@@ -1039,8 +1043,8 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                     if _tg_link_n and _tg_link_n.telegram_chat_ref:
                         _ref_n = _tg_link_n.telegram_chat_ref
                         _chat_id_notify = _ref_n.split(':', 1)[1] if ':' in _ref_n else None
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning('Telegram case link lookup failed for notification: %s', exc)
 
             if _chat_id_notify:
                 _vendor_n = result.sender.value if result.sender.status == 'FOUND' else 'Unbekannt'
@@ -1228,7 +1232,8 @@ async def run_accounting_analyst(state: AgentState) -> AgentState:
                 if isinstance(_meta, str):
                     try:
                         _meta = _json.loads(_meta)
-                    except Exception:
+                    except Exception as exc:
+                        _logger.debug('Failed to parse llm_output JSON for proposal notification: %s', exc)
                         _meta = {}
                 if isinstance(_meta, dict) and _meta.get('telegram_chat_id'):
                     _chat_id = str(_meta['telegram_chat_id'])

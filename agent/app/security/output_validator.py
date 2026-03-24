@@ -8,8 +8,11 @@ Two validators:
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -82,8 +85,8 @@ def _amount_in_text(text: str, amount: object) -> bool:
             try:
                 german_full = f'{int(int_part):,}'.replace(',', '.') + ',' + dec_part
                 candidates.append(german_full)
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.debug('German full format conversion failed: %s', exc)
 
     return any(c in text for c in candidates)
 
@@ -178,8 +181,8 @@ def validate_booking_proposal(proposal: object) -> ValidationResult:
                     severity='HIGH',
                     detail=f'Tax rate {tax_rate} is not a valid German VAT rate (0, 7, 19)',
                 ))
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            logger.debug('Tax rate conversion failed: %s', exc)
 
     # ── 2. Arithmetic: net + tax == gross ────────────────────────────────────
     net = getattr(proposal, 'net_amount', None)
@@ -201,8 +204,8 @@ def validate_booking_proposal(proposal: object) -> ValidationResult:
                     severity='HIGH',
                     detail=f'net({net}) + tax({tax}) = {expected} but gross={gross} (diff={diff})',
                 ))
-        except (InvalidOperation, ValueError, TypeError):
-            pass
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            logger.debug('Arithmetic validation parsing failed: %s', exc)
 
     # ── 3. Positive amount ───────────────────────────────────────────────────
     if gross is not None:
@@ -214,8 +217,8 @@ def validate_booking_proposal(proposal: object) -> ValidationResult:
                     severity='HIGH',
                     detail=f'Gross amount {gross} must be positive',
                 ))
-        except (InvalidOperation, ValueError):
-            pass
+        except (InvalidOperation, ValueError) as exc:
+            logger.debug('Gross amount validation parsing failed: %s', exc)
 
     # ── 4. Known SKR03 accounts ──────────────────────────────────────────────
     soll = getattr(proposal, 'skr03_soll', None)

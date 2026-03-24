@@ -406,8 +406,8 @@ class DocumentAnalystSemanticService:
                     confidence=confidence,
                     source_kind='OCR_TEXT',
                 ))
-            except (InvalidOperation, ValueError):
-                pass
+            except (InvalidOperation, ValueError) as exc:
+                logger.debug('Failed to parse total amount from LLM response: %s', exc)
 
         currency = ExtractedField(
             value=currency_raw or ('EUR' if amounts else None),
@@ -493,8 +493,8 @@ class DocumentAnalystSemanticService:
                         confidence=confidence,
                         source_kind='OCR_TEXT',
                     ))
-                except (InvalidOperation, ValueError):
-                    pass
+                except (InvalidOperation, ValueError) as exc:
+                    logger.debug('Failed to parse %s amount from LLM response: %s', label, exc)
 
         # ── Parse handwritten annotations (Der Kopf — Vermerke) ─────────────────
         annotations: list[Annotation] = []
@@ -607,6 +607,6 @@ def _parse_date(raw: object) -> date | None:
         if '-' in s:
             y, m, d = s.split('-')
             return date(int(y), int(m), int(d))
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as exc:
+        logger.debug('Failed to parse date %r: %s', raw, exc)
     return None

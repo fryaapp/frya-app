@@ -157,8 +157,8 @@ async def get_inbox(
         for d in drafts:
             if d.id not in seen:
                 all_cases.append(d)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('Failed to fetch DRAFT cases for inbox: %s', exc)
 
     if status == 'pending':
         all_cases = [c for c in all_cases if c.status in ('DRAFT', 'OPEN')]
@@ -418,8 +418,8 @@ async def list_cases(
         for s in ['DRAFT', 'OPEN', 'OVERDUE', 'PAID', 'CLOSED']:
             try:
                 cases.extend(await repo.list_cases_by_status(tenant_id, s))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning('Failed to fetch cases with status %s: %s', s, exc)
 
     cases.sort(key=lambda c: c.created_at or datetime.min, reverse=True)
     total = len(cases)
@@ -484,8 +484,8 @@ async def get_deadlines(
     if _llm_repo:
         try:
             _llm_config = await _llm_repo.get_config_or_fallback('deadline_analyst')
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('Failed to load deadline_analyst LLM config: %s', exc)
     svc = build_deadline_analyst_service(get_case_repository(), _llm_repo, _llm_config)
     report = await svc.check_all_deadlines(tenant_id)
 
@@ -571,8 +571,8 @@ async def get_finance_summary(
         overdue = await get_case_repository().list_cases_by_status(tid, 'OVERDUE')
         overdue_count = len(overdue)
         overdue_amount = sum(float(c.total_amount or 0) for c in overdue)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning('Failed to fetch overdue cases for finance summary: %s', exc)
 
     return FinanceSummaryResponse(
         period=label, income=total_income, expenses=total_expenses,
@@ -675,8 +675,8 @@ class ConnectionManager:
         if old:
             try:
                 await old.close(code=4000, reason='new_connection')
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug('Failed to close old WebSocket connection: %s', exc)
         self._connections[user_id] = websocket
 
     def disconnect(self, user_id: str) -> None:
@@ -687,7 +687,8 @@ class ConnectionManager:
         if ws:
             try:
                 await ws.send_json(data)
-            except Exception:
+            except Exception as exc:
+                logger.debug('WebSocket send failed for user %s, disconnecting: %s', user_id, exc)
                 self.disconnect(user_id)
 
     @property
@@ -712,7 +713,8 @@ async def _validate_ws_token(token: str) -> AuthUser | None:
             role=payload.get('role', 'customer'),
             tenant_id=payload.get('tid'),
         )
-    except Exception:
+    except Exception as exc:
+        logger.debug('WS token validation failed: %s', exc)
         return None
 
 
@@ -772,8 +774,8 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
             try:
                 llm_config = await _repo.get_config_or_fallback('communicator')
                 model_str = (llm_config.get('model') or '').strip()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning('Failed to load LLM config for communicator WS: %s', exc)
 
         if not model_str:
             # No model configured — simple template response
@@ -801,8 +803,8 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
         _tenant_id = None
         try:
             _tenant_id = await _resolve_tenant_uuid()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('Failed to resolve tenant UUID for WS: %s', exc)
 
         case_repo = get_case_repository()
 
@@ -816,8 +818,8 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
                     clarification_service=get_telegram_clarification_service(),
                     open_items_service=get_open_items_service(),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning('Context resolution failed in WS: %s', exc)
 
         # Vendor search fallback
         if (core_ctx is None or core_ctx.resolution_status == 'NOT_FOUND') and case_repo and _tenant_id:
@@ -829,8 +831,8 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
                         resolved_case_ref=vendor_case_id,
                         context_reason='Vendor-Name im Text erkannt.',
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning('Vendor search fallback failed in WS: %s', exc)
 
         _resolved_ref = core_ctx.resolved_case_ref if core_ctx and core_ctx.resolution_status == 'FOUND' else None
 
@@ -895,8 +897,9 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
                 if delta:
                     full_text += delta
                     await websocket.send_json({'type': 'chunk', 'text': delta})
-        except Exception:
+        except Exception as exc:
             # Fallback: non-streaming
+            logger.warning('Streaming LLM call failed, falling back to non-streaming: %s', exc)
             call_kwargs.pop('stream', None)
             response = await litellm.acompletion(**call_kwargs)
             full_text = (response.choices[0].message.content or '').strip()
@@ -967,8 +970,8 @@ async def backfill_case_metadata(
     for status in ['DRAFT', 'OPEN', 'OVERDUE', 'PAID', 'CLOSED']:
         try:
             all_cases.extend(await repo.list_cases_by_status(tid, status))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning('Backfill: failed to fetch cases with status %s: %s', status, exc)
 
     for case in all_cases:
         meta = case.metadata or {}
@@ -1048,8 +1051,8 @@ async def chat_websocket(websocket: WebSocket, token: str = Query(default='')):
                     username=session_payload['username'],
                     role=session_payload.get('role', 'operator'),
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug('WS session auth fallback failed: %s', exc)
 
     if user is None:
         await websocket.close(code=4001, reason='Unauthorized')
