@@ -268,3 +268,50 @@ async def test_create_invoice():
     assert invoice.invoice_number.startswith('RE-')
     assert invoice.net_total == Decimal('250')
     assert invoice.gross_total == Decimal('297.50')
+
+
+@pytest.mark.asyncio
+async def test_euer_report():
+    from app.accounting.booking_service import BookingService
+    from app.accounting.euer_service import EuerService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    booking_svc = BookingService(repo)
+    euer_svc = EuerService(repo)
+    tid = uuid.uuid4()
+
+    await booking_svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='Expense Corp', description='Büromaterial',
+        account_soll='4210', account_soll_name='Bürobedarf',
+        account_haben='1600', account_haben_name='Verbindlichkeiten',
+        gross_amount=Decimal('119.00'), tax_amount=Decimal('19.00'),
+    )
+
+    report = await euer_svc.generate_euer(tid, date.today().year)
+    assert report['total_expenses'] == 119.0
+    assert report['profit'] == -119.0
+
+
+@pytest.mark.asyncio
+async def test_ust_voranmeldung():
+    from app.accounting.booking_service import BookingService
+    from app.accounting.euer_service import EuerService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    booking_svc = BookingService(repo)
+    euer_svc = EuerService(repo)
+    tid = uuid.uuid4()
+
+    await booking_svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='USt Test', description='Einkauf',
+        account_soll='3300', account_soll_name='Wareneingang',
+        account_haben='1600', account_haben_name='Verbindlichkeiten',
+        gross_amount=Decimal('119.00'), tax_amount=Decimal('19.00'),
+    )
+
+    quarter = (date.today().month - 1) // 3 + 1
+    report = await euer_svc.generate_ust(tid, date.today().year, quarter)
+    assert report['vorsteuer'] == 19.0
+    assert report['zahllast'] == -19.0

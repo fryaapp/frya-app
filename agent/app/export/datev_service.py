@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import uuid
 import zipfile
 from datetime import date
 
@@ -67,6 +68,8 @@ def _german_amount(amount) -> str:
 class DATEVExportService:
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url
+        import uuid as _uuid
+        self._tenant_id: _uuid.UUID = _uuid.UUID(int=0)  # default; callers should set via generate_export
 
     async def generate_export(
         self,
@@ -74,7 +77,11 @@ class DATEVExportService:
         date_to: date,
         berater_nr: str = '',
         mandant_nr: str = '',
+        tenant_id: 'uuid.UUID | None' = None,
     ) -> bytes:
+        import uuid as _uuid
+        if tenant_id is not None:
+            self._tenant_id = tenant_id
         buffer = io.BytesIO()
         with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
             datev_csv = await self._generate_buchungsstapel(
@@ -141,37 +148,25 @@ class DATEVExportService:
         return out.getvalue()
 
     async def _get_transactions(self, date_from: date, date_to: date) -> list[dict]:
-        if self.database_url is None:
-            return []
         try:
-            import asyncpg
-            conn = await asyncpg.connect(self.database_url)
-            try:
-                rows = await conn.fetch(
-                    """
-                    SELECT booking_date, document_number, account_soll, account_haben,
-                           gross_amount, tax_rate, description
-                    FROM accounting_bookings
-                    WHERE booking_date >= $1::date AND booking_date <= $2::date
-                    ORDER BY booking_number
-                    """,
-                    date_from, date_to,
-                )
-                return [
-                    {
-                        'paid_at': str(r['booking_date'] or ''),
-                        'reference': r['document_number'] or '',
-                        'account_id': r['account_soll'] or '',
-                        'category_id': r['account_haben'] or '',
-                        'amount': float(r['gross_amount'] or 0),
-                        'tax_rate': float(r['tax_rate']) if r['tax_rate'] else None,
-                        'description': r['description'] or '',
-                        'currency_code': 'EUR',
-                    }
-                    for r in rows
-                ]
-            finally:
-                await conn.close()
+            from app.accounting.repository import AccountingRepository
+            repo = AccountingRepository(self.database_url or 'memory://')
+            bookings = await repo.list_bookings(
+                self._tenant_id, date_from=date_from, date_to=date_to,
+            )
+            return [
+                {
+                    'paid_at': str(b.booking_date or ''),
+                    'reference': b.document_number or '',
+                    'account_id': b.account_soll or '',
+                    'category_id': b.account_haben or '',
+                    'amount': float(b.gross_amount or 0),
+                    'tax_rate': float(b.tax_rate) if b.tax_rate else None,
+                    'description': b.description or '',
+                    'currency_code': 'EUR',
+                }
+                for b in bookings
+            ]
         except Exception as exc:
             logger.warning('DATEV transaction fetch failed: %s', exc)
             return []
@@ -180,34 +175,26 @@ class DATEVExportService:
         """Collect document references and generate Belegverzeichnis CSV."""
         belege: list[dict] = []
 
-        if self.database_url is not None:
-            try:
-                import asyncpg
-                conn = await asyncpg.connect(self.database_url)
-                try:
-                    rows = await conn.fetch(
-                        """
-                        SELECT b.document_number, c.name AS vendor_name,
-                               b.gross_amount, b.booking_date
-                        FROM accounting_bookings b
-                        LEFT JOIN accounting_contacts c ON c.id = b.contact_id
-                        WHERE b.booking_date >= $1::date AND b.booking_date <= $2::date
-                          AND b.booking_type = 'EXPENSE'
-                        ORDER BY b.booking_number
-                        """,
-                        date_from, date_to,
-                    )
-                    for r in rows:
-                        belege.append({
-                            'document_number': r['document_number'] or '',
-                            'vendor': r['vendor_name'] or '',
-                            'amount': str(r['gross_amount'] or ''),
-                            'date': str(r['booking_date'] or ''),
-                        })
-                finally:
-                    await conn.close()
-            except Exception as exc:
-                logger.warning('DATEV belege fetch failed: %s', exc)
+        try:
+            from app.accounting.repository import AccountingRepository
+            repo = AccountingRepository(self.database_url or 'memory://')
+            bookings = await repo.list_bookings(
+                self._tenant_id, date_from=date_from, date_to=date_to,
+            )
+            contacts = {c.id: c for c in await repo.list_contacts(self._tenant_id)}
+            for b in bookings:
+                if b.booking_type == 'EXPENSE':
+                    vendor_name = ''
+                    if b.contact_id and b.contact_id in contacts:
+                        vendor_name = contacts[b.contact_id].name
+                    belege.append({
+                        'document_number': b.document_number or '',
+                        'vendor': vendor_name,
+                        'amount': str(b.gross_amount or ''),
+                        'date': str(b.booking_date or ''),
+                    })
+        except Exception as exc:
+            logger.warning('DATEV belege fetch failed: %s', exc)
 
         out = io.StringIO()
         writer = csv.writer(out, delimiter=';')
