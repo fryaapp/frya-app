@@ -201,3 +201,70 @@ async def test_contact_service():
     c = await svc.find_or_create_from_analysis(tid, {'sender': 'LUMO UG'})
     assert c.name == 'LUMO UG'
     assert c.contact_type == 'VENDOR'
+
+
+@pytest.mark.asyncio
+async def test_open_item_from_booking():
+    from app.accounting.booking_service import BookingService
+    from app.accounting.open_item_service import AccountingOpenItemService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    booking_svc = BookingService(repo)
+    oi_svc = AccountingOpenItemService(repo)
+    tid = uuid.uuid4()
+
+    booking = await booking_svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='OI Test GmbH', description='Test',
+        account_soll='3300', account_soll_name='Wareneingang',
+        account_haben='1600', account_haben_name='Verbindlichkeiten',
+        gross_amount=Decimal('100.00'),
+    )
+    oi = await oi_svc.create_from_booking(tid, booking)
+    assert oi.item_type == 'PAYABLE'
+    assert oi.original_amount == Decimal('100.00')
+    assert oi.status == 'OPEN'
+
+
+@pytest.mark.asyncio
+async def test_open_item_summary():
+    from app.accounting.booking_service import BookingService
+    from app.accounting.open_item_service import AccountingOpenItemService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    booking_svc = BookingService(repo)
+    oi_svc = AccountingOpenItemService(repo)
+    tid = uuid.uuid4()
+
+    b = await booking_svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='Summary Test', description='T',
+        account_soll='3300', account_soll_name='W',
+        account_haben='1600', account_haben_name='V',
+        gross_amount=Decimal('200.00'),
+    )
+    await oi_svc.create_from_booking(tid, b)
+    summary = await oi_svc.get_summary(tid)
+    assert summary['total_payable'] == 200.0
+    assert summary['payable_count'] == 1
+
+
+@pytest.mark.asyncio
+async def test_create_invoice():
+    from app.accounting.invoice_service import InvoiceService
+    from app.accounting.repository import AccountingRepository
+    repo = AccountingRepository('memory://')
+    svc = InvoiceService(repo)
+    tid = uuid.uuid4()
+
+    contact = await repo.find_or_create_contact(tid, 'Kunde A')
+    invoice = await svc.create_invoice(
+        tenant_id=tid, contact_id=contact.id,
+        items=[
+            {'description': 'Beratung', 'quantity': 2, 'unit_price': 100, 'tax_rate': 19},
+            {'description': 'Material', 'quantity': 1, 'unit_price': 50, 'tax_rate': 19},
+        ],
+    )
+    assert invoice.invoice_number.startswith('RE-')
+    assert invoice.net_total == Decimal('250')
+    assert invoice.gross_total == Decimal('297.50')

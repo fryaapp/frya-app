@@ -551,6 +551,141 @@ class AccountingRepository:
         finally:
             await conn.close()
 
+    # ── Open Items ───────────────────────────────────────────────────────────
+
+    async def create_open_item(self, tenant_id: uuid.UUID, data: dict) -> AccountingOpenItem:
+        if self._is_memory:
+            oid = uuid.uuid4()
+            item = AccountingOpenItem(id=str(oid), tenant_id=str(tenant_id), **data)
+            self._open_items[oid] = item
+            return item
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            row = await conn.fetchrow("""
+                INSERT INTO frya_accounting_open_items (
+                    tenant_id, contact_id, booking_id, case_id, item_type,
+                    original_amount, currency, invoice_number, invoice_date, due_date
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *
+            """, tenant_id,
+                uuid.UUID(data['contact_id']),
+                uuid.UUID(data['booking_id']) if data.get('booking_id') else None,
+                uuid.UUID(data['case_id']) if data.get('case_id') else None,
+                data['item_type'], data['original_amount'], data.get('currency', 'EUR'),
+                data.get('invoice_number'), data.get('invoice_date'), data.get('due_date'),
+            )
+            return self._row_to_open_item(dict(row))
+        finally:
+            await conn.close()
+
+    async def list_open_items(self, tenant_id: uuid.UUID, *, item_type: str | None = None, status: str | None = None) -> list[AccountingOpenItem]:
+        if self._is_memory:
+            items = [i for i in self._open_items.values() if i.tenant_id == str(tenant_id)]
+            if item_type:
+                items = [i for i in items if i.item_type == item_type]
+            if status:
+                items = [i for i in items if i.status == status]
+            return items
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            q = "SELECT * FROM frya_accounting_open_items WHERE tenant_id=$1"
+            params: list = [tenant_id]
+            idx = 2
+            if item_type:
+                q += f" AND item_type=${idx}"
+                params.append(item_type)
+                idx += 1
+            if status:
+                q += f" AND status=${idx}"
+                params.append(status)
+                idx += 1
+            q += " ORDER BY due_date ASC NULLS LAST"
+            rows = await conn.fetch(q, *params)
+            return [self._row_to_open_item(dict(r)) for r in rows]
+        finally:
+            await conn.close()
+
+    async def update_open_item_payment(self, item_id: uuid.UUID, paid_amount: Decimal) -> None:
+        if self._is_memory:
+            item = self._open_items.get(item_id)
+            if item:
+                new_paid = item.paid_amount + paid_amount
+                if new_paid >= item.original_amount:
+                    item.status = 'PAID'
+                    item.paid_at = datetime.now(timezone.utc)
+                else:
+                    item.status = 'PARTIALLY_PAID'
+                item.paid_amount = new_paid
+            return
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            await conn.execute("""
+                UPDATE frya_accounting_open_items SET
+                    paid_amount = paid_amount + $2,
+                    status = CASE WHEN paid_amount + $2 >= original_amount THEN 'PAID' ELSE 'PARTIALLY_PAID' END,
+                    paid_at = CASE WHEN paid_amount + $2 >= original_amount THEN NOW() ELSE paid_at END,
+                    updated_at = NOW()
+                WHERE id = $1
+            """, item_id, paid_amount)
+        finally:
+            await conn.close()
+
+    # ── Invoices ─────────────────────────────────────────────────────────────
+
+    async def create_invoice(self, tenant_id: uuid.UUID, data: dict) -> Invoice:
+        if self._is_memory:
+            iid = uuid.uuid4()
+            inv = Invoice(id=str(iid), tenant_id=str(tenant_id), **data)
+            self._invoices[iid] = inv
+            return inv
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            row = await conn.fetchrow("""
+                INSERT INTO frya_invoices (
+                    tenant_id, contact_id, invoice_number, invoice_date, due_date,
+                    net_total, tax_total, gross_total, header_text, footer_text, payment_reference
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *
+            """, tenant_id,
+                uuid.UUID(data['contact_id']),
+                data['invoice_number'], data['invoice_date'], data.get('due_date'),
+                data['net_total'], data['tax_total'], data['gross_total'],
+                data.get('header_text'), data.get('footer_text'), data.get('payment_reference'),
+            )
+            return self._row_to_invoice(dict(row))
+        finally:
+            await conn.close()
+
+    async def list_invoices(self, tenant_id: uuid.UUID) -> list[Invoice]:
+        if self._is_memory:
+            return [i for i in self._invoices.values() if i.tenant_id == str(tenant_id)]
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            rows = await conn.fetch("SELECT * FROM frya_invoices WHERE tenant_id=$1 ORDER BY invoice_date DESC", tenant_id)
+            return [self._row_to_invoice(dict(r)) for r in rows]
+        finally:
+            await conn.close()
+
+    async def get_next_invoice_number(self, tenant_id: uuid.UUID) -> str:
+        if self._is_memory:
+            existing = [i for i in self._invoices.values() if i.tenant_id == str(tenant_id)]
+            n = len(existing) + 1
+            return f"RE-{datetime.now().year}-{n:03d}"
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            lock_key = (hash(str(tenant_id)) + 1) & 0x7FFFFFFF
+            await conn.execute(f'SELECT pg_advisory_xact_lock({lock_key})')
+            row = await conn.fetchrow(
+                "SELECT COUNT(*) + 1 as next_num FROM frya_invoices WHERE tenant_id=$1", tenant_id)
+            n = row['next_num']
+            return f"RE-{datetime.now().year}-{n:03d}"
+        finally:
+            await conn.close()
+
     # ── Row mappers ──────────────────────────────────────────────────────────
 
     @staticmethod
@@ -593,4 +728,41 @@ class AccountingRepository:
             default_account=row.get('default_account'), notes=row.get('notes'),
             is_active=row.get('is_active', True),
             created_at=row.get('created_at'), updated_at=row.get('updated_at'),
+        )
+
+    @staticmethod
+    def _row_to_open_item(row: dict) -> AccountingOpenItem:
+        return AccountingOpenItem(
+            id=str(row['id']), tenant_id=str(row['tenant_id']),
+            contact_id=str(row['contact_id']),
+            booking_id=str(row['booking_id']) if row.get('booking_id') else None,
+            case_id=str(row['case_id']) if row.get('case_id') else None,
+            item_type=row['item_type'],
+            original_amount=row['original_amount'],
+            paid_amount=row.get('paid_amount', Decimal('0')),
+            currency=row.get('currency', 'EUR'),
+            invoice_number=row.get('invoice_number'),
+            invoice_date=row.get('invoice_date'),
+            due_date=row.get('due_date'),
+            status=row.get('status', 'OPEN'),
+            dunning_level=row.get('dunning_level', 0),
+            created_at=row.get('created_at'),
+            paid_at=row.get('paid_at'),
+        )
+
+    @staticmethod
+    def _row_to_invoice(row: dict) -> Invoice:
+        return Invoice(
+            id=str(row['id']), tenant_id=str(row['tenant_id']),
+            contact_id=str(row['contact_id']),
+            booking_id=str(row['booking_id']) if row.get('booking_id') else None,
+            invoice_number=row['invoice_number'],
+            invoice_date=row['invoice_date'],
+            due_date=row.get('due_date'),
+            net_total=row['net_total'], tax_total=row['tax_total'], gross_total=row['gross_total'],
+            status=row.get('status', 'DRAFT'),
+            pdf_path=row.get('pdf_path'),
+            header_text=row.get('header_text'), footer_text=row.get('footer_text'),
+            payment_reference=row.get('payment_reference'),
+            created_at=row.get('created_at'),
         )
