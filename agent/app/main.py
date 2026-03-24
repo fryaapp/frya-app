@@ -169,6 +169,22 @@ async def lifespan(app: FastAPI):
     except Exception as _avv_exc:
         _logger.warning('AVV repository init failed: %s', _avv_exc)
 
+    # Accounting tables + SKR03
+    try:
+        from app.accounting.repository import AccountingRepository
+        _acct_repo = AccountingRepository(_boot_settings.database_url)
+        await _acct_repo.initialize()
+        # Seed SKR03 for default tenant
+        from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_acct_tid
+        _acct_tid = await _resolve_acct_tid()
+        if _acct_tid:
+            import uuid as _uuid_acct
+            count = await _acct_repo.seed_skr03(_uuid_acct.UUID(_acct_tid))
+            if count:
+                _logger.info('SKR03 seeded: %d accounts', count)
+    except Exception as exc:
+        _logger.warning('Accounting init failed: %s', exc)
+
     app.state.graph = build_graph()
 
     policy_access = get_policy_access_layer()
