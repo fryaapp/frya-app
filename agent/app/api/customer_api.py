@@ -64,16 +64,20 @@ async def send_chat_message(
         get_telegram_communicator_service,
     )
     from app.telegram.communicator.intent_classifier import classify_intent
-    from app.telegram.models import TelegramActorInfo, TelegramNormalizedIngressMessage
+    from app.telegram.models import TelegramActor, TelegramNormalizedIngressMessage
 
     chat_id = f'web-{user.username}'
     case_id = f'web-chat-{user.username}-{uuid.uuid4().hex[:8]}'
+    _evt_id = f'web-evt-{uuid.uuid4().hex[:12]}'
 
     normalized = TelegramNormalizedIngressMessage(
-        update_id=0, message_id=0,
+        event_id=_evt_id,
+        text=body.message,
+        telegram_update_ref=f'web-update-{_evt_id}',
+        telegram_message_ref=f'web-msg-{_evt_id}',
         telegram_chat_ref=f'web:{user.username}',
-        actor=TelegramActorInfo(chat_id=chat_id, sender_id=user.username, sender_username=user.username),
-        text=body.message, media_attachments=[],
+        actor=TelegramActor(chat_id=chat_id, sender_id=user.username, sender_username=user.username),
+        media_attachments=[],
     )
 
     communicator = get_telegram_communicator_service()
