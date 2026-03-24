@@ -109,9 +109,25 @@ def build_llm_context_payload(
     lines.append('[/FALLKONTEXT]')
 
     system_content = COMMUNICATOR_SYSTEM_PROMPT
+    _aktueller_vorgang_block = ''
     if system_context:
-        system_content = f'{COMMUNICATOR_SYSTEM_PROMPT}\n{system_context}'
+        # Extract [AKTUELLER VORGANG] block and put it in the user message
+        # so the LLM sees it directly adjacent to the question (not buried in system prompt)
+        import re as _re_payload
+        _av_match = _re_payload.search(
+            r'(\[AKTUELLER VORGANG\].*?\[/AKTUELLER VORGANG\])',
+            system_context, _re_payload.DOTALL,
+        )
+        if _av_match:
+            _aktueller_vorgang_block = _av_match.group(1)
+            # Keep the rest in system context (without the block)
+            _sys_ctx_without_av = system_context[:_av_match.start()] + system_context[_av_match.end():]
+            system_content = f'{COMMUNICATOR_SYSTEM_PROMPT}\n{_sys_ctx_without_av.strip()}'
+        else:
+            system_content = f'{COMMUNICATOR_SYSTEM_PROMPT}\n{system_context}'
 
+    if _aktueller_vorgang_block:
+        lines.append(_aktueller_vorgang_block)
     lines.append(f'Nutzernachricht: {user_message}')
 
     # Anthropic Prompt Caching: system prompt as content array with cache_control
@@ -609,6 +625,20 @@ class TelegramCommunicatorService:
                         response_type = 'COMMUNICATOR_REPLY_SAFE_HELP'
                         response_source = 'INJECTION_GUARD'
                     else:
+                        # Temporary debug: log what the LLM sees
+                        _sys_msg = next((m for m in payload['messages'] if m.get('role') == 'system'), None)
+                        _sys_text = ''
+                        if _sys_msg:
+                            _c = _sys_msg.get('content', '')
+                            if isinstance(_c, list):
+                                _sys_text = _c[0].get('text', '') if _c else ''
+                            else:
+                                _sys_text = str(_c)
+                        _has_akt = '[AKTUELLER VORGANG]' in _sys_text
+                        _user_msg_text = next((m.get('content', '') for m in payload['messages'] if m.get('role') == 'user'), '')
+                        logger.warning('=== LLM INPUT: sys_len=%d, has_AKTUELLER_VORGANG=%s, user_msg=%s ===',
+                            len(_sys_text), _has_akt, _user_msg_text[:200])
+
                         call_kwargs: dict = {
                             'model': full_model,
                             'messages': payload['messages'],
