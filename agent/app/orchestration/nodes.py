@@ -1012,6 +1012,94 @@ async def finalize_document_review(state: AgentState) -> AgentState:
             ):
                 await _open_items_svc.update_status(_item.item_id, 'COMPLETED')
 
+    # ── Telegram status notification for non-booking-proposal results ────────
+    # If the document was NOT ready for accounting review (INCOMPLETE, LOW_CONFIDENCE,
+    # CONFLICT, etc.), inform the user so they don't wait silently.
+    if accounting_review is None and state.get('source') in ('paperless_webhook', 'telegram'):
+        try:
+            import json as _json_notify
+            _chat_id_notify: str | None = None
+            _tg_events_notify = await get_audit_service().by_case(case_id, limit=200)
+            for _ev_n in _tg_events_notify:
+                _meta_n = _ev_n.llm_output
+                if isinstance(_meta_n, str):
+                    try:
+                        _meta_n = _json_notify.loads(_meta_n)
+                    except Exception:
+                        _meta_n = {}
+                if isinstance(_meta_n, dict) and _meta_n.get('telegram_chat_id'):
+                    _chat_id_notify = str(_meta_n['telegram_chat_id'])
+                    break
+            if not _chat_id_notify:
+                try:
+                    _tg_link_n = await get_telegram_case_link_repository().find_latest_trackable_for_linked_case(case_id)
+                    if _tg_link_n is None:
+                        _recent_n = await get_telegram_case_link_repository().list_recent(limit=1)
+                        _tg_link_n = _recent_n[0] if _recent_n else None
+                    if _tg_link_n and _tg_link_n.telegram_chat_ref:
+                        _ref_n = _tg_link_n.telegram_chat_ref
+                        _chat_id_notify = _ref_n.split(':', 1)[1] if ':' in _ref_n else None
+                except Exception:
+                    pass
+
+            if _chat_id_notify:
+                _vendor_n = result.sender.value if result.sender.status == 'FOUND' else 'Unbekannt'
+                _total_n = next((a.amount for a in result.amounts if a.label == 'TOTAL' and a.status == 'FOUND'), None)
+                _missing = ', '.join(result.missing_fields[:3]) if result.missing_fields else 'keine'
+
+                if result.global_decision == 'INCOMPLETE':
+                    _status_text = (
+                        f'FRYA: Analyse abgeschlossen fuer {_vendor_n}'
+                        f'{" — " + str(_total_n) + " EUR" if _total_n else ""}.\n'
+                        f'Fehlende Felder: {_missing}.\n'
+                        f'Das Dokument wurde zur manuellen Pruefung vorgemerkt.'
+                    )
+                elif result.global_decision == 'LOW_CONFIDENCE':
+                    _status_text = (
+                        f'FRYA: Analyse abgeschlossen fuer {_vendor_n}, '
+                        f'aber die Erkennungssicherheit ist niedrig.\n'
+                        f'Das Dokument wurde zur manuellen Pruefung vorgemerkt.'
+                    )
+                elif result.global_decision == 'CONFLICT':
+                    _status_text = (
+                        f'FRYA: Bei {_vendor_n} gibt es einen Dokumentkonflikt.\n'
+                        f'Bitte manuell pruefen.'
+                    )
+                else:
+                    _status_text = (
+                        f'FRYA: Analyse abgeschlossen fuer {_vendor_n}'
+                        f'{" — " + str(_total_n) + " EUR" if _total_n else ""}.\n'
+                        f'Status: {result.global_decision}.'
+                    )
+
+                from app.connectors.contracts import NotificationMessage as _NM_status
+                await get_telegram_connector().send(
+                    _NM_status(target=_chat_id_notify, text=_status_text)
+                )
+
+                # Update ConversationMemory so user can ask about this doc
+                try:
+                    from app.dependencies import get_communicator_conversation_store, get_chat_history_store
+                    from app.telegram.communicator.memory.conversation_store import build_updated_conversation_memory
+                    _cs_n = get_communicator_conversation_store()
+                    if _cs_n and _chat_id_notify:
+                        _prev_n = await _cs_n.load(_chat_id_notify)
+                        _upd_n = build_updated_conversation_memory(
+                            chat_id=_chat_id_notify, prev_memory=_prev_n,
+                            intent='ANALYSIS_STATUS_SENT', resolved_case_ref=case_id,
+                            resolved_document_ref=document_ref,
+                            resolved_clarification_ref=None, resolved_open_item_id=open_item_id,
+                            context_resolution_status='FOUND',
+                        )
+                        await _cs_n.save(_upd_n)
+                    _hs_n = get_chat_history_store()
+                    if _hs_n and _chat_id_notify:
+                        await _hs_n.append(_chat_id_notify, '', _status_text)
+                except Exception as _mem_n_exc:
+                    _logger.warning('Analysis status memory update failed: %s', _mem_n_exc)
+        except Exception as _notify_status_exc:
+            _logger.warning('Analysis status notification failed for %s: %s', case_id, _notify_status_exc)
+
     state['policy_refs_consulted'] = policy_refs
     if accounting_review is not None:
         state['accounting_review'] = accounting_review.model_dump(mode='json')
