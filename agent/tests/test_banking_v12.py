@@ -9,6 +9,10 @@ Covers:
 - is_test_data flag on test-probe
 - Safety invariants (is_read_only, bank_write_executed)
 - feed_status attached to every result
+
+Note: After Akaunting removal, BankTransactionService.probe_transactions() is a
+stub (no external feed). Scoring tests use probe_test_transactions() which
+accepts operator-supplied test data and exercises the same scoring pipeline.
 """
 from __future__ import annotations
 
@@ -23,30 +27,9 @@ from app.banking.service import BankTransactionService
 # Helpers
 # ---------------------------------------------------------------------------
 
-_EMPTY_FEED_STATUS = {
-    'reachable': True,
-    'source_url': 'https://akaunting.test',
-    'accounts_available': 1,
-    'transactions_total': 0,
-    'note': 'Feed erreichbar. Konten: 1, Transaktionen gesamt: 0.',
-}
 
-_FULL_FEED_STATUS = {
-    'reachable': True,
-    'source_url': 'https://akaunting.test',
-    'accounts_available': 1,
-    'transactions_total': 3,
-    'note': 'Feed erreichbar. Konten: 1, Transaktionen gesamt: 3.',
-}
-
-
-def _make_service(transactions: list[dict], feed_status: dict | None = None) -> BankTransactionService:
-    """Build service with mocked connector and audit."""
-    connector = AsyncMock()
-    connector.search_transactions = AsyncMock(return_value=transactions)
-    connector.get_feed_status = AsyncMock(return_value=feed_status or _EMPTY_FEED_STATUS)
-    connector.search_accounts = AsyncMock(return_value=[{'id': 1, 'name': 'Test Bank'}])
-
+def _make_service() -> BankTransactionService:
+    """Build service with mocked audit (no external connector needed)."""
     audit = AsyncMock()
     audit.log_event = AsyncMock()
 
@@ -91,7 +74,7 @@ _TX_NEAR_AMOUNT = {
 @pytest.mark.asyncio
 async def test_no_transactions_available_when_feed_empty():
     """Feed reachable but 0 transactions → NO_TRANSACTIONS_AVAILABLE."""
-    svc = _make_service(transactions=[])
+    svc = _make_service()
     result = await svc.probe_transactions('doc-1', amount=250.0)
     assert result.result == BankProbeResult.NO_TRANSACTIONS_AVAILABLE
     assert result.bank_write_executed is False
@@ -103,9 +86,11 @@ async def test_no_transactions_available_when_feed_empty():
 
 @pytest.mark.asyncio
 async def test_no_match_found_when_transactions_exist_but_nothing_scores():
-    """Transactions exist but no score > 0 → NO_MATCH_FOUND."""
-    svc = _make_service(transactions=[_TX_WRONG_AMOUNT], feed_status=_FULL_FEED_STATUS)
-    result = await svc.probe_transactions('doc-1', amount=250.0)
+    """Transactions exist but no score > 0 → NO_MATCH_FOUND (via test probe)."""
+    svc = _make_service()
+    result = await svc.probe_test_transactions(
+        'doc-1', test_transactions=[_TX_WRONG_AMOUNT], amount=250.0,
+    )
     assert result.result == BankProbeResult.NO_MATCH_FOUND
     assert result.candidates == []
     assert result.bank_write_executed is False
@@ -114,8 +99,11 @@ async def test_no_match_found_when_transactions_exist_but_nothing_scores():
 @pytest.mark.asyncio
 async def test_candidate_found_medium_confidence():
     """AMOUNT_NEAR (25pts) + CONTACT_MATCH (20pts) = 45pts → MEDIUM → CANDIDATE_FOUND."""
-    svc = _make_service(transactions=[_TX_NEAR_AMOUNT], feed_status=_FULL_FEED_STATUS)
-    result = await svc.probe_transactions('doc-1', amount=250.0, contact_name='Muster')
+    svc = _make_service()
+    result = await svc.probe_test_transactions(
+        'doc-1', test_transactions=[_TX_NEAR_AMOUNT],
+        amount=250.0, contact_name='Muster',
+    )
     assert result.result == BankProbeResult.CANDIDATE_FOUND
     assert len(result.candidates) == 1
     c = result.candidates[0]
@@ -129,8 +117,10 @@ async def test_candidate_found_medium_confidence():
 @pytest.mark.asyncio
 async def test_candidate_found_low_confidence():
     """AMOUNT_NEAR (25pts) alone = 25pts < 30 → LOW quality, still CANDIDATE_FOUND."""
-    svc = _make_service(transactions=[_TX_NEAR_AMOUNT], feed_status=_FULL_FEED_STATUS)
-    result = await svc.probe_transactions('doc-1', amount=250.0)
+    svc = _make_service()
+    result = await svc.probe_test_transactions(
+        'doc-1', test_transactions=[_TX_NEAR_AMOUNT], amount=250.0,
+    )
     assert result.result == BankProbeResult.CANDIDATE_FOUND
     assert len(result.candidates) == 1
     c = result.candidates[0]
@@ -143,8 +133,11 @@ async def test_candidate_found_low_confidence():
 @pytest.mark.asyncio
 async def test_match_found_high_confidence_exact_amount():
     """AMOUNT_EXACT (40pts) + REFERENCE_MATCH (30pts) = 70pts → HIGH → MATCH_FOUND."""
-    svc = _make_service(transactions=[_TX_EXACT_AMOUNT], feed_status=_FULL_FEED_STATUS)
-    result = await svc.probe_transactions('doc-1', amount=250.0, reference='REF-2026-001')
+    svc = _make_service()
+    result = await svc.probe_test_transactions(
+        'doc-1', test_transactions=[_TX_EXACT_AMOUNT],
+        amount=250.0, reference='REF-2026-001',
+    )
     assert result.result == BankProbeResult.MATCH_FOUND
     assert len(result.candidates) == 1
     c = result.candidates[0]
@@ -161,8 +154,11 @@ async def test_ambiguous_match_two_high_confidence():
     tx_b = dict(_TX_EXACT_AMOUNT)
     tx_b['id'] = 999
     tx_b['reference'] = 'REF-2026-001'
-    svc = _make_service(transactions=[_TX_EXACT_AMOUNT, tx_b], feed_status=_FULL_FEED_STATUS)
-    result = await svc.probe_transactions('doc-1', amount=250.0, reference='REF-2026-001')
+    svc = _make_service()
+    result = await svc.probe_test_transactions(
+        'doc-1', test_transactions=[_TX_EXACT_AMOUNT, tx_b],
+        amount=250.0, reference='REF-2026-001',
+    )
     assert result.result == BankProbeResult.AMBIGUOUS_MATCH
     assert len([c for c in result.candidates if c.match_quality == MatchQuality.HIGH]) >= 2
     assert result.bank_write_executed is False
@@ -171,9 +167,10 @@ async def test_ambiguous_match_two_high_confidence():
 @pytest.mark.asyncio
 async def test_contact_and_date_scoring():
     """AMOUNT_EXACT (40) + CONTACT_MATCH (20) + DATE_IN_RANGE (10) = 70pts → HIGH."""
-    svc = _make_service(transactions=[_TX_EXACT_AMOUNT], feed_status=_FULL_FEED_STATUS)
-    result = await svc.probe_transactions(
+    svc = _make_service()
+    result = await svc.probe_test_transactions(
         'doc-1',
+        test_transactions=[_TX_EXACT_AMOUNT],
         amount=250.0,
         contact_name='Muster',
         date_from='2026-02-01',
@@ -190,13 +187,19 @@ async def test_contact_and_date_scoring():
 @pytest.mark.asyncio
 async def test_safety_invariants_always_hold():
     """bank_write_executed always False, is_read_only always True."""
-    svc = _make_service(transactions=[_TX_EXACT_AMOUNT], feed_status=_FULL_FEED_STATUS)
+    svc = _make_service()
+    # Test with probe_transactions (stub) and probe_test_transactions
+    result = await svc.probe_transactions('doc-1')
+    assert result.bank_write_executed is False
+    assert result.is_read_only is True
+
     for kwargs in [
-        {},
         {'amount': 250.0},
         {'reference': 'REF', 'amount': 250.0},
     ]:
-        result = await svc.probe_transactions('doc-1', **kwargs)
+        result = await svc.probe_test_transactions(
+            'doc-1', test_transactions=[_TX_EXACT_AMOUNT], **kwargs,
+        )
         assert result.bank_write_executed is False, f'Safety violated for kwargs={kwargs}'
         assert result.is_read_only is True, f'is_read_only violated for kwargs={kwargs}'
 
@@ -204,7 +207,7 @@ async def test_safety_invariants_always_hold():
 @pytest.mark.asyncio
 async def test_probe_test_transactions_is_flagged():
     """probe_test_transactions: is_test_data=True, same scoring, audit=BANK_TEST_PROBE_EXECUTED."""
-    svc = _make_service(transactions=[], feed_status=_EMPTY_FEED_STATUS)
+    svc = _make_service()
 
     test_txs = [dict(_TX_EXACT_AMOUNT)]
     result = await svc.probe_test_transactions(
@@ -226,7 +229,7 @@ async def test_probe_test_transactions_is_flagged():
 @pytest.mark.asyncio
 async def test_feed_status_always_attached():
     """feed_status is always populated (not None) on successful probe."""
-    svc = _make_service(transactions=[], feed_status=_EMPTY_FEED_STATUS)
+    svc = _make_service()
     result = await svc.probe_transactions('doc-1')
     assert result.feed_status is not None
     assert isinstance(result.feed_status, FeedStatus)
@@ -236,16 +239,18 @@ async def test_feed_status_always_attached():
 @pytest.mark.asyncio
 async def test_actor_is_v12():
     """actor field must identify v1.2."""
-    svc = _make_service(transactions=[])
+    svc = _make_service()
     result = await svc.probe_transactions('doc-1')
     assert 'v1.2' in result.actor
 
 
 @pytest.mark.asyncio
 async def test_no_filters_returns_available_transaction_candidates():
-    """No filters + transactions exist: show AVAILABLE_TRANSACTION candidates."""
-    svc = _make_service(transactions=[_TX_EXACT_AMOUNT, _TX_WRONG_AMOUNT], feed_status=_FULL_FEED_STATUS)
-    result = await svc.probe_transactions('doc-1')  # no filters
+    """No filters + transactions exist: show AVAILABLE_TRANSACTION candidates (via test probe)."""
+    svc = _make_service()
+    result = await svc.probe_test_transactions(
+        'doc-1', test_transactions=[_TX_EXACT_AMOUNT, _TX_WRONG_AMOUNT],
+    )  # no filters (no amount/reference/contact)
     # Still NO_MATCH_FOUND (informational listing, not a match)
     assert result.result == BankProbeResult.NO_MATCH_FOUND
     # But candidates list shows what's available

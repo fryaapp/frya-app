@@ -73,7 +73,7 @@ async def test_conversation_memory_updated_after_approval():
     with patch('app.booking.approval_service.BookingApprovalService', return_value=mock_bas_instance), \
          patch('app.dependencies.get_approval_service', return_value=mock_approval_svc), \
          patch('app.dependencies.get_open_items_service', return_value=MagicMock()), \
-         patch('app.dependencies.get_akaunting_connector', return_value=MagicMock()), \
+         patch('app.dependencies.get_accounting_repository', return_value=MagicMock()), \
          patch('httpx.AsyncClient') as mock_httpx:
 
         mock_httpx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
@@ -138,7 +138,7 @@ async def test_chat_history_contains_approval():
     with patch('app.booking.approval_service.BookingApprovalService', return_value=mock_bas_instance), \
          patch('app.dependencies.get_approval_service', return_value=mock_approval_svc), \
          patch('app.dependencies.get_open_items_service', return_value=MagicMock()), \
-         patch('app.dependencies.get_akaunting_connector', return_value=MagicMock()), \
+         patch('app.dependencies.get_accounting_repository', return_value=MagicMock()), \
          patch('httpx.AsyncClient') as mock_httpx:
 
         mock_httpx.return_value.__aenter__ = AsyncMock(return_value=mock_client)

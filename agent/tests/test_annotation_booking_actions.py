@@ -35,8 +35,8 @@ def _base_result(annotations: list[Annotation]) -> DocumentAnalysisResult:
 
 
 @pytest.mark.asyncio
-async def test_check_payment_exists_queries_akaunting():
-    """CHECK_PAYMENT_EXISTS annotation → Akaunting search_transactions called."""
+async def test_check_payment_exists_queries_bookings():
+    """CHECK_PAYMENT_EXISTS annotation → accounting repository list_bookings called."""
     from app.orchestration import nodes as n
 
     result = _base_result([
@@ -45,12 +45,12 @@ async def test_check_payment_exists_queries_akaunting():
 
     queried: list[dict] = []
 
-    async def fake_search_tx(**kwargs):
-        queried.append(kwargs)
+    async def fake_list_bookings(tenant_id, limit=50):
+        queried.append({'tenant_id': tenant_id, 'limit': limit})
         return []  # no payment found
 
-    mock_connector = MagicMock()
-    mock_connector.search_transactions = fake_search_tx
+    mock_repo = MagicMock()
+    mock_repo.list_bookings = fake_list_bookings
 
     async def fake_ensure_item(case_id, *, title, description, source, desired_status, document_ref=None):
         return 'oi-test'
@@ -63,7 +63,7 @@ async def test_check_payment_exists_queries_akaunting():
          patch.object(n, '_transition_case_open_items', AsyncMock()), \
          patch('app.orchestration.nodes.get_audit_service') as mock_audit, \
          patch('app.orchestration.nodes.get_case_repository', return_value=MagicMock()), \
-         patch('app.orchestration.nodes.get_akaunting_connector', return_value=mock_connector):
+         patch('app.dependencies.get_accounting_repository', return_value=mock_repo):
         mock_audit.return_value.log_event = AsyncMock()
         mock_audit.return_value.by_case = AsyncMock(return_value=[])
 
@@ -74,7 +74,7 @@ async def test_check_payment_exists_queries_akaunting():
         }
         await n.finalize_document_review(state)
 
-    # Akaunting was queried
+    # Accounting repository was queried for existing bookings
     assert len(queried) >= 1
 
 

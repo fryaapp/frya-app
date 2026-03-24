@@ -206,14 +206,14 @@ async def test_booking_callback_approve():
     audit_svc = MagicMock()
     audit_svc.log_event = AsyncMock()
 
-    akaunting = MagicMock()
-    akaunting.create_bill_draft = AsyncMock(return_value={'bill_id': 99, 'status': 'draft'})
+    booking_svc = MagicMock()
+    booking_svc.create_booking_from_case = AsyncMock(return_value=MagicMock(id='booking-99'))
 
     svc = BookingApprovalService(
         approval_service=approval_svc,
         open_items_service=open_items_svc,
         audit_service=audit_svc,
-        akaunting_connector=akaunting,
+        booking_service=booking_svc,
     )
 
     result = await svc.process_response(
@@ -226,7 +226,7 @@ async def test_booking_callback_approve():
 
     assert result['decision'] == 'APPROVE'
     assert result['approval_status'] == 'APPROVED'
-    akaunting.create_bill_draft.assert_called_once()
+    booking_svc.create_booking_from_case.assert_called_once()
 
 
 # ── Test 5: No Telegram notification for email documents ────────────────────

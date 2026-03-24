@@ -1,11 +1,24 @@
+"""Reconciliation Context tests — post-Akaunting removal.
+
+After Akaunting removal, BankTransactionService has no external feed.
+ReconciliationContextService.build() always sees 0 transactions.
+Accounting context comes from internal bookings via get_accounting_repository().
+
+These tests verify:
+- Signal computation given empty banking feed
+- Accounting lookup via internal repository
+- Comparison rows, safety invariants, open items
+- UI/inspect endpoint integration
+"""
 from __future__ import annotations
 
 import importlib
 import json
 import uuid
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -41,29 +54,22 @@ def _make_open_item(title: str, status: str = 'OPEN') -> OpenItem:
     )
 
 
+def _make_booking_mock(*, doc_number: str, description: str, gross_amount: float, status: str = 'BOOKED'):
+    """Create a mock booking object matching AccountingRepository.list_bookings() return."""
+    b = MagicMock()
+    b.id = uuid.uuid4()
+    b.document_number = doc_number
+    b.description = description
+    b.gross_amount = Decimal(str(gross_amount))
+    b.status = status
+    return b
+
+
 def _make_context_service(
     *,
-    transactions: list[dict],
-    feed_total: int,
-    invoices: list[dict] | None = None,
-    bills: list[dict] | None = None,
     chronology: list | None = None,
     open_items: list[OpenItem] | None = None,
 ) -> ReconciliationContextService:
-    connector = AsyncMock()
-    connector.get_feed_status = AsyncMock(
-        return_value={
-            'reachable': True,
-            'source_url': 'http://akaunting',
-            'accounts_available': 1,
-            'transactions_total': feed_total,
-            'note': 'ok',
-        }
-    )
-    connector.search_transactions = AsyncMock(return_value=transactions)
-    connector.search_invoices = AsyncMock(return_value=invoices or [])
-    connector.search_bills = AsyncMock(return_value=bills or [])
-
     audit = AsyncMock()
     audit.by_case = AsyncMock(return_value=chronology or [])
 
@@ -78,186 +84,142 @@ def _make_context_service(
 
 
 @pytest.mark.asyncio
-async def test_reconciliation_context_builds_plausible_income_match():
+async def test_reconciliation_context_missing_data_no_transactions():
+    """No external transactions → MISSING_DATA signal (banking feed is empty)."""
     svc = _make_context_service(
-        transactions=[
-            {
-                'id': 6,
-                'amount': '1450.00',
-                'currency_code': 'EUR',
-                'paid_at': '2026-03-12',
-                'reference': 'INV-2026-101',
-                'contact_name': 'Alpha GmbH',
-                'type': 'income',
-            }
-        ],
-        feed_total=4,
-        invoices=[
-            {
-                'id': 101,
-                'document_number': 'INV-2026-101',
-                'amount': '1450.00',
-                'status': 'sent',
-                'contact_name': 'Alpha GmbH',
-            }
-        ],
         chronology=[_make_event('BANK_TRANSACTION_PROBE_EXECUTED', document_ref='INV-2026-101')],
         open_items=[_make_open_item('Banking Review pruefen')],
     )
 
-    context = await svc.build(
-        case_id='bank-case-1',
-        reference='INV-2026-101',
-        amount=1450.0,
-        contact_name='Alpha GmbH',
-        doc_type='income',
-        doc_date='2026-03-11',
-    )
+    mock_repo = MagicMock()
+    mock_repo.list_bookings = AsyncMock(return_value=[])
 
-    assert context.match_signal == ReconciliationSignal.PLAUSIBLE
-    assert context.bank_result == 'MATCH_FOUND'
-    assert context.accounting_result == 'FOUND'
-    assert context.best_candidate is not None
-    assert 'REFERENCE_EXACT' in context.best_candidate.reason_codes
-    assert 'TYPE_MATCH' in context.best_candidate.reason_codes
-    amount_row = next(row for row in context.comparison_rows if row.field_key == 'amount')
-    assert amount_row.status == ReconciliationDimensionStatus.MATCH
+    with patch('app.dependencies.get_accounting_repository', return_value=mock_repo):
+        context = await svc.build(
+            case_id='bank-case-1',
+            reference='INV-2026-101',
+            amount=1450.0,
+            contact_name='Alpha GmbH',
+            doc_type='income',
+            doc_date='2026-03-11',
+        )
+
+    # No external transactions → signal is MISSING_DATA
+    assert context.match_signal == ReconciliationSignal.MISSING_DATA
     assert context.bank_write_executed is False
     assert context.no_financial_write is True
 
 
 @pytest.mark.asyncio
-async def test_reconciliation_context_builds_plausible_expense_match():
+async def test_reconciliation_context_with_accounting_found():
+    """Internal bookings found → accounting_result is FOUND."""
+    booking = _make_booking_mock(
+        doc_number='INV-2026-101',
+        description='Alpha GmbH invoice',
+        gross_amount=1450.0,
+    )
+
     svc = _make_context_service(
-        transactions=[
-            {
-                'id': 7,
-                'amount': '89.90',
-                'currency_code': 'EUR',
-                'paid_at': '2026-03-10',
-                'reference': 'OUT-2026-042',
-                'contact_name': 'Office Supply GmbH',
-                'type': 'expense',
-            }
-        ],
-        feed_total=4,
-        bills=[
-            {
-                'id': 42,
-                'document_number': 'OUT-2026-042',
-                'amount': '89.90',
-                'status': 'received',
-                'contact_name': 'Office Supply GmbH',
-            }
-        ],
-        chronology=[_make_event('BANK_TRANSACTION_PROBE_EXECUTED', document_ref='OUT-2026-042')],
+        chronology=[_make_event('BANK_TRANSACTION_PROBE_EXECUTED', document_ref='INV-2026-101')],
     )
 
-    context = await svc.build(
-        case_id='bank-case-2',
-        reference='OUT-2026-042',
-        amount=89.90,
-        contact_name='Office Supply GmbH',
-        doc_type='expense',
-        doc_date='2026-03-09',
-    )
+    mock_repo = MagicMock()
+    mock_repo.list_bookings = AsyncMock(return_value=[booking])
 
-    assert context.doc_type == 'expense'
-    assert context.match_signal == ReconciliationSignal.PLAUSIBLE
-    assert context.best_candidate is not None
-    assert context.best_candidate.tx_type == 'expense'
-    assert 'TYPE_MATCH' in context.best_candidate.reason_codes
+    with patch('app.dependencies.get_accounting_repository', return_value=mock_repo):
+        context = await svc.build(
+            case_id='bank-case-2',
+            reference='INV-2026-101',
+            amount=1450.0,
+            contact_name='Alpha GmbH',
+            doc_type='income',
+        )
+
+    assert context.accounting_result == 'FOUND'
+    # Still MISSING_DATA because banking feed is empty
+    assert context.match_signal == ReconciliationSignal.MISSING_DATA
+    assert context.bank_write_executed is False
 
 
 @pytest.mark.asyncio
-async def test_reconciliation_context_marks_ambiguous_candidates_as_unclear():
-    tx = {
-        'amount': '320.00',
-        'currency_code': 'EUR',
-        'paid_at': '2026-03-03',
-        'reference': 'INV-2026-003',
-        'contact_name': 'Beta GmbH',
-        'type': 'income',
-    }
-    svc = _make_context_service(
-        transactions=[{'id': 5, **tx}, {'id': 8, **tx}],
-        feed_total=4,
-        invoices=[{'id': 3, 'document_number': 'INV-2026-003', 'amount': '320.00', 'status': 'sent', 'contact_name': 'Beta GmbH'}],
-    )
+async def test_reconciliation_context_accounting_not_found():
+    """No matching bookings → accounting_result is NOT_FOUND."""
+    svc = _make_context_service()
 
-    context = await svc.build(
-        case_id='bank-case-3',
-        reference='INV-2026-003',
-        amount=320.0,
-        contact_name='Beta GmbH',
-        doc_type='income',
-    )
+    mock_repo = MagicMock()
+    mock_repo.list_bookings = AsyncMock(return_value=[])
 
-    assert context.bank_result == 'AMBIGUOUS_MATCH'
-    assert context.match_signal == ReconciliationSignal.UNCLEAR
-    assert len(context.all_candidates) >= 2
-
-
-@pytest.mark.asyncio
-async def test_reconciliation_context_marks_type_mismatch_as_conflict():
-    svc = _make_context_service(
-        transactions=[
-            {
-                'id': 77,
-                'amount': '1450.00',
-                'currency_code': 'EUR',
-                'paid_at': '2026-03-12',
-                'reference': 'INV-2026-101',
-                'contact_name': 'Alpha GmbH',
-                'type': 'expense',
-            }
-        ],
-        feed_total=4,
-        invoices=[{'id': 101, 'document_number': 'INV-2026-101', 'amount': '1450.00', 'status': 'sent'}],
-    )
-
-    context = await svc.build(
-        case_id='bank-case-4',
-        reference='INV-2026-101',
-        amount=1450.0,
-        contact_name='Alpha GmbH',
-        doc_type='income',
-    )
-
-    assert context.match_signal == ReconciliationSignal.CONFLICT
-    assert any('Richtung' in row.label and row.status == ReconciliationDimensionStatus.CONFLICT for row in context.comparison_rows)
-    assert any('Income/Expense-Richtung widerspricht.' == item for item in context.contra_match)
-
-
-@pytest.mark.asyncio
-async def test_reconciliation_context_reports_missing_accounting_context():
-    svc = _make_context_service(
-        transactions=[
-            {
-                'id': 6,
-                'amount': '1450.00',
-                'currency_code': 'EUR',
-                'paid_at': '2026-03-12',
-                'reference': 'INV-2026-101',
-                'contact_name': 'Alpha GmbH',
-                'type': 'income',
-            }
-        ],
-        feed_total=4,
-        invoices=[],
-    )
-
-    context = await svc.build(
-        case_id='bank-case-5',
-        reference='INV-2026-101',
-        amount=1450.0,
-        contact_name='Alpha GmbH',
-        doc_type='income',
-    )
+    with patch('app.dependencies.get_accounting_repository', return_value=mock_repo):
+        context = await svc.build(
+            case_id='bank-case-3',
+            reference='INV-2026-999',
+            amount=320.0,
+            contact_name='Beta GmbH',
+            doc_type='income',
+        )
 
     assert context.accounting_result == 'NOT_FOUND'
-    assert 'Accounting-Kontext fehlt.' in context.missing_data
+    assert 'Banking-Kontext fehlt' in ' '.join(context.missing_data)
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_context_accounting_ambiguous():
+    """Multiple matching bookings → accounting_result is AMBIGUOUS."""
+    b1 = _make_booking_mock(doc_number='OUT-2026-042', description='Office Supply', gross_amount=89.90)
+    b2 = _make_booking_mock(doc_number='OUT-2026-042', description='Office Supply 2', gross_amount=89.90)
+
+    svc = _make_context_service()
+
+    mock_repo = MagicMock()
+    mock_repo.list_bookings = AsyncMock(return_value=[b1, b2])
+
+    with patch('app.dependencies.get_accounting_repository', return_value=mock_repo):
+        context = await svc.build(
+            case_id='bank-case-4',
+            reference='OUT-2026-042',
+            amount=89.90,
+            contact_name='Office Supply',
+            doc_type='expense',
+        )
+
+    assert context.accounting_result == 'AMBIGUOUS'
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_context_accounting_unavailable():
+    """Repository raises → accounting_result is UNAVAILABLE."""
+    svc = _make_context_service()
+
+    mock_repo = MagicMock()
+    mock_repo.list_bookings = AsyncMock(side_effect=Exception('DB down'))
+
+    with patch('app.dependencies.get_accounting_repository', return_value=mock_repo):
+        context = await svc.build(
+            case_id='bank-case-5',
+            reference='INV-2026-101',
+            amount=1450.0,
+            contact_name='Alpha GmbH',
+            doc_type='income',
+        )
+
+    assert context.accounting_result == 'UNAVAILABLE'
     assert context.bank_write_executed is False
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_context_safety_invariants():
+    """Safety: bank_write_executed=False, is_read_only=True, no_financial_write=True."""
+    svc = _make_context_service()
+
+    mock_repo = MagicMock()
+    mock_repo.list_bookings = AsyncMock(return_value=[])
+
+    with patch('app.dependencies.get_accounting_repository', return_value=mock_repo):
+        context = await svc.build(case_id='safety-case', amount=100.0)
+
+    assert context.bank_write_executed is False
+    assert context.is_read_only is True
+    assert context.no_financial_write is True
 
 
 def _prepare_data(tmp_path: Path) -> None:
@@ -378,8 +340,8 @@ async def test_reconciliation_context_is_visible_in_inspect_and_ui(monkeypatch, 
         assert case_json.status_code == 200
         body = case_json.json()
         assert body['banking_reconciliation_context']['doc_reference'] == 'INV-2026-101'
-        assert body['banking_reconciliation_context']['match_signal'] == 'PLAUSIBLE'
-        assert body['banking_reconciliation_context']['best_candidate']['transaction_id'] == 6
+        # With no external transactions, signal is MISSING_DATA
+        assert body['banking_reconciliation_context']['match_signal'] == 'MISSING_DATA'
 
         detail = client.get('/ui/cases/bank-case-ui-1')
         assert detail.status_code == 200
