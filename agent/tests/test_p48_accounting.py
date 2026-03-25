@@ -315,3 +315,45 @@ async def test_ust_voranmeldung():
     report = await euer_svc.generate_ust(tid, date.today().year, quarter)
     assert report['vorsteuer'] == 19.0
     assert report['zahllast'] == -19.0
+
+
+@pytest.mark.asyncio
+async def test_context_assembly_includes_buchhaltung():
+    """Context assembly should include [BUCHHALTUNG] block when accounting repo is provided."""
+    from app.memory_curator.service import MemoryCuratorService
+    from app.accounting.repository import AccountingRepository
+    from app.accounting.booking_service import BookingService
+    from app.case_engine.repository import CaseRepository
+    from pathlib import Path
+    import tempfile
+
+    acct_repo = AccountingRepository('memory://')
+    case_repo = CaseRepository('memory://')
+    tid = uuid.uuid4()
+
+    # Create a booking
+    svc = BookingService(acct_repo)
+    await svc.create_booking_from_case(
+        case_id=str(uuid.uuid4()), tenant_id=tid,
+        vendor_name='Context Test', description='Test Buchung',
+        account_soll='3300', account_soll_name='Wareneingang',
+        account_haben='1600', account_haben_name='Verbindlichkeiten',
+        gross_amount=Decimal('50.00'),
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        mem_svc = MemoryCuratorService(
+            data_dir=Path(tmpdir),
+            case_repository=case_repo,
+            accounting_repository=acct_repo,
+        )
+        ctx = await mem_svc.get_context_assembly(tid)
+    assert '[BUCHHALTUNG]' in ctx
+    assert 'Test Buchung' in ctx
+    assert '50.00' in ctx or '50.0' in ctx
+
+
+def test_communicator_prompt_has_buchhaltung():
+    from app.telegram.communicator.prompts import COMMUNICATOR_SYSTEM_PROMPT
+    assert 'Buchungsjournal' in COMMUNICATOR_SYSTEM_PROMPT
+    assert 'BUCHHALTUNG' in COMMUNICATOR_SYSTEM_PROMPT

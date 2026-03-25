@@ -67,11 +67,13 @@ class MemoryCuratorService:
         llm_config_repository: Any = None,
         case_repository: Any = None,
         audit_service: Any = None,
+        accounting_repository: Any = None,
     ) -> None:
         self._data_dir = Path(data_dir)
         self._llm_config_repository = llm_config_repository
         self._case_repo = case_repository
         self._audit_svc = audit_service
+        self._accounting_repo = accounting_repository
 
     # ── File helpers ──────────────────────────────────────────────────────────
 
@@ -250,6 +252,30 @@ class MemoryCuratorService:
             detail = await self._build_current_case_detail(tenant_id, _case_ref)
             if detail:
                 parts.append(f'[AKTUELLER VORGANG]\n{detail}\n[/AKTUELLER VORGANG]')
+
+        # ── Buchhaltungs-Zusammenfassung ─────────────────────────────────────
+        if self._accounting_repo is not None:
+            try:
+                from app.accounting.booking_service import BookingService
+                from datetime import date, timedelta
+                _bsvc = BookingService(self._accounting_repo)
+                today_date = date.today()
+                first_of_month = today_date.replace(day=1)
+                summary = await _bsvc.get_finance_summary(tenant_id, first_of_month, today_date)
+                booking_lines = []
+                booking_lines.append(f'Einnahmen (Monat): {summary.get("total_income", 0):.2f} EUR')
+                booking_lines.append(f'Ausgaben (Monat): {summary.get("total_expense", 0):.2f} EUR')
+                booking_lines.append(f'Buchungen gesamt: {summary.get("booking_count", 0)}')
+
+                recent = await self._accounting_repo.list_bookings(tenant_id, limit=5)
+                if recent:
+                    booking_lines.append('Letzte Buchungen:')
+                    for b in recent:
+                        booking_lines.append(f'  - #{b.booking_number}: {b.description} — {b.gross_amount} EUR ({b.booking_date})')
+
+                parts.append('[BUCHHALTUNG]\n' + '\n'.join(booking_lines) + '\n[/BUCHHALTUNG]')
+            except Exception as exc:
+                logger.warning('context_assembly: booking summary failed: %s', exc)
 
         return '\n\n'.join(parts)
 
@@ -553,6 +579,7 @@ def build_memory_curator_service(
     llm_config_repository: Any,
     case_repository: Any,
     audit_service: Any,
+    accounting_repository: Any = None,
 ) -> MemoryCuratorService:
     """Factory for use in API endpoints."""
     return MemoryCuratorService(
@@ -560,4 +587,5 @@ def build_memory_curator_service(
         llm_config_repository=llm_config_repository,
         case_repository=case_repository,
         audit_service=audit_service,
+        accounting_repository=accounting_repository,
     )

@@ -556,12 +556,14 @@ class TelegramCommunicatorService:
                     try:
                         from app.memory_curator.service import build_memory_curator_service
                         from app.config import get_settings as _get_mem_settings
+                        from app.dependencies import get_accounting_repository
                         _mem_settings = _get_mem_settings()
                         _mem_curator = build_memory_curator_service(
                             data_dir=_mem_settings.data_dir,
                             llm_config_repository=_repo,
                             case_repository=_case_repo,
                             audit_service=audit_service,
+                            accounting_repository=get_accounting_repository(),
                         )
                         sys_ctx = await _mem_curator.get_context_assembly(
                             _tenant_id,

@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth.csrf import require_csrf
 from app.auth.dependencies import require_operator
 from app.config import get_settings
-from app.dependencies import get_audit_service, get_case_repository, get_llm_config_repository
+from app.dependencies import get_accounting_repository, get_audit_service, get_case_repository, get_llm_config_repository
 from app.memory_curator.schemas import CurationResult, DmsState
 from app.memory_curator.service import build_memory_curator_service
 
@@ -41,6 +41,7 @@ def _get_service():
         llm_config_repository=get_llm_config_repository(),
         case_repository=get_case_repository(),
         audit_service=get_audit_service(),
+        accounting_repository=get_accounting_repository(),
     )
 
 

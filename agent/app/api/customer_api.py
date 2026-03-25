@@ -841,12 +841,14 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
         try:
             from app.memory_curator.service import build_memory_curator_service
             from app.config import get_settings as _get_mem_settings
+            from app.dependencies import get_accounting_repository
             _mem_settings = _get_mem_settings()
             _mem_curator = build_memory_curator_service(
                 data_dir=_mem_settings.data_dir,
                 llm_config_repository=None,
                 case_repository=case_repo,
                 audit_service=get_audit_service(),
+                accounting_repository=get_accounting_repository(),
             )
             sys_ctx = await _mem_curator.get_context_assembly(
                 _tenant_id,
