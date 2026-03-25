@@ -257,19 +257,53 @@ class MemoryCuratorService:
         if self._accounting_repo is not None:
             try:
                 from app.accounting.booking_service import BookingService
-                from datetime import date, timedelta
+                from app.accounting.euer_service import EuerService
+                from datetime import date as _date_mod
                 _bsvc = BookingService(self._accounting_repo)
-                today_date = date.today()
-                first_of_month = today_date.replace(day=1)
-                summary = await _bsvc.get_finance_summary(tenant_id, first_of_month, today_date)
+                _esvc = EuerService(self._accounting_repo)
+                today = _date_mod.today()
+                first_of_month = today.replace(day=1)
+
+                summary = await _bsvc.get_finance_summary(tenant_id, first_of_month, today)
                 booking_lines = []
                 booking_lines.append(f'Einnahmen (Monat): {summary.get("total_income", 0):.2f} EUR')
                 booking_lines.append(f'Ausgaben (Monat): {summary.get("total_expense", 0):.2f} EUR')
                 booking_lines.append(f'Buchungen gesamt: {summary.get("booking_count", 0)}')
 
+                # EÜR breakdown for current year
+                try:
+                    euer = await _esvc.generate_euer(tenant_id, today.year)
+                    booking_lines.append(f'\nEÜR {today.year}:')
+                    booking_lines.append(f'  Einnahmen gesamt: {euer["total_income"]:.2f} EUR')
+                    if euer.get('income'):
+                        for acc, amt in list(euer['income'].items())[:5]:
+                            booking_lines.append(f'    {acc}: {amt:.2f} EUR')
+                    booking_lines.append(f'  Ausgaben gesamt: {euer["total_expenses"]:.2f} EUR')
+                    if euer.get('expenses'):
+                        for acc, amt in list(euer['expenses'].items())[:8]:
+                            booking_lines.append(f'    {acc}: {amt:.2f} EUR')
+                    booking_lines.append(f'  Gewinn/Verlust: {euer["profit"]:.2f} EUR')
+                except Exception as _euer_exc:
+                    logger.warning('context_assembly: euer failed: %s', _euer_exc)
+
+                # Open Items
+                try:
+                    open_items = await self._accounting_repo.list_open_items(tenant_id)
+                    open_recv = [i for i in open_items if i.item_type == 'RECEIVABLE' and i.status in ('OPEN', 'PARTIALLY_PAID', 'OVERDUE')]
+                    open_pay = [i for i in open_items if i.item_type == 'PAYABLE' and i.status in ('OPEN', 'PARTIALLY_PAID', 'OVERDUE')]
+                    if open_recv:
+                        total_recv = sum(float(i.original_amount - i.paid_amount) for i in open_recv)
+                        booking_lines.append(f'\nOffene Forderungen: {total_recv:.2f} EUR ({len(open_recv)} Posten)')
+                    if open_pay:
+                        total_pay = sum(float(i.original_amount - i.paid_amount) for i in open_pay)
+                        booking_lines.append(f'Offene Verbindlichkeiten: {total_pay:.2f} EUR ({len(open_pay)} Posten)')
+                except Exception as _oi_exc:
+                    logger.warning('context_assembly: open items failed: %s', _oi_exc)
+
+                # Last 5 bookings
                 recent = await self._accounting_repo.list_bookings(tenant_id, limit=5)
                 if recent:
-                    booking_lines.append('Letzte Buchungen:')
+                    booking_lines.append('\nLetzte Buchungen:')
                     for b in recent:
                         booking_lines.append(f'  - #{b.booking_number}: {b.description} — {b.gross_amount} EUR ({b.booking_date})')
 
