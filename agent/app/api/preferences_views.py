@@ -32,7 +32,7 @@ async def _get_user_ids(user: AuthUser) -> tuple[str, str]:
     tenant_id = await resolve_tenant_id()
     if tenant_id is None:
         raise HTTPException(status_code=404, detail='No tenant configured')
-    return tenant_id, str(db_user.id)
+    return tenant_id, db_user.username
 
 
 class PrefValue(BaseModel):
