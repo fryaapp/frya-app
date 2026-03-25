@@ -23,16 +23,16 @@ def _get_repo() -> UserPreferencesRepository:
 
 async def _get_user_ids(user: AuthUser) -> tuple[str, str]:
     """Resolve tenant_id and user_id from the authenticated user."""
-    from app.dependencies import get_user_repository, get_tenant_repository
+    from app.dependencies import get_user_repository
+    from app.case_engine.tenant_resolver import resolve_tenant_id
     user_repo = get_user_repository()
-    tenant_repo = get_tenant_repository()
     db_user = await user_repo.find_by_username(user.username)
     if db_user is None:
         raise HTTPException(status_code=404, detail='User not found in DB')
-    tenant = await tenant_repo.get_default_tenant()
-    if tenant is None:
+    tenant_id = await resolve_tenant_id()
+    if tenant_id is None:
         raise HTTPException(status_code=404, detail='No tenant configured')
-    return str(tenant['id']), str(db_user.id)
+    return tenant_id, str(db_user.id)
 
 
 class PrefValue(BaseModel):

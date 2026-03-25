@@ -2,9 +2,8 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.auth.dependencies import require_operator, require_admin
@@ -15,45 +14,60 @@ from app.feedback.repository import FeedbackRepository
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1/feedback', tags=['feedback'])
 
-_SCREENSHOT_DIR = Path('/app/data/feedback/screenshots')
-
 
 def _get_repo() -> FeedbackRepository:
     return FeedbackRepository(get_settings().database_url)
 
 
 async def _get_user_ids(user: AuthUser) -> tuple[str, str]:
-    from app.dependencies import get_user_repository, get_tenant_repository
+    from app.dependencies import get_user_repository
+    from app.case_engine.tenant_resolver import resolve_tenant_id
     user_repo = get_user_repository()
-    tenant_repo = get_tenant_repository()
     db_user = await user_repo.find_by_username(user.username)
     if db_user is None:
         raise HTTPException(status_code=404, detail='User not found in DB')
-    tenant = await tenant_repo.get_default_tenant()
-    if tenant is None:
+    tenant_id = await resolve_tenant_id()
+    if tenant_id is None:
         raise HTTPException(status_code=404, detail='No tenant configured')
-    return str(tenant['id']), str(db_user.id)
+    return tenant_id, str(db_user.id)
+
+
+class FeedbackCreate(BaseModel):
+    """JSON body for POST /api/v1/feedback.
+
+    Accepts both naming conventions:
+    - ``text`` / ``current_page``  (used by the frontend smoke tests)
+    - ``description`` / ``page``   (legacy form field names)
+    """
+    text: str | None = None
+    description: str | None = None
+    current_page: str | None = None
+    page: str | None = None
+
+    @property
+    def resolved_description(self) -> str:
+        value = self.text or self.description
+        if not value:
+            raise ValueError('Either "text" or "description" must be provided')
+        return value
+
+    @property
+    def resolved_page(self) -> str | None:
+        return self.current_page or self.page
 
 
 @router.post('', status_code=201)
 async def create_feedback(
-    description: str = Form(...),
-    page: str | None = Form(default=None),
-    screenshot: UploadFile | None = File(default=None),
+    body: FeedbackCreate,
     user: AuthUser = Depends(require_operator),
 ):
     tenant_id, user_id = await _get_user_ids(user)
     repo = _get_repo()
 
     screenshot_path: str | None = None
-    if screenshot and screenshot.filename:
-        _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-        import uuid
-        fname = f'{uuid.uuid4().hex}_{screenshot.filename}'
-        dest = _SCREENSHOT_DIR / fname
-        content = await screenshot.read()
-        dest.write_bytes(content)
-        screenshot_path = str(dest)
+
+    description = body.resolved_description
+    page = body.resolved_page
 
     feedback_id = await repo.create(
         tenant_id=tenant_id,

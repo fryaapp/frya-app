@@ -337,8 +337,13 @@ async def upload_document(
         content, filename=file.filename or 'upload.pdf',
         title=f'frya:{ref}:{file.filename or "upload"}',
     )
+    # Paperless NGX returns a plain task-id string; older versions return {'task_id': '...'}
+    if isinstance(result, dict):
+        task_id = result.get('task_id')
+    else:
+        task_id = str(result) if result else None
     return {'ref': ref, 'status': 'processing', 'message': 'Dokument angenommen. Analyse läuft.',
-            'task_id': result.get('task_id')}
+            'task_id': task_id}
 
 
 @router.get('/documents/{doc_id}/thumbnail')
