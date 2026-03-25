@@ -286,26 +286,49 @@ class MemoryCuratorService:
                 except Exception as _euer_exc:
                     logger.warning('context_assembly: euer failed: %s', _euer_exc)
 
-                # Open Items
+                # Open Items — with contact names + due dates
                 try:
                     open_items = await self._accounting_repo.list_open_items(tenant_id)
+                    # Build contact name lookup
+                    _contacts = await self._accounting_repo.list_contacts(tenant_id)
+                    _contact_map = {c.id: c.name for c in _contacts}
+
                     open_recv = [i for i in open_items if i.item_type == 'RECEIVABLE' and i.status in ('OPEN', 'PARTIALLY_PAID', 'OVERDUE')]
                     open_pay = [i for i in open_items if i.item_type == 'PAYABLE' and i.status in ('OPEN', 'PARTIALLY_PAID', 'OVERDUE')]
                     if open_recv:
-                        total_recv = sum(float(i.original_amount - i.paid_amount) for i in open_recv)
-                        booking_lines.append(f'\nOffene Forderungen: {total_recv:.2f} EUR ({len(open_recv)} Posten)')
+                        booking_lines.append('\nOffene Forderungen:')
+                        for _oi in open_recv:
+                            _remaining = float(_oi.original_amount - _oi.paid_amount)
+                            _name = _contact_map.get(_oi.contact_id, 'Unbekannt')
+                            _due = f', fällig {_oi.due_date}' if _oi.due_date else ''
+                            _overdue = ''
+                            if _oi.due_date and _oi.due_date < today:
+                                _overdue = ', ÜBERFÄLLIG'
+                            booking_lines.append(f'  - {_name}: {_remaining:.2f} EUR ({_oi.invoice_number or "?"}{_due}{_overdue})')
                     if open_pay:
-                        total_pay = sum(float(i.original_amount - i.paid_amount) for i in open_pay)
-                        booking_lines.append(f'Offene Verbindlichkeiten: {total_pay:.2f} EUR ({len(open_pay)} Posten)')
+                        booking_lines.append('\nOffene Verbindlichkeiten:')
+                        for _oi in open_pay:
+                            _remaining = float(_oi.original_amount - _oi.paid_amount)
+                            _name = _contact_map.get(_oi.contact_id, 'Unbekannt')
+                            _due = f', fällig {_oi.due_date}' if _oi.due_date else ''
+                            _overdue = ''
+                            if _oi.due_date and _oi.due_date < today:
+                                _overdue = ', ÜBERFÄLLIG'
+                            booking_lines.append(f'  - {_name}: {_remaining:.2f} EUR ({_oi.invoice_number or "?"}{_due}{_overdue})')
                 except Exception as _oi_exc:
                     logger.warning('context_assembly: open items failed: %s', _oi_exc)
 
-                # Last 5 bookings
+                # Last 5 bookings — with contact names
                 recent = await self._accounting_repo.list_bookings(tenant_id, limit=5)
                 if recent:
+                    if not _contact_map:
+                        _contacts = await self._accounting_repo.list_contacts(tenant_id)
+                        _contact_map = {c.id: c.name for c in _contacts}
                     booking_lines.append('\nLetzte Buchungen:')
                     for b in recent:
-                        booking_lines.append(f'  - #{b.booking_number}: {b.description} — {b.gross_amount} EUR ({b.booking_date})')
+                        _bname = _contact_map.get(b.contact_id, '')
+                        _bprefix = f'{_bname}: ' if _bname else ''
+                        booking_lines.append(f'  - #{b.booking_number}: {_bprefix}{b.description} — {b.gross_amount} EUR ({b.booking_date})')
 
                 parts.append('[BUCHHALTUNG]\n' + '\n'.join(booking_lines) + '\n[/BUCHHALTUNG]')
             except Exception as exc:
