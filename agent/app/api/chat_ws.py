@@ -11,7 +11,8 @@ Protocol (outbound):
   {"type": "pong"}
   {"type": "typing", "active": true/false}
   {"type": "chunk", "text": "..."}
-  {"type": "message_complete", "text": "...", "case_ref": null, "suggestions": [...]}
+  {"type": "ui_hint", "action": "open_context", "context_type": "..."}
+  {"type": "message_complete", "text": "...", "case_ref": null, "context_type": "...", "suggestions": [...]}
   {"type": "error", "message": "..."}
 """
 from __future__ import annotations
@@ -43,6 +44,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1/chat', tags=['chat'])
 
 # ---------------------------------------------------------------------------
+# Typing hints (intent -> user-facing status text)
+# ---------------------------------------------------------------------------
+
+TYPING_HINTS: dict[str, str] = {
+    'document_analyze': 'Schaue mir den Beleg an...',
+    'booking_journal_show': 'Lade das Buchungsjournal...',
+    'euer_generate': 'Rechne die EÜR zusammen...',
+    'ust_generate': 'Berechne die USt...',
+    'open_items_show': 'Prüfe die offenen Posten...',
+    'contact_search': 'Suche den Kontakt...',
+    'vendor_search': 'Durchsuche die Vorgänge...',
+}
+
+_GENERIC_TYPING_HINT = 'Einen Moment...'
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -51,6 +68,37 @@ _DEFAULT_SUGGESTIONS: list[str] = [
     'Zeig mir offene Posten',
     'Hilfe',
 ]
+
+# Intent-to-context mapping for communicator results that expose an intent.
+INTENT_TO_CONTEXT: dict[str, str] = {
+    'booking_journal_show': 'bookings',
+    'euer_generate': 'finance',
+    'ust_generate': 'finance',
+    'open_items_show': 'open_items',
+    'deadline_show': 'deadlines',
+    'case_detail': 'case_detail',
+    'document_search': 'document_preview',
+    'invoice_create': 'invoice_draft',
+    'contact_search': 'contact_card',
+}
+
+
+def _detect_context_type(user_text: str) -> str:
+    """Keyword-based fallback for context_type detection."""
+    text = user_text.lower()
+    if any(w in text for w in ('frist', 'deadline', 'fällig', 'termin')):
+        return 'deadlines'
+    if any(w in text for w in ('eür', 'einnahmen', 'ausgaben', 'finanzen', 'bilanz')):
+        return 'finance'
+    if any(w in text for w in ('inbox', 'beleg', 'rechnung', 'offene')):
+        return 'inbox'
+    if any(w in text for w in ('buchung', 'journal', 'konto')):
+        return 'bookings'
+    if any(w in text for w in ('upload', 'hochladen', 'wäschekorb')):
+        return 'upload_status'
+    if any(w in text for w in ('kontakt', 'lieferant', 'kunde')):
+        return 'contact_card'
+    return 'none'
 
 
 def _validate_jwt(token: str) -> dict:
@@ -160,8 +208,12 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     })
                     continue
 
-                # Typing indicator ON
-                await websocket.send_json({'type': 'typing', 'active': True})
+                # Typing indicator ON with hint
+                await websocket.send_json({
+                    'type': 'typing',
+                    'active': True,
+                    'hint': _GENERIC_TYPING_HINT,
+                })
 
                 try:
                     result = await _get_communicator_reply(text, user_id, tenant_id)
@@ -180,10 +232,28 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         )
                         case_ref = None
 
+                    # --- Determine context_type ---
+                    # Try intent from communicator first, fall back to keywords.
+                    intent = getattr(result, 'intent', None) if result else None
+                    context_type = (
+                        INTENT_TO_CONTEXT.get(intent, 'none')
+                        if intent
+                        else _detect_context_type(text)
+                    )
+
+                    # Send ui_hint before message_complete when relevant.
+                    if context_type != 'none':
+                        await websocket.send_json({
+                            'type': 'ui_hint',
+                            'action': 'open_context',
+                            'context_type': context_type,
+                        })
+
                     await websocket.send_json({
                         'type': 'message_complete',
                         'text': reply_text,
                         'case_ref': case_ref,
+                        'context_type': context_type,
                         'suggestions': _DEFAULT_SUGGESTIONS,
                     })
 

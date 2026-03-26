@@ -686,6 +686,66 @@ class AccountingRepository:
         finally:
             await conn.close()
 
+    async def get_invoice_by_id(self, tenant_id: uuid.UUID, invoice_id: uuid.UUID) -> Invoice | None:
+        if self._is_memory:
+            inv = self._invoices.get(invoice_id)
+            if inv and inv.tenant_id == str(tenant_id):
+                return inv
+            return None
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            row = await conn.fetchrow(
+                "SELECT * FROM frya_invoices WHERE id=$1 AND tenant_id=$2",
+                invoice_id, tenant_id,
+            )
+            return self._row_to_invoice(dict(row)) if row else None
+        finally:
+            await conn.close()
+
+    async def get_contact_by_id(self, tenant_id: uuid.UUID, contact_id: uuid.UUID) -> Contact | None:
+        if self._is_memory:
+            c = self._contacts.get(contact_id)
+            if c and c.tenant_id == str(tenant_id):
+                return c
+            return None
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            row = await conn.fetchrow(
+                "SELECT * FROM frya_contacts WHERE id=$1 AND tenant_id=$2",
+                contact_id, tenant_id,
+            )
+            return self._row_to_contact(dict(row)) if row else None
+        finally:
+            await conn.close()
+
+    async def list_open_items_by_contact(
+        self, tenant_id: uuid.UUID, contact_id: uuid.UUID,
+        *, status: str | None = None,
+    ) -> list[AccountingOpenItem]:
+        if self._is_memory:
+            items = [
+                i for i in self._open_items.values()
+                if i.tenant_id == str(tenant_id) and i.contact_id == str(contact_id)
+            ]
+            if status:
+                items = [i for i in items if i.status == status]
+            return items
+        import asyncpg
+        conn = await asyncpg.connect(self._url)
+        try:
+            q = "SELECT * FROM frya_accounting_open_items WHERE tenant_id=$1 AND contact_id=$2"
+            params: list = [tenant_id, contact_id]
+            if status:
+                q += " AND status=$3"
+                params.append(status)
+            q += " ORDER BY due_date ASC NULLS LAST"
+            rows = await conn.fetch(q, *params)
+            return [self._row_to_open_item(dict(r)) for r in rows]
+        finally:
+            await conn.close()
+
     # ── Row mappers ──────────────────────────────────────────────────────────
 
     @staticmethod
