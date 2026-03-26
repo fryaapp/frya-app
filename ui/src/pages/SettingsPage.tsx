@@ -70,7 +70,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     let cancelled = false
-    api.get<Settings>('/settings').then((data) => {
+    api.get<Settings>('/preferences').then((data) => {
       if (!cancelled) {
         setSettings(data)
         setTheme(data.theme)
@@ -83,7 +83,10 @@ export function SettingsPage() {
     const next = { ...settings, ...patch }
     setSettings(next)
     setToast(true)
-    api.put('/settings', next).catch(() => { /* revert silently */ })
+    // Save each changed key individually via PUT /preferences/{key}
+    Object.entries(patch).forEach(([key, value]) => {
+      api.put(`/preferences/${key}`, { value: String(value) }).catch(() => { /* revert silently */ })
+    })
   }, [settings])
 
   const handleTheme = (t: Theme) => {
