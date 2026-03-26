@@ -120,7 +120,7 @@ function KpiCard({ icon, label, value, iconColor = 'text-on-surface-variant', on
 
 /**
  * StartPage — Dashboard-Startseite.
- * Kompakter Frya-Avatar + Begruessung, KPI-Karten, letzte Belege,
+ * Kompakter Frya-Avatar + Begrüßung, KPI-Karten, letzte Belege,
  * Shortcut-Chips und Eingabefeld.
  */
 export function StartPage() {
@@ -179,7 +179,7 @@ export function StartPage() {
             <h1 className="text-lg font-display font-bold text-on-surface leading-tight">
               {greeting}!
             </h1>
-            <p className="text-sm text-on-surface-variant">Was kann ich fuer dich tun?</p>
+            <p className="text-sm text-on-surface-variant">Was kann ich für dich tun?</p>
           </div>
         </div>
 
@@ -214,7 +214,7 @@ export function StartPage() {
               />
               <KpiCard
                 icon="warning"
-                label="Ueberfaellige Fristen"
+                label="Überfällige Fristen"
                 value={String(overdueCount)}
                 iconColor={overdueCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-on-surface-variant'}
                 onClick={() => openSplit('deadlines')}

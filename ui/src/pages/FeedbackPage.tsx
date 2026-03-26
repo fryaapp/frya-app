@@ -16,7 +16,7 @@ export function FeedbackPage() {
     setSending(true)
     try {
       const form = new FormData()
-      form.append('text', text.trim())
+      form.append('description', text.trim())
       form.append('current_page', window.location.pathname)
       if (file) form.append('screenshot', file)
       await api.postFormData('/feedback', form)

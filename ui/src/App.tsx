@@ -14,7 +14,11 @@ import { FeedbackPage } from './pages/FeedbackPage'
 import { DocumentsPage } from './pages/DocumentsPage'
 import { FinancePage } from './pages/FinancePage'
 import { ProfilePage } from './pages/ProfilePage'
+import { NotificationsPage } from './pages/NotificationsPage'
 import { LegalPage } from './pages/LegalPage'
+import { CaseDetailPage } from './pages/CaseDetailPage'
+import { BelegDetailPage } from './pages/BelegDetailPage'
+import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import './index.css'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -30,6 +34,7 @@ export default function App() {
   useEffect(() => { restore() }, [restore])
 
   return (
+    <ErrorBoundary>
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -39,7 +44,9 @@ export default function App() {
           <Route index element={<PlaceholderContext label="Start" />} />
           {/* Context panel pages (top 58% of split) */}
           <Route path="inbox" element={<InboxPage />} />
+          <Route path="inbox/:caseId" element={<BelegDetailPage />} />
           <Route path="cases" element={<CasesPage />} />
+          <Route path="cases/:caseId" element={<CaseDetailPage />} />
           <Route path="deadlines" element={<DeadlinesPage />} />
           <Route path="upload" element={<UploadPage />} />
           <Route path="settings" element={<SettingsPage />} />
@@ -47,6 +54,7 @@ export default function App() {
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="legal" element={<LegalPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
           {/* Phase 2 routes — prepared but not built */}
           <Route path="finance" element={<FinancePage />} />
           <Route path="bookings" element={<PlaceholderContext label="Buchungsjournal" />} />
@@ -55,6 +63,7 @@ export default function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+    </ErrorBoundary>
   )
 }
 

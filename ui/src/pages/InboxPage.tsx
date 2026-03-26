@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Chip, Icon, ConfidenceBadge } from '../components/m3'
-import { useUiStore } from '../stores/uiStore'
 import { api } from '../lib/api'
 
 interface BookingProposal {
@@ -55,24 +55,32 @@ function formatAmount(amount: number, currency: string): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency }).format(amount)
 }
 
+type InboxFilter = 'pending' | 'approved' | 'rejected'
+
+const INBOX_FILTERS: { key: InboxFilter; label: string; icon: string }[] = [
+  { key: 'pending', label: 'Ausstehend', icon: 'hourglass_empty' },
+  { key: 'approved', label: 'Freigegeben', icon: 'check_circle' },
+  { key: 'rejected', label: 'Abgelehnt', icon: 'cancel' },
+]
+
 export function InboxPage() {
-  const openSplit = useUiStore((s) => s.openSplit)
+  const navigate = useNavigate()
   const [items, setItems] = useState<InboxItem[]>([])
   const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<InboxFilter>('pending')
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setError(null)
 
     async function load() {
       try {
-        const data = await api.get<InboxResponse>('/inbox')
+        const data = await api.get<InboxResponse>(`/inbox?status=${filter}&limit=50`)
         if (cancelled) return
-        const filtered = data.items.filter(
-          (i) => i.approval_mode === 'PROPOSE_ONLY' || i.approval_mode === 'REQUIRE_USER_APPROVAL',
-        )
-        setItems(filtered)
+        setItems(data.items)
         setCount(data.count)
       } catch {
         if (!cancelled) setError('Inbox konnte nicht geladen werden.')
@@ -83,10 +91,10 @@ export function InboxPage() {
 
     load()
     return () => { cancelled = true }
-  }, [])
+  }, [filter])
 
-  const handleCardClick = (_caseId: string) => {
-    openSplit('case_detail')
+  const handleCardClick = (caseId: string) => {
+    navigate(`/inbox/${caseId}`)
   }
 
   return (
@@ -100,6 +108,19 @@ export function InboxPage() {
             {count}
           </span>
         )}
+      </div>
+
+      {/* Filter Chips */}
+      <div className="flex gap-2 px-4 py-3 overflow-x-auto">
+        {INBOX_FILTERS.map((f) => (
+          <Chip
+            key={f.key}
+            label={f.label}
+            icon={f.icon}
+            color={filter === f.key ? 'primary' : 'default'}
+            onClick={() => setFilter(f.key)}
+          />
+        ))}
       </div>
 
       {/* Content */}

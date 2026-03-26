@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Chip, Icon, ConfidenceBadge, StatusBadge } from '../components/m3'
-import { useUiStore } from '../stores/uiStore'
 import { api } from '../lib/api'
 
 interface CaseItem {
@@ -21,12 +21,15 @@ interface CasesResponse {
   items: CaseItem[]
 }
 
-type FilterKey = 'ALL' | 'OPEN' | 'DRAFT' | 'OVERDUE' | 'BOOKED'
+type FilterKey = 'ALL' | 'OPEN' | 'DRAFT' | 'ANALYZED' | 'PROPOSED' | 'APPROVED' | 'OVERDUE' | 'BOOKED'
 
 const FILTERS: { key: FilterKey; label: string; icon: string }[] = [
   { key: 'ALL', label: 'Alle', icon: 'list' },
   { key: 'OPEN', label: 'Offen', icon: 'folder_open' },
   { key: 'DRAFT', label: 'Entwurf', icon: 'edit_note' },
+  { key: 'ANALYZED', label: 'Analysiert', icon: 'analytics' },
+  { key: 'PROPOSED', label: 'Vorgeschlagen', icon: 'auto_awesome' },
+  { key: 'APPROVED', label: 'Genehmigt', icon: 'thumb_up' },
   { key: 'OVERDUE', label: 'Überfällig', icon: 'schedule' },
   { key: 'BOOKED', label: 'Gebucht', icon: 'check_circle' },
 ]
@@ -55,7 +58,7 @@ function formatAmount(amount: number, currency: string): string {
 }
 
 export function CasesPage() {
-  const openSplit = useUiStore((s) => s.openSplit)
+  const navigate = useNavigate()
   const [items, setItems] = useState<CaseItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -63,10 +66,13 @@ export function CasesPage() {
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setError(null)
 
     async function load() {
       try {
-        const data = await api.get<CasesResponse>('/cases?status=OPEN&limit=50')
+        const statusParam = filter === 'ALL' ? '' : filter
+        const data = await api.get<CasesResponse>(`/cases?status=${statusParam}&limit=50`)
         if (cancelled) return
         setItems(data.items)
       } catch {
@@ -78,11 +84,7 @@ export function CasesPage() {
 
     load()
     return () => { cancelled = true }
-  }, [])
-
-  const filtered = filter === 'ALL'
-    ? items
-    : items.filter((i) => i.status === filter)
+  }, [filter])
 
   return (
     <div className="flex flex-col h-full">
@@ -126,18 +128,18 @@ export function CasesPage() {
           </div>
         )}
 
-        {!loading && !error && filtered.length === 0 && (
+        {!loading && !error && items.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-on-surface-variant">
             <Icon name="check_circle" size={48} className="text-success mb-3" />
             <p className="text-sm font-medium">Keine Vorgänge gefunden.</p>
           </div>
         )}
 
-        {!loading && !error && filtered.map((item) => (
+        {!loading && !error && items.map((item) => (
           <Card
             key={item.case_id}
             variant="outlined"
-            onClick={() => openSplit('case_detail')}
+            onClick={() => navigate(`/cases/${item.case_id}`)}
           >
             {/* Header row */}
             <div className="flex items-start justify-between gap-2 mb-2">

@@ -13,6 +13,16 @@ const statusMap: Record<string, { label: string; color: string }> = {
   CANCELLED: { label: 'Storniert', color: 'bg-error-container text-error line-through' },
   PARTIALLY_PAID: { label: 'Teilweise bezahlt', color: 'bg-warning-container text-warning' },
   SENT: { label: 'Versendet', color: 'bg-info-container text-info' },
+  ANALYZED: { label: 'Analysiert', color: 'bg-info-container text-info' },
+  PROPOSED: { label: 'Vorgeschlagen', color: 'bg-warning-container text-warning' },
+  APPROVED: { label: 'Freigegeben', color: 'bg-success-container text-success' },
+  REJECTED: { label: 'Abgelehnt', color: 'bg-error-container text-error' },
+  ARCHIVED: { label: 'Archiviert', color: 'bg-surface-container-high text-on-surface-variant' },
+  WAITING_USER: { label: 'Wartet auf dich', color: 'bg-warning-container text-warning' },
+  WAITING_DATA: { label: 'Wartet auf Daten', color: 'bg-info-container text-info' },
+  SCHEDULED: { label: 'Geplant', color: 'bg-info-container text-info' },
+  PENDING_APPROVAL: { label: 'Wartet auf Freigabe', color: 'bg-warning-container text-warning' },
+  COMPLETED: { label: 'Erledigt', color: 'bg-success-container text-success' },
 }
 
 export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
