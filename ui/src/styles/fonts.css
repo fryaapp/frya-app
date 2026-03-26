@@ -1,0 +1,4 @@
+/* FRYA Fonts — via npm packages, bundled at build time */
+@import '@fontsource-variable/outfit';
+@import '@fontsource-variable/plus-jakarta-sans';
+@import 'material-symbols/rounded.css';
