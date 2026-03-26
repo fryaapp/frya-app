@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import type { ChatMessage } from '../../stores/chatStore'
+import { Icon } from '../m3'
 import { ApprovalCard } from './ApprovalCard'
 import { DuplicateCard } from './DuplicateCard'
 import { NotificationBubble } from './NotificationBubble'
@@ -36,15 +37,15 @@ export function ChatBubble({ message, onApprovalAction }: ChatBubbleProps) {
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center mr-2 shrink-0 self-end">
-          <span className="text-xs font-bold text-on-primary-container">F</span>
+        <div className="w-8 h-8 rounded-2xl bg-primary-container flex items-center justify-center mr-2 shrink-0 self-end">
+          <Icon name="eco" size={16} filled className="text-on-primary-container" />
         </div>
       )}
       <div
-        className={`max-w-[80%] px-4 py-3 rounded-m3-lg text-sm leading-relaxed ${
+        className={`max-w-[85%] ${
           isUser
-            ? 'bg-primary text-on-primary rounded-br-sm whitespace-pre-wrap'
-            : 'bg-surface-container-high text-on-surface rounded-bl-sm'
+            ? 'bg-primary-container text-on-primary-container px-4 py-2.5 rounded-[20px] rounded-br-[4px] whitespace-pre-wrap text-[13px] leading-[1.5]'
+            : 'text-on-surface text-[13px] leading-[1.65]'
         }`}
       >
         {isUser ? (

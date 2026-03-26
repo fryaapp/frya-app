@@ -17,12 +17,14 @@ export function AppShell() {
       <IconRail className="hidden md:flex" />
 
       {/* Main content area */}
-      <main className="flex-1 pb-16 md:pb-0 overflow-hidden">
-        <SplitView
-          idleContent={<StartPage />}
-          contextContent={<Outlet />}
-          chatContent={<ChatPanel />}
-        />
+      <main className="flex-1 pb-16 md:pb-0 overflow-hidden flex justify-center">
+        <div className="w-full max-w-[720px]">
+          <SplitView
+            idleContent={<StartPage />}
+            contextContent={<Outlet />}
+            chatContent={<ChatPanel />}
+          />
+        </div>
       </main>
 
       {/* Bottom navigation — mobile only */}
@@ -38,10 +40,10 @@ function BugReportFAB() {
   return (
     <button
       onClick={() => window.open('/feedback', '_self')}
-      className="fixed bottom-3 right-3 z-50 w-[30px] h-[30px] rounded-[10px] bg-surface-container-low border border-outline-variant flex items-center justify-center hover:bg-error-container hover:border-error hover:text-error transition-colors"
+      className="fixed bottom-[18px] right-[18px] z-[150] w-[34px] h-[34px] rounded-[12px] bg-surface-container-low border border-outline flex items-center justify-center hover:bg-error-container hover:border-error transition-all cursor-pointer group"
       aria-label="Feedback senden"
     >
-      <Icon name="bug_report" size={14} className="text-on-surface-variant" />
+      <Icon name="bug_report" size={15} className="text-on-surface-variant group-hover:text-error" />
     </button>
   )
 }

@@ -8,15 +8,15 @@ interface CardProps {
 }
 
 const cardVariants: Record<CardVariant, string> = {
-  elevated: 'bg-surface-container-low shadow-sm',
-  filled: 'bg-surface-container',
-  outlined: 'bg-surface border border-outline-variant',
+  elevated: 'bg-surface-container-low rounded-[14px]',
+  filled: 'bg-surface-container-low rounded-[14px]',
+  outlined: 'border border-outline-variant rounded-[14px] bg-transparent',
 }
 
 export function Card({ variant = 'filled', className = '', children, onClick }: CardProps) {
   return (
     <div
-      className={`rounded-m3 p-4 ${cardVariants[variant]} ${onClick ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''} ${className}`}
+      className={`px-[14px] py-3 ${cardVariants[variant]} ${onClick ? 'cursor-pointer hover:bg-surface-container-high transition-colors' : ''} ${className}`}
       onClick={onClick}
       onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
       role={onClick ? 'button' : undefined}

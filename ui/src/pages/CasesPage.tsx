@@ -145,15 +145,17 @@ export function CasesPage() {
             <div className="flex items-start justify-between gap-2 mb-2">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-on-surface truncate">
-                  {item.vendor_name}
+                  {item.vendor_name || 'Unbekannter Absender'}
                 </p>
                 <p className="text-xs text-on-surface-variant">
                   {item.case_number}
                 </p>
               </div>
-              <p className="text-base font-bold text-on-surface whitespace-nowrap">
-                {formatAmount(item.amount, item.currency)}
-              </p>
+              {item.amount != null && (
+                <p className="text-base font-bold text-on-surface whitespace-nowrap">
+                  {formatAmount(item.amount, item.currency)}
+                </p>
+              )}
             </div>
 
             {/* Badges row */}
@@ -163,7 +165,7 @@ export function CasesPage() {
             </div>
 
             {/* Conflicts */}
-            {item.conflicts.length > 0 && (
+            {item.conflicts?.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {item.conflicts.map((conflict) => (
                   <Chip
@@ -177,7 +179,7 @@ export function CasesPage() {
             )}
 
             {/* Risk flags */}
-            {item.risk_flags.length > 0 && (
+            {item.risk_flags?.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {item.risk_flags.map((flag) => (
                   <Chip

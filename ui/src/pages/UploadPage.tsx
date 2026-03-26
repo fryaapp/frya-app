@@ -3,7 +3,6 @@ import { Card, Icon } from '../components/m3'
 import { Dropzone } from '../components/upload/Dropzone'
 import { PipelineStatus } from '../components/upload/PipelineStatus'
 import type { FileStatus } from '../components/upload/types'
-import { api } from '../lib/api'
 import { useChatStore } from '../stores/chatStore'
 
 interface BulkUploadResult {

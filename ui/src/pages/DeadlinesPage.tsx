@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Icon } from '../components/m3'
+import { Icon } from '../components/m3'
 import { api } from '../lib/api'
 
 interface DeadlineItem {
@@ -23,11 +23,11 @@ interface DeadlinesResponse {
 
 type SectionKey = 'overdue' | 'due_today' | 'due_soon' | 'skonto_expiring'
 
-const SECTION_META: Record<SectionKey, { label: string; icon: string; borderClass: string }> = {
-  overdue: { label: 'Überfällig', icon: 'error', borderClass: 'border-l-4 border-l-error' },
-  due_today: { label: 'Heute fällig', icon: 'today', borderClass: 'border-l-4 border-l-warning' },
-  due_soon: { label: 'Bald fällig', icon: 'upcoming', borderClass: 'border-l-4 border-l-success' },
-  skonto_expiring: { label: 'Skonto läuft ab', icon: 'savings', borderClass: 'border-l-4 border-l-info' },
+const SECTION_META: Record<SectionKey, { label: string; icon: string; borderColor: string; textColor: string }> = {
+  overdue: { label: 'Überfällig', icon: 'error', borderColor: 'border-l-error', textColor: 'text-error' },
+  due_today: { label: 'Heute fällig', icon: 'today', borderColor: 'border-l-warning', textColor: 'text-warning' },
+  due_soon: { label: 'Bald fällig', icon: 'upcoming', borderColor: 'border-l-success', textColor: 'text-success' },
+  skonto_expiring: { label: 'Skonto läuft ab', icon: 'savings', borderColor: 'border-l-warning', textColor: 'text-warning' },
 }
 
 const SECTION_ORDER: SectionKey[] = ['overdue', 'due_today', 'due_soon', 'skonto_expiring']
@@ -56,6 +56,20 @@ function formatDate(dateStr: string): string {
     month: '2-digit',
     year: 'numeric',
   })
+}
+
+function daysUntil(dateStr: string): number {
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const target = new Date(dateStr)
+  target.setHours(0, 0, 0, 0)
+  return Math.round((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function daysLabel(days: number): string {
+  if (days < 0) return `${Math.abs(days)}d überfällig`
+  if (days === 0) return 'Heute'
+  return `${days}d`
 }
 
 export function DeadlinesPage() {
@@ -139,14 +153,24 @@ export function DeadlinesPage() {
               </div>
 
               <div className="space-y-2">
-                {items.map((item) => (
-                  <Card
-                    key={item.id}
-                    variant="outlined"
-                    className={meta.borderClass}
-                    onClick={item.case_id ? () => navigate(`/cases/${item.case_id}`) : undefined}
-                  >
-                    <div className="flex items-start justify-between gap-2">
+                {items.map((item) => {
+                  const days = daysUntil(item.due_date)
+                  const isOverdue = sectionKey === 'overdue'
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`
+                        bg-surface-container-high border-l-[3px] ${meta.borderColor}
+                        ${isOverdue ? 'rounded-[4px_14px_14px_4px]' : 'rounded-[4px_14px_14px_4px]'}
+                        p-3 flex items-start justify-between gap-2
+                        ${item.case_id ? 'cursor-pointer hover:bg-surface-container-highest transition-colors' : ''}
+                      `}
+                      onClick={item.case_id ? () => navigate(`/cases/${item.case_id}`) : undefined}
+                      onKeyDown={item.case_id ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/cases/${item.case_id}`) } } : undefined}
+                      role={item.case_id ? 'button' : undefined}
+                      tabIndex={item.case_id ? 0 : undefined}
+                    >
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-on-surface truncate">
                           {item.title}
@@ -160,16 +184,19 @@ export function DeadlinesPage() {
                               &middot; {TYPE_LABELS[item.type] ?? item.type}
                             </span>
                           )}
+                          {item.amount != null && item.currency && (
+                            <span className="text-xs text-on-surface-variant">
+                              &middot; {formatAmount(item.amount, item.currency)}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      {item.amount != null && item.currency && (
-                        <p className="text-sm font-bold text-on-surface whitespace-nowrap">
-                          {formatAmount(item.amount, item.currency)}
-                        </p>
-                      )}
+                      <span className={`text-[13px] font-semibold ${meta.textColor} whitespace-nowrap`}>
+                        {daysLabel(days)}
+                      </span>
                     </div>
-                  </Card>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )

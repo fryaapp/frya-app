@@ -14,7 +14,7 @@ const navItems: NavItem[] = [
   { path: '/', icon: 'home', label: 'Start', context: 'none' },
   { path: '/inbox', icon: 'inbox', label: 'Inbox', context: 'inbox' },
   { path: '/cases', icon: 'folder_open', label: 'Vorgänge', context: 'cases' },
-  { path: '/finance', icon: 'bar_chart', label: 'Finanzen', context: 'finance', disabled: true },
+  { path: '/finance', icon: 'bar_chart', label: 'Finanzen', context: 'finance' },
   { path: '/deadlines', icon: 'schedule', label: 'Fristen', context: 'deadlines' },
   { path: '/upload', icon: 'cloud_upload', label: 'Hochladen', context: 'upload_status' },
 ]
@@ -22,6 +22,7 @@ const navItems: NavItem[] = [
 const settingsItem: NavItem = {
   path: '/settings',
   icon: 'settings',
+  label: 'Einstellungen',
   context: 'settings',
 }
 
@@ -57,10 +58,10 @@ export function IconRail({ className = '' }: IconRailProps) {
 
   return (
     <nav
-      className={`flex-col items-center w-[52px] min-w-[52px] bg-surface-container-low border-r border-outline-variant py-3.5 ${className}`}
+      className={`flex-col items-center w-[52px] min-w-[52px] py-3.5 ${className}`}
     >
       {/* Logo */}
-      <div className="w-8 h-8 rounded-m3 bg-primary-container flex items-center justify-center mb-4">
+      <div className="w-8 h-8 rounded-[12px] bg-primary-container flex items-center justify-center mb-4">
         <Icon name="eco" size={18} className="text-on-primary-container" />
       </div>
 
@@ -73,9 +74,9 @@ export function IconRail({ className = '' }: IconRailProps) {
               key={item.path}
               onClick={() => handleNav(item)}
               disabled={item.disabled}
-              className={`relative w-9 h-9 rounded-m3 flex items-center justify-center transition-colors
+              className={`relative w-9 h-9 rounded-[12px] flex items-center justify-center transition-colors
                 ${item.disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-surface-container-high cursor-pointer'}
-                ${active && !item.disabled ? 'bg-surface-container' : ''}
+                ${active && !item.disabled ? 'bg-surface-container-low' : ''}
               `}
               aria-label={item.label}
             >
@@ -104,8 +105,8 @@ export function IconRail({ className = '' }: IconRailProps) {
       {/* Settings ganz unten */}
       <button
         onClick={() => handleNav(settingsItem)}
-        className={`w-9 h-9 rounded-m3 flex items-center justify-center transition-colors hover:bg-surface-container-high cursor-pointer
-          ${isActive(settingsItem.path) ? 'bg-surface-container' : ''}
+        className={`w-9 h-9 rounded-[12px] flex items-center justify-center transition-colors hover:bg-surface-container-high cursor-pointer
+          ${isActive(settingsItem.path) ? 'bg-surface-container-low' : ''}
         `}
         aria-label="Einstellungen"
       >

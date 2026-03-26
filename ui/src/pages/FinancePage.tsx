@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Chip, Icon } from '../components/m3'
+import { Chip, Icon } from '../components/m3'
 import { api } from '../lib/api'
 
 interface FinanceSummary {
@@ -24,6 +24,23 @@ const amountFmt = new Intl.NumberFormat('de-DE', {
   style: 'currency',
   currency: 'EUR',
 })
+
+interface MetricCardProps {
+  icon: string
+  label: string
+  value: string
+  iconColor?: string
+}
+
+function MetricCard({ icon, label, value, iconColor = 'text-on-surface-variant' }: MetricCardProps) {
+  return (
+    <div className="bg-surface-container-high rounded-[14px] p-3 text-center">
+      <Icon name={icon} size={18} className={`${iconColor} mb-1`} />
+      <p className="font-display text-xl font-bold text-on-surface">{value}</p>
+      <p className="text-[10px] text-on-surface-variant">{label}</p>
+    </div>
+  )
+}
 
 export function FinancePage() {
   const [data, setData] = useState<FinanceSummary | null>(null)
@@ -95,66 +112,43 @@ export function FinancePage() {
 
             {/* KPI Grid 2x2 */}
             <div className="grid grid-cols-2 gap-3">
-              {/* Einnahmen */}
-              <Card variant="filled" className="border-l-4 border-l-success">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="trending_up" size={18} className="text-success" />
-                  <p className="text-xs font-medium text-on-surface-variant">Einnahmen</p>
-                </div>
-                <p className="text-lg font-bold text-on-surface">
-                  {amountFmt.format(data.income)}
-                </p>
-              </Card>
-
-              {/* Ausgaben */}
-              <Card variant="filled" className="border-l-4 border-l-error">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="trending_down" size={18} className="text-error" />
-                  <p className="text-xs font-medium text-on-surface-variant">Ausgaben</p>
-                </div>
-                <p className="text-lg font-bold text-on-surface">
-                  {amountFmt.format(data.expenses)}
-                </p>
-              </Card>
-
-              {/* Offene Forderungen */}
-              <Card variant="filled">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="receipt_long" size={18} className="text-on-surface-variant" />
-                  <p className="text-xs font-medium text-on-surface-variant">Offene Forderungen</p>
-                </div>
-                <p className="text-lg font-bold text-on-surface">
-                  {amountFmt.format(data.open_receivables)}
-                </p>
-              </Card>
-
-              {/* Offene Verbindlichkeiten */}
-              <Card variant="filled">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="payments" size={18} className="text-on-surface-variant" />
-                  <p className="text-xs font-medium text-on-surface-variant">Offene Verbindl.</p>
-                </div>
-                <p className="text-lg font-bold text-on-surface">
-                  {amountFmt.format(data.open_payables)}
-                </p>
-              </Card>
+              <MetricCard
+                icon="trending_up"
+                label="Einnahmen"
+                value={amountFmt.format(data.income)}
+                iconColor="text-success"
+              />
+              <MetricCard
+                icon="trending_down"
+                label="Ausgaben"
+                value={amountFmt.format(data.expenses)}
+                iconColor="text-error"
+              />
+              <MetricCard
+                icon="receipt_long"
+                label="Offene Forderungen"
+                value={amountFmt.format(data.open_receivables)}
+              />
+              <MetricCard
+                icon="payments"
+                label="Offene Verbindl."
+                value={amountFmt.format(data.open_payables)}
+              />
             </div>
 
             {/* Overdue Warning */}
             {data.overdue_count > 0 && (
-              <Card variant="outlined" className="border-l-4 border-l-warning">
-                <div className="flex items-center gap-3">
-                  <Icon name="warning" size={24} className="text-warning flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-on-surface">
-                      {data.overdue_count} {data.overdue_count === 1 ? 'Vorgang' : 'Vorgänge'} überfällig
-                    </p>
-                    <p className="text-xs text-on-surface-variant">
-                      Summe: {amountFmt.format(data.overdue_amount)}
-                    </p>
-                  </div>
+              <div className="bg-error-container rounded-[14px] px-4 py-3 flex items-center gap-3">
+                <Icon name="warning" size={24} className="text-error flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">
+                    {data.overdue_count} {data.overdue_count === 1 ? 'Vorgang' : 'Vorgänge'} überfällig
+                  </p>
+                  <p className="text-xs text-on-surface-variant">
+                    Summe: {amountFmt.format(data.overdue_amount)}
+                  </p>
                 </div>
-              </Card>
+              </div>
             )}
           </>
         )}
