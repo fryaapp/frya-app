@@ -54,11 +54,10 @@ export function OnboardingPage() {
   const handleFinish = useCallback(async () => {
     setSaving(true)
     try {
-      await api.put('/settings', {
-        theme,
-        formality_level: formality,
-        onboarding_completed: true,
-      })
+      await Promise.all([
+        api.put('/preferences/theme', { value: theme }),
+        api.put('/preferences/formality_level', { value: formality }),
+      ])
     } catch {
       // Silently continue — settings will sync later
     }

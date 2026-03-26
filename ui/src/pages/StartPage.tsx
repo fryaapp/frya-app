@@ -204,19 +204,19 @@ export function StartPage() {
                 icon="trending_up"
                 label="Einnahmen"
                 value={EUR.format(data.finance.income)}
-                iconColor="text-green-600 dark:text-green-400"
+                iconColor="text-success"
               />
               <KpiCard
                 icon="trending_down"
                 label="Ausgaben"
                 value={EUR.format(data.finance.expenses)}
-                iconColor="text-red-600 dark:text-red-400"
+                iconColor="text-error"
               />
               <KpiCard
                 icon="warning"
                 label="Überfällige Fristen"
                 value={String(overdueCount)}
-                iconColor={overdueCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-on-surface-variant'}
+                iconColor={overdueCount > 0 ? 'text-error' : 'text-on-surface-variant'}
                 onClick={() => openSplit('deadlines')}
               />
             </>

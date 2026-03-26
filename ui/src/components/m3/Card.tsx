@@ -18,6 +18,7 @@ export function Card({ variant = 'filled', className = '', children, onClick }: 
     <div
       className={`rounded-m3 p-4 ${cardVariants[variant]} ${onClick ? 'cursor-pointer hover:opacity-90 transition-opacity' : ''} ${className}`}
       onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } } : undefined}
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
     >

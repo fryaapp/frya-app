@@ -5,17 +5,18 @@ import { useUiStore, type ContextType } from '../../stores/uiStore'
 interface NavItem {
   path: string
   icon: string
+  label: string
   context: ContextType
   disabled?: boolean
 }
 
 const navItems: NavItem[] = [
-  { path: '/', icon: 'home', context: 'none' },
-  { path: '/inbox', icon: 'inbox', context: 'inbox' },
-  { path: '/cases', icon: 'folder_open', context: 'cases' },
-  { path: '/finance', icon: 'bar_chart', context: 'finance', disabled: true },
-  { path: '/deadlines', icon: 'schedule', context: 'deadlines' },
-  { path: '/upload', icon: 'cloud_upload', context: 'upload_status' },
+  { path: '/', icon: 'home', label: 'Start', context: 'none' },
+  { path: '/inbox', icon: 'inbox', label: 'Inbox', context: 'inbox' },
+  { path: '/cases', icon: 'folder_open', label: 'Vorgänge', context: 'cases' },
+  { path: '/finance', icon: 'bar_chart', label: 'Finanzen', context: 'finance', disabled: true },
+  { path: '/deadlines', icon: 'schedule', label: 'Fristen', context: 'deadlines' },
+  { path: '/upload', icon: 'cloud_upload', label: 'Hochladen', context: 'upload_status' },
 ]
 
 const settingsItem: NavItem = {
@@ -76,7 +77,7 @@ export function IconRail({ className = '' }: IconRailProps) {
                 ${item.disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-surface-container-high cursor-pointer'}
                 ${active && !item.disabled ? 'bg-surface-container' : ''}
               `}
-              aria-label={item.icon}
+              aria-label={item.label}
             >
               <Icon
                 name={item.icon}
