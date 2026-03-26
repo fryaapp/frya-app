@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { WS_BASE } from '../lib/constants'
+import { api } from '../lib/api'
 
 export type WsMessage =
   | { type: 'pong' }
@@ -104,6 +105,20 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
   const send = useCallback((text: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'message', text }))
+    } else {
+      // Fallback: use REST endpoint when WebSocket is not connected
+      api.post<{ text: string; case_ref: string | null; suggestions: string[] }>('/chat', { text })
+        .then((res) => {
+          onMessageRef.current({
+            type: 'message_complete',
+            text: res.text,
+            case_ref: res.case_ref,
+            suggestions: res.suggestions || [],
+          })
+        })
+        .catch((err) => {
+          onMessageRef.current({ type: 'error', message: err.message || 'Verbindungsfehler' })
+        })
     }
   }, [])
 

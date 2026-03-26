@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Icon } from '../components/m3'
 import { api } from '../lib/api'
 
@@ -58,6 +59,7 @@ function formatDate(dateStr: string): string {
 }
 
 export function DeadlinesPage() {
+  const navigate = useNavigate()
   const [data, setData] = useState<DeadlinesResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -142,6 +144,7 @@ export function DeadlinesPage() {
                     key={item.id}
                     variant="outlined"
                     className={meta.borderClass}
+                    onClick={item.case_id ? () => navigate(`/cases/${item.case_id}`) : undefined}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">

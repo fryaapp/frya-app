@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Icon, Input } from '../components/m3'
 import { api } from '../lib/api'
 
@@ -81,6 +82,7 @@ function ThumbnailImage({ documentId }: { documentId: string }) {
 }
 
 export function DocumentsPage() {
+  const navigate = useNavigate()
   const [items, setItems] = useState<DocumentItem[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -190,7 +192,12 @@ export function DocumentsPage() {
           <>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {items.map((item) => (
-                <Card key={item.id} variant="outlined" className="p-0 overflow-hidden">
+                <Card
+                  key={item.id}
+                  variant="outlined"
+                  className="p-0 overflow-hidden"
+                  onClick={() => navigate(`/documents/${item.id}`, { state: { document: item } })}
+                >
                   <ThumbnailImage documentId={item.id} />
                   <div className="px-3 py-2">
                     <p className="text-sm font-semibold text-on-surface truncate">

@@ -18,6 +18,7 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { LegalPage } from './pages/LegalPage'
 import { CaseDetailPage } from './pages/CaseDetailPage'
 import { BelegDetailPage } from './pages/BelegDetailPage'
+import { DocumentDetailPage } from './pages/DocumentDetailPage'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import './index.css'
 
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="feedback" element={<FeedbackPage />} />
           <Route path="documents" element={<DocumentsPage />} />
+          <Route path="documents/:id" element={<DocumentDetailPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="legal" element={<LegalPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
