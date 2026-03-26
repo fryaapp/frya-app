@@ -47,6 +47,7 @@ from app.api.accounting_api import router as accounting_router
 from app.api.customer_api import router as customer_router
 from app.api.webhooks import router as webhooks_router
 from app.api.ws import router as ws_router
+from app.api.chat_ws import router as chat_ws_router
 from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
 from app.auth.csrf import require_csrf
@@ -276,6 +277,7 @@ app.include_router(auth_router)
 app.include_router(totp_router)
 app.include_router(webhooks_router)
 app.include_router(ws_router)
+app.include_router(chat_ws_router)
 app.include_router(audit_router)
 app.include_router(case_router)
 app.include_router(open_items_router)
