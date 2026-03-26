@@ -1,0 +1,7 @@
+﻿Mahnung
+Absender: Beispiel Energie AG
+Empfaenger: Frya GmbH
+Rechnungsnummer: RE-2026-778
+Faellig bis: 18.03.2026
+Offener Betrag: 450,00 EUR
+Bitte ueberweisen Sie den offenen Betrag umgehend.

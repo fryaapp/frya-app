@@ -1,0 +1,131 @@
+{
+  "name": "FRYA 03 – Mahnwesen (täglich 09:00)",
+  "nodes": [
+    {
+      "id": "cron-trigger",
+      "name": "Cron 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "mahnwesen",
+      "name": "FRYA Mahnwesen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/n8n/mahnwesen",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "={{ $env.FRYA_TENANT_ID }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "has-overdue",
+      "name": "Offene Ausgangsrechnungen?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.count }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "send-telegram",
+      "name": "Telegram Mahnwesen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 220],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/communicator/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.FRYA_TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ '⚠️ Mahnwesen: ' + $json.count + ' überfällige Ausgangsrechnung(en) offen.' }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Cron 09:00": {
+      "main": [
+        [{ "node": "FRYA Mahnwesen", "type": "main", "index": 0 }]
+      ]
+    },
+    "FRYA Mahnwesen": {
+      "main": [
+        [{ "node": "Offene Ausgangsrechnungen?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Offene Ausgangsrechnungen?": {
+      "main": [
+        [{ "node": "Telegram Mahnwesen", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

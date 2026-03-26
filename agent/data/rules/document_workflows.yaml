@@ -1,0 +1,125 @@
+# Dokumenttypen-Workflows
+# Pro Typ: Indikatoren, Agenten-Kette, Approval, Feld-Prioritaeten
+
+eingangsrechnung:
+  indicators: ["Rechnung", "Invoice", "Rechnungsnummer", "Rechnungsbetrag"]
+  agent_chain: [document_analyst, document_analyst_semantic, accounting_analyst, risk_consistency]
+  approval_default: PROPOSE_ONLY
+  field_priority:
+    gross_amount: high
+    net_amount: high
+    tax_amount: high
+    tax_rate: high
+    due_date: high
+    invoice_number: high
+    vendor_name: high
+    iban: normal
+    payment_reference: normal
+    line_items: low
+
+ausgangsrechnung:
+  indicators: ["Ausgangsrechnung", "an Kunde"]
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: AUTO
+  field_priority:
+    gross_amount: high
+    customer_name: high
+    invoice_number: high
+    service_description: normal
+    due_date: normal
+
+gutschrift:
+  indicators: ["Gutschrift", "Credit Note", "Stornorechnung"]
+  agent_chain: [document_analyst, document_analyst_semantic, accounting_analyst, risk_consistency]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    gross_amount: high
+    reference_invoice: high
+    vendor_name: high
+    reason: normal
+
+mahnung:
+  indicators: ["Mahnung", "Zahlungserinnerung", "Mahngebuehr"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    gross_amount: high
+    due_date: high
+    dunning_level: high
+    original_invoice: high
+    vendor_name: high
+
+vertrag:
+  indicators: ["Vertrag", "Vereinbarung", "Laufzeit", "Kuendigungsfrist"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    contract_start: high
+    contract_end: high
+    cancellation_deadline: high
+    monthly_amount: high
+    parties: high
+    notice_period: normal
+
+bescheid:
+  indicators: ["Bescheid", "Finanzamt", "Steuerbescheid"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    amount: high
+    due_date: high
+    tax_year: high
+    authority: high
+    appeal_deadline: high
+
+kontoauszug:
+  indicators: ["Kontoauszug", "Auszug", "Saldo"]
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: AUTO
+  field_priority:
+    balance: high
+    statement_date: high
+    account_number: normal
+    transactions: low
+
+angebot:
+  indicators: ["Angebot", "Kostenvoranschlag", "Quotation"]
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: AUTO
+  field_priority:
+    gross_amount: high
+    valid_until: high
+    vendor_name: high
+    items: normal
+
+lohn:
+  indicators: ["Lohnabrechnung", "Gehaltsabrechnung", "Bruttolohn", "Nettolohn"]
+  agent_chain: [document_analyst, document_analyst_semantic, accounting_analyst]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    gross_salary: high
+    net_salary: high
+    employee_name: high
+    pay_period: high
+    social_contributions: normal
+    tax_deductions: normal
+
+versicherung:
+  indicators: ["Versicherung", "Police", "Versicherungsnummer", "Beitrag"]
+  agent_chain: [document_analyst, document_analyst_semantic, deadline_analyst]
+  approval_default: AUTO
+  field_priority:
+    premium: high
+    policy_number: high
+    coverage_period: high
+    insurer: high
+    type_of_insurance: normal
+
+sonstiges:
+  indicators: []
+  agent_chain: [document_analyst, document_analyst_semantic]
+  approval_default: REQUIRE_USER_APPROVAL
+  field_priority:
+    amount: normal
+    date: normal
+    counterparty: normal

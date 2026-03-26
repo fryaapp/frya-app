@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Rechtliches <span class="en-hint">(Legal)</span></h1>
+
+{% if show_saved %}
+<div class="flash-msg" style="background:#d4edda;color:#155724;padding:12px;border-radius:6px;margin-bottom:20px;">
+  Firmendaten gespeichert und in Dokumente eingesetzt.
+</div>
+{% endif %}
+
+{% if show_avv_saved %}
+<div class="flash-msg" style="background:#d4edda;color:#155724;padding:12px;border-radius:6px;margin-bottom:20px;">
+  AVV-Dokument erfolgreich hochgeladen.
+</div>
+{% endif %}
+
+<!-- ── Placeholder Form ──────────────────────────────────────────── -->
+<section style="margin-bottom:40px;">
+  <h2>Firmendaten für alle Rechtsdokumente</h2>
+  <p class="page-lead">Fülle diese Felder einmal aus — sie werden automatisch in alle Dokumente eingesetzt.</p>
+
+  <form method="POST" action="/ui/legal/save-placeholders" style="max-width:700px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <h3 style="margin-top:24px;margin-bottom:12px;">Firma</h3>
+    {% for key, meta in placeholders.items() %}
+    {% if key.startswith('company_') %}
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;">{{ meta.label }}</label>
+      <input name="{{ key }}" value="{{ saved_values.get(key, '') }}" placeholder="{{ meta.placeholder }}"
+             style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#eee;">
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <h3 style="margin-top:24px;margin-bottom:12px;">Verantwortlicher</h3>
+    {% for key, meta in placeholders.items() %}
+    {% if key.startswith('responsible_') or key == 'ceo_name' %}
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;">{{ meta.label }}</label>
+      <input name="{{ key }}" value="{{ saved_values.get(key, '') }}" placeholder="{{ meta.placeholder }}"
+             style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#eee;">
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <h3 style="margin-top:24px;margin-bottom:12px;">Register &amp; Steuern</h3>
+    {% for key, meta in placeholders.items() %}
+    {% if key in ('trade_register', 'register_court', 'tax_number', 'ust_id') %}
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;">{{ meta.label }}</label>
+      <input name="{{ key }}" value="{{ saved_values.get(key, '') }}" placeholder="{{ meta.placeholder }}"
+             style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#eee;">
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <h3 style="margin-top:24px;margin-bottom:12px;">Datenschutz &amp; Hosting</h3>
+    {% for key, meta in placeholders.items() %}
+    {% if key.startswith('dpo_') or key in ('website', 'hosting_provider', 'hosting_location') %}
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;">{{ meta.label }}</label>
+      <input name="{{ key }}" value="{{ saved_values.get(key, '') }}" placeholder="{{ meta.placeholder }}"
+             style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#eee;">
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    <button type="submit" style="margin-top:20px;padding:10px 24px;background:#4a90e2;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:1rem;">
+      Speichern &amp; in Dokumente einsetzen
+    </button>
+  </form>
+</section>
+
+<hr style="border-color:#333;margin:30px 0;">
+
+<!-- ── Legal Document Links ──────────────────────────────────────── -->
+<section>
+  <h2>Rechtsdokumente</h2>
+  <p class="page-lead">Alle Dokumente enthalten Platzhalter — diese werden automatisch mit deinen Firmendaten ausgefüllt.</p>
+
+  <ul class="legal-index">
+    <li><a href="/ui/legal/datenschutz">Datenschutzerklärung (DSE)</a> — Art. 13/14 DSGVO, Betroffenenrechte, Auftragsverarbeiter</li>
+    <li><a href="/ui/legal/avv">AVV-Template</a> — Auftragsverarbeitungsvertrag gem. Art. 28 DSGVO</li>
+    <li><a href="/ui/legal/toms">Technisch-Organisatorische Maßnahmen (TOMs)</a> — Art. 32 DSGVO</li>
+    <li><a href="/ui/legal/impressum">Impressum</a> — § 5 TMG</li>
+    <li><a href="/ui/legal/agb">Allgemeine Geschäftsbedingungen (AGB)</a></li>
+    <li><a href="/ui/legal/vvt">Verarbeitungsverzeichnis (VVT)</a> — Art. 30 DSGVO</li>
+  </ul>
+
+  <p class="notice">
+    Alle Dokumente enthalten Platzhalter, die vor der Veröffentlichung ausgefüllt werden müssen.
+    Platzhalter sind als <strong>[BITTE AUSFÜLLEN]</strong> markiert.
+    Diese Templates stellen keine Rechtsberatung dar.
+  </p>
+</section>
+
+<hr style="border-color:#333;margin:30px 0;">
+
+<!-- ── AVV Archive ───────────────────────────────────────────────── -->
+<section>
+  <h2>Auftragsverarbeitungsverträge (AVVs) — Drittanbieter</h2>
+  <p class="page-lead">AVVs deiner Dienstleister zentral ablegen und versionieren.</p>
+
+  <form method="POST" action="/ui/legal/upload-avv" enctype="multipart/form-data" style="max-width:700px;margin-bottom:24px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div>
+        <label style="display:block;font-weight:600;margin-bottom:4px;">Anbieter</label>
+        <input name="provider_name" placeholder="z.B. IONOS SE" required
+               style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#eee;">
+      </div>
+      <div>
+        <label style="display:block;font-weight:600;margin-bottom:4px;">Dokumenttyp</label>
+        <select name="document_type" style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#eee;">
+          <option value="AVV">AVV</option>
+          <option value="DPA">DPA</option>
+          <option value="SCC">SCC</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;">Notizen</label>
+      <input name="notes" placeholder="z.B. Gültig ab 01.01.2026"
+             style="width:100%;padding:8px;border:1px solid #555;border-radius:4px;background:#1e1e1e;color:#eee;">
+    </div>
+    <div style="margin-top:12px;">
+      <label style="display:block;font-weight:600;margin-bottom:4px;">Datei (PDF)</label>
+      <input type="file" name="file" accept=".pdf" required
+             style="padding:8px;color:#eee;">
+    </div>
+    <button type="submit" style="margin-top:16px;padding:8px 20px;background:#4a90e2;color:#fff;border:none;border-radius:6px;cursor:pointer;">
+      Hochladen
+    </button>
+  </form>
+
+  {% if avv_documents %}
+  <table style="width:100%;border-collapse:collapse;margin-top:20px;">
+    <thead>
+      <tr style="border-bottom:2px solid #555;text-align:left;">
+        <th style="padding:8px;">Anbieter</th>
+        <th style="padding:8px;">Typ</th>
+        <th style="padding:8px;">Version</th>
+        <th style="padding:8px;">Datei</th>
+        <th style="padding:8px;">Notizen</th>
+        <th style="padding:8px;">Datum</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for doc in avv_documents %}
+      <tr style="border-bottom:1px solid #333;{{ 'opacity:0.5;' if not doc.is_current else '' }}">
+        <td style="padding:8px;">{{ doc.provider_name }}</td>
+        <td style="padding:8px;">{{ doc.document_type }}</td>
+        <td style="padding:8px;">v{{ doc.version }}{{ ' (aktuell)' if doc.is_current else '' }}</td>
+        <td style="padding:8px;"><a href="/ui/legal/download-avv/{{ doc.id }}" style="color:#4a90e2;">{{ doc.filename }}</a></td>
+        <td style="padding:8px;">{{ doc.notes or '—' }}</td>
+        <td style="padding:8px;">{{ doc.uploaded_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p style="color:#888;">Noch keine AVVs hochgeladen.</p>
+  {% endif %}
+</section>
+
+{% endblock %}

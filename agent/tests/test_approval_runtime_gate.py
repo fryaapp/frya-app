@@ -103,6 +103,8 @@ async def test_agent_run_does_not_bypass_required_approval(monkeypatch, tmp_path
     monkeypatch.setenv('FRYA_AUTH_USERS_JSON', _build_users_json())
     monkeypatch.setenv('FRYA_AUTH_SESSION_SECRET', 'test-secret')
     monkeypatch.setenv('FRYA_AUTH_COOKIE_SECURE', 'false')
+    monkeypatch.setenv('FRYA_LLM_MODEL', 'openai/gpt-4o-mini')
+    monkeypatch.setenv('FRYA_LLM_PROVIDER', 'openai')
 
     async def _fake_acompletion(*args, **kwargs):
         return SimpleNamespace(

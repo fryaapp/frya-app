@@ -1,0 +1,97 @@
+# SKR03 Konto → Akaunting Kategorie-Mapping
+# Muss pro Installation konfiguriert und angepasst werden.
+# Akaunting nutzt Kategorie-Namen, keine SKR03-Kontonummern.
+# Wenn akaunting_category_id gesetzt: direkte ID-Referenz.
+# Wenn nur akaunting_category: Name-Matching gegen GET /api/categories.
+
+# ── Betriebliche Ausgaben (Klasse 4) ────────────────────────────────────────
+4200:
+  name: Raumkosten / Miete
+  akaunting_category: "Miete"
+
+4210:
+  name: Miete
+  akaunting_category: "Miete"
+
+4240:
+  name: Strom / Gas / Wasser
+  akaunting_category: "Nebenkosten"
+
+4300:
+  name: Versicherungen
+  akaunting_category: "Versicherung"
+
+4320:
+  name: Beitraege und Gebühren
+  akaunting_category: "Mitgliedschaft"
+
+4400:
+  name: Werbekosten
+  akaunting_category: "Marketing"
+
+4530:
+  name: Reisekosten
+  akaunting_category: "Reise"
+
+4540:
+  name: Kfz-Kosten
+  akaunting_category: "Fahrzeug"
+
+4670:
+  name: Bewirtungskosten
+  akaunting_category: "Bewirtung"
+
+4730:
+  name: Fremdarbeiten
+  akaunting_category: "Dienstleistung"
+
+4800:
+  name: Bürokosten allgemein
+  akaunting_category: "Bürobedarf"
+
+4910:
+  name: Porto und Versand
+  akaunting_category: "Porto"
+
+4920:
+  name: Telefon / Internet / Telekommunikation
+  akaunting_category: "Telekommunikation"
+
+4930:
+  name: Bürobedarf
+  akaunting_category: "Büromaterial"
+
+4940:
+  name: Fachliteratur / Zeitschriften
+  akaunting_category: "Fachliteratur"
+
+4980:
+  name: Sonstige Betriebsausgaben
+  akaunting_category: "Sonstiges"
+
+# ── IT & Software ────────────────────────────────────────────────────────────
+4822:
+  name: Software / Cloud / SaaS
+  akaunting_category: "Software"
+
+4824:
+  name: Hardware / EDV-Geräte
+  akaunting_category: "Hardware"
+
+# ── Personalkosten ───────────────────────────────────────────────────────────
+4100:
+  name: Löhne und Gehälter
+  akaunting_category: "Personal"
+
+# ── Anlagevermögen ───────────────────────────────────────────────────────────
+0200:
+  name: Maschinen
+  akaunting_category: "Anlagevermögen"
+
+0800:
+  name: Betriebs- und Geschäftsausstattung
+  akaunting_category: "Büroausstattung"
+
+# ── Fallback ─────────────────────────────────────────────────────────────────
+default:
+  akaunting_category: "Sonstiges"

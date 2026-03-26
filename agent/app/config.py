@@ -23,21 +23,25 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
 
     paperless_base_url: str
+    paperless_public_url: str | None = None
     paperless_token: str | None = None
 
-    akaunting_base_url: str
-    akaunting_token: str | None = None
-
     telegram_bot_token: str | None = None
+    telegram_webhook_secret: str | None = None
     telegram_default_chat_id: str | None = None
     telegram_allowed_chat_ids: str | None = None
     telegram_allowed_direct_chat_ids: str | None = None
     telegram_allowed_user_ids: str | None = None
     telegram_dedup_ttl_seconds: int = 86400
+    telegram_media_max_bytes: int = 10485760
+    telegram_media_allowed_mime_types: str = 'image/jpeg,image/png,application/pdf'
+    telegram_media_allowed_extensions: str = '.jpg,.jpeg,.png,.pdf'
 
     n8n_base_url: str
     n8n_token: str | None = None
     n8n_default_workflow: str = 'default-frya-workflow'
+
+    jwt_secret: str = ''
 
     auth_users_json: str = '[]'
     auth_session_secret: str
@@ -48,6 +52,41 @@ class Settings(BaseSettings):
     auth_cookie_samesite: str = 'lax'
     auth_cookie_domain: str | None = None
     auth_csrf_header: str = 'x-frya-csrf-token'
+
+    config_encryption_key: str | None = None
+
+    mailgun_webhook_signing_key: str = ''
+
+    # Frya-Mailgun fallback for system mails (password reset, invitations)
+    mailgun_api_key: str | None = None
+    mailgun_domain: str | None = None
+    mailgun_from: str = 'noreply@frya.app'
+
+    # Base URL shown in password-reset links (e.g. https://app.myfrya.de)
+    app_base_url: str = 'http://localhost:8001'
+
+    # Mail provider switch: 'brevo' | 'mailgun' (default)
+    # Set FRYA_MAIL_PROVIDER=brevo to route system mails via Brevo API v3
+    mail_provider: str = 'mailgun'
+    brevo_api_key: str | None = None
+
+    # CaseEngine: default tenant for single-tenant deployments.
+    # Used when no tenant_id is present in request context.
+    # Set to the UUID of the tenant in frya_tenants, or leave empty to
+    # use the first active tenant from the DB.
+    default_tenant_id: str | None = None
+
+    # Document Analyst auto-trigger: set FRYA_AUTO_TRIGGER_DOCUMENT_ANALYST=true to have every
+    # accepted Telegram PDF immediately start the Document Analyst in the background.
+    # Falls back to the existing Open Item if the analyst fails.  Off by default.
+    auto_trigger_document_analyst: bool = False
+
+    # Bootstrap admin — set these in .env to seed a permanent admin account on first startup.
+    # On subsequent restarts the existing DB row is never overwritten (idempotent).
+    # FRYA_INITIAL_ADMIN_USERNAME, FRYA_INITIAL_ADMIN_EMAIL, FRYA_INITIAL_ADMIN_PASSWORD
+    initial_admin_username: str | None = None
+    initial_admin_email: str | None = None
+    initial_admin_password: str | None = None
 
 
 @lru_cache

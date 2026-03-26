@@ -1,0 +1,95 @@
+# FRYA UI-Uebersetzungsverzeichnis
+# Alle internen Bezeichnungen -> deutsche UI-Labels
+
+confidence:
+  CERTAIN: "Sicher"
+  HIGH: "Hoch"
+  MEDIUM: "Mittel"
+  LOW: "Niedrig"
+  UNKNOWN: "Unbekannt"
+
+case_status:
+  DRAFT: "Entwurf"
+  OPEN: "Offen"
+  ANALYZED: "Analysiert"
+  PROPOSED: "Vorgeschlagen"
+  APPROVED: "Freigegeben"
+  REJECTED: "Abgelehnt"
+  BOOKED: "Gebucht"
+  PAID: "Bezahlt"
+  CLOSED: "Abgeschlossen"
+  ARCHIVED: "Archiviert"
+
+item_status:
+  OPEN: "Offen"
+  WAITING_USER: "Wartet auf User"
+  WAITING_DATA: "Wartet auf Daten"
+  SCHEDULED: "Geplant"
+  PENDING_APPROVAL: "Wartet auf Freigabe"
+  COMPLETED: "Erledigt"
+  CANCELLED: "Abgebrochen"
+
+approval_mode:
+  AUTO: "Automatisch"
+  PROPOSE_ONLY: "Vorschlag"
+  REQUIRE_USER_APPROVAL: "Freigabe noetig"
+  BLOCK_ESCALATE: "Gesperrt (Eskalation)"
+
+document_type:
+  INVOICE: "Rechnung"
+  REMINDER: "Mahnung"
+  CONTRACT: "Vertrag"
+  NOTICE: "Bescheid"
+  TAX_DOCUMENT: "Steuerdokument"
+  RECEIPT: "Quittung"
+  BANK_STATEMENT: "Kontoauszug"
+  SALARY: "Lohnabrechnung"
+  INSURANCE: "Versicherung"
+  DUNNING: "Inkasso"
+  CORRESPONDENCE: "Korrespondenz"
+  OTHER: "Sonstiges"
+  LETTER: "Brief"
+
+risk_flags:
+  duplicate_detection: "Moegliches Duplikat"
+  amount_consistency: "Betragsabweichung"
+  tax_plausibility: "Steuersatz pruefen"
+  vendor_mismatch: "Lieferant unklar"
+  date_anomaly: "Datumsauffaelligkeit"
+  missing_fields: "Fehlende Pflichtfelder"
+
+agents:
+  orchestrator: "Orchestrator (Herz)"
+  communicator: "Kommunikator (Mund)"
+  document_analyst: "Document Analyst (Auge)"
+  document_analyst_semantic: "Semantische Analyse (Stirn)"
+  accounting_analyst: "Buchhaltungsanalyse (Hand)"
+  deadline_analyst: "Fristenanalyse (Ohr)"
+  risk_consistency: "Risiko & Konsistenz (Nase)"
+  memory_curator: "Gedaechtnis (Hirn)"
+
+agent_icons:
+  orchestrator: "\U0001FAC0"
+  communicator: "\U0001F444"
+  document_analyst: "\U0001F441"
+  document_analyst_semantic: "\U0001F9E0"
+  accounting_analyst: "\u270B"
+  deadline_analyst: "\U0001F442"
+  risk_consistency: "\U0001F443"
+  memory_curator: "\U0001F9E0"
+
+dunning_level:
+  0: "Keine Mahnung"
+  1: "Zahlungserinnerung"
+  2: "1. Mahnung"
+  3: "2. Mahnung"
+  4: "Inkasso-Warnung"
+
+ui:
+  OVERDUE: "Ueberfaellig"
+  DUE_SOON: "Bald faellig"
+  ON_TIME: "Im Zeitplan"
+  NO_DEADLINE: "Keine Frist"
+  ACTIVE: "Aktiv"
+  INACTIVE: "Inaktiv"
+  DRAFT: "Entwurf"

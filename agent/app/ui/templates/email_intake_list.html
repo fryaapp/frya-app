@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}E-Mail-Eingänge{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>E-Mail-Eingänge</h1>
+  <a href="/ui/email-intake" class="btn btn-sm btn-secondary">Aktualisieren</a>
+</div>
+
+{% if intakes %}
+<table class="table table-sm table-hover">
+  <thead>
+    <tr>
+      <th>Datum</th>
+      <th>Absender</th>
+      <th>Betreff</th>
+      <th>Anhänge</th>
+      <th>Status</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for intake in intakes %}
+    <tr>
+      <td><small>{{ intake.received_at[:19].replace('T',' ') if intake.received_at else '-' }}</small></td>
+      <td>{{ intake.sender_email }}</td>
+      <td>{{ intake.subject or '-' }}</td>
+      <td>{{ intake.attachment_count }}</td>
+      <td>
+        {% if intake.intake_status == 'RECEIVED' %}<span class="badge bg-secondary">RECEIVED</span>
+        {% elif intake.intake_status == 'PROCESSING' %}<span class="badge bg-primary">PROCESSING</span>
+        {% elif intake.intake_status == 'COMPLETED' %}<span class="badge bg-success">COMPLETED</span>
+        {% elif intake.intake_status == 'FAILED' %}<span class="badge bg-danger">FAILED</span>
+        {% else %}<span class="badge bg-light text-dark">{{ intake.intake_status }}</span>{% endif %}
+      </td>
+      <td><a href="/ui/email-intake/{{ intake.email_intake_id }}" class="btn btn-xs btn-outline-secondary">Details</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted">Keine E-Mail-Eingänge vorhanden.</p>
+{% endif %}
+{% endblock %}

@@ -1,7 +1,10 @@
 ﻿from __future__ import annotations
 
+import logging
 import time
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 from fastapi import Depends, HTTPException, Request
 
@@ -10,9 +13,30 @@ from app.auth.service import AuthService, get_auth_service
 from app.config import get_settings
 
 ROLE_LEVEL = {
+    'customer': 5,
     'operator': 10,
     'admin': 20,
 }
+
+
+async def _resolve_db_user(payload: dict[str, Any]) -> 'AuthUser | None':
+    """Try to resolve a session user from the DB (for invite-created users)."""
+    try:
+        from app.auth.models import RoleName
+        from app.dependencies import get_user_repository
+        username = payload.get('username')
+        role = payload.get('role')
+        if not username or not role:
+            return None
+        repo = get_user_repository()
+        record = await repo.find_by_username(username)
+        if record is None or not record.is_active:
+            return None
+        if record.role != role:
+            return None
+        return AuthUser(username=record.username, role=record.role)  # type: ignore[arg-type]
+    except Exception:
+        return None
 
 
 def _is_ui_request(request: Request) -> bool:
@@ -49,6 +73,25 @@ def _enforce_idle_timeout(request: Request) -> None:
     request.session['auth_last_seen'] = now
 
 
+async def _enforce_session_version(request: Request, username: str) -> None:
+    """Reject sessions issued before a password reset (session_version mismatch)."""
+    session_ver = request.session.get('session_ver')
+    if session_ver is None:
+        # Old sessions without version are still accepted — no enforcement yet
+        return
+    try:
+        from app.dependencies import get_user_repository
+        repo = get_user_repository()
+        current_ver = await repo.get_session_version(username)
+        # current_ver == 1 means user is env-only (not in DB), always ok
+        if current_ver > 1 and int(session_ver) < current_ver:
+            request.session.clear()
+            _raise_unauthorized()
+    except Exception as exc:
+        # Never block login due to DB errors, but log for audit trail
+        _logger.warning('Session version check failed for %s: %s', username, exc)
+
+
 async def get_optional_user(
     request: Request,
     auth_service: AuthService = Depends(get_auth_service),
@@ -59,10 +102,14 @@ async def get_optional_user(
 
     user = auth_service.resolve_session_user(payload)
     if user is None:
+        # Also try DB user — covers users created via invite
+        user = await _resolve_db_user(payload)
+    if user is None:
         request.session.clear()
         return None
 
     _enforce_idle_timeout(request)
+    await _enforce_session_version(request, user.username)
     request.state.auth_user = user
     return user
 
@@ -71,16 +118,37 @@ async def require_authenticated(
     request: Request,
     auth_service: AuthService = Depends(get_auth_service),
 ) -> AuthUser:
+    # 1. Try JWT Bearer token first
+    auth_header = request.headers.get('authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        try:
+            from app.auth.jwt_auth import decode_token
+            payload = decode_token(token)
+            if payload.get('type') != 'access':
+                _raise_unauthorized()
+            return AuthUser(
+                username=payload['sub'],
+                role=payload.get('role', 'customer'),
+                tenant_id=payload.get('tid'),
+            )
+        except Exception:
+            _raise_unauthorized()
+
+    # 2. Fall back to session auth
     payload = _get_session_user_payload(request)
     if payload is None:
         _raise_unauthorized()
 
     user = auth_service.resolve_session_user(payload)
     if user is None:
+        user = await _resolve_db_user(payload)
+    if user is None:
         request.session.clear()
         _raise_unauthorized()
 
     _enforce_idle_timeout(request)
+    await _enforce_session_version(request, user.username)
     request.state.auth_user = user
     return user
 
@@ -99,3 +167,12 @@ async def require_admin(user: AuthUser = Depends(require_authenticated)) -> Auth
     if not _has_required_role(user, 'admin'):
         _raise_forbidden()
     return user
+
+
+def require_role(*roles: str):
+    """Factory for role-based auth dependency."""
+    async def _check(user: AuthUser = Depends(require_authenticated)) -> AuthUser:
+        if user.role not in roles:
+            _raise_forbidden()
+        return user
+    return _check

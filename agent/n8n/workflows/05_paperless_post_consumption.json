@@ -1,0 +1,98 @@
+{
+  "name": "FRYA 05 – Paperless Post-Consumption (Webhook)",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Paperless Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "paperless-post-consumption",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "paperless-post-consumption",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "assign-document",
+      "name": "FRYA Dokument zuweisen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/n8n/paperless-post-consumption",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ tenant_id: $env.FRYA_TENANT_ID, document_source: 'paperless', document_source_id: String($json.body.document_id || $json.body.id), vendor_name: $json.body.correspondent || null, filename: $json.body.title || null }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "notify-telegram",
+      "name": "Telegram Eingang",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/communicator/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.FRYA_TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ '📄 Neues Dokument aus Paperless: ' + ($('Paperless Webhook').item.json.body.title || 'Unbekannt') + '\\nZugewiesen: ' + ($json.assignment_method || 'offen') }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Paperless Webhook": {
+      "main": [
+        [{ "node": "FRYA Dokument zuweisen", "type": "main", "index": 0 }]
+      ]
+    },
+    "FRYA Dokument zuweisen": {
+      "main": [
+        [{ "node": "Telegram Eingang", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

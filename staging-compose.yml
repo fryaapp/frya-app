@@ -8,6 +8,8 @@ services:
       - --entrypoints.websecure.address=:443
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --certificatesresolvers.le.acme.email=admin@myfrya.de
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.le.acme.httpchallenge=true
@@ -18,25 +20,32 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./letsencrypt:/letsencrypt
+      - ./traefik:/etc/traefik/dynamic:ro
     restart: unless-stopped
     networks:
       - frya-internal
 
   backend:
     build:
-      context: ./backend
+      context: ./agent
       dockerfile: Dockerfile
+    # Bootstrap admin: add these to your .env file to seed a permanent admin account on first start.
+    # FRYA_INITIAL_ADMIN_USERNAME=admin
+    # FRYA_INITIAL_ADMIN_EMAIL=admin@myfrya.de
+    # FRYA_INITIAL_ADMIN_PASSWORD=<your-strong-password>
+    # The account is created once in the DB and never overwritten on restart.
+    env_file: .env
     labels:
       - traefik.enable=true
       - traefik.http.routers.frya-backend.rule=Host(`api.staging.myfrya.de`)
       - traefik.http.routers.frya-backend.entrypoints=websecure
       - traefik.http.routers.frya-backend.tls=true
       - traefik.http.routers.frya-backend.tls.certresolver=le
+      - traefik.http.routers.frya-backend.middlewares=frya-security-headers@file
       - traefik.http.routers.frya-backend-http.rule=Host(`api.staging.myfrya.de`)
       - traefik.http.routers.frya-backend-http.entrypoints=web
-      - traefik.http.routers.frya-backend-http.middlewares=redirect-to-https
-      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
-      - traefik.http.services.frya-backend.loadbalancer.server.port=8000
+      - traefik.http.routers.frya-backend-http.middlewares=redirect-to-https@file
+      - traefik.http.services.frya-backend.loadbalancer.server.port=8001
       - com.centurylinklabs.watchtower.enable=true
     restart: unless-stopped
     networks:
@@ -77,7 +86,7 @@ services:
       retries: 10
 
   tika:
-    image: ghcr.io/paperless-ngx/tika:latest
+    image: apache/tika:latest
     container_name: frya-tika
     restart: unless-stopped
     networks:
@@ -95,7 +104,7 @@ services:
       - frya-internal
 
   paperless:
-    image: ghcr.io/paperless-ngx/paperless-ngx:2.14
+    image: paperlessngx/paperless-ngx:2.14
     container_name: frya-paperless
     restart: unless-stopped
     depends_on:
@@ -124,12 +133,14 @@ services:
       PAPERLESS_ADMIN_PASSWORD: ${STAGING_PAPERLESS_ADMIN_PASSWORD}
       PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
       PAPERLESS_CONSUMER_ENABLE_BARCODES: "true"
-      PAPERLESS_CONSUMER_BARCODE_SCANNER: ZXINGCPP
+      PAPERLESS_CONSUMER_BARCODE_SCANNER: ZXING
+      PAPERLESS_POST_CONSUME_SCRIPT: /usr/src/paperless/scripts/frya_webhook.sh
     volumes:
       - paperless_data:/usr/src/paperless/data
       - paperless_media:/usr/src/paperless/media
       - paperless_export:/usr/src/paperless/export
       - paperless_consume:/usr/src/paperless/consume
+      - /opt/dms-staging/scripts:/usr/src/paperless/scripts:ro
     networks:
       - frya-internal
     labels:
@@ -139,7 +150,7 @@ services:
       - traefik.http.routers.paperless.tls.certresolver=le
       - traefik.http.services.paperless.loadbalancer.server.port=8000
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:8000 || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ > /dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 10
@@ -173,6 +184,7 @@ services:
       - traefik.http.routers.akaunting.entrypoints=websecure
       - traefik.http.routers.akaunting.tls.certresolver=le
       - traefik.http.services.akaunting.loadbalancer.server.port=80
+      - com.centurylinklabs.watchtower.enable=false
 
   mariadb:
     image: mariadb:11
@@ -230,11 +242,11 @@ services:
       - traefik.http.routers.n8n.tls.certresolver=le
       - traefik.http.services.n8n.loadbalancer.server.port=5678
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:5678/healthz || exit 1"]
+      test: ["CMD-SHELL", "node -e \"const h=require('http');h.get('http://localhost:5678/healthz',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))\""]
       interval: 30s
       timeout: 10s
-      retries: 10
-      start_period: 90s
+      retries: 3
+      start_period: 30s
 
   uptime-kuma:
     image: louislam/uptime-kuma:1

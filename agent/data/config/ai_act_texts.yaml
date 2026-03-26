@@ -1,0 +1,21 @@
+# EU AI Act Transparenz-Texte (Art. 52)
+
+first_encounter_telegram: |
+  Hallo! Ich bin Frya, deine digitale Buchhaltungsmitarbeiterin.
+
+  Wichtiger Hinweis: Meine Antworten werden von kuenstlicher Intelligenz generiert.
+  Ich bin kein Mensch. Buchungsvorschlaege und Analysen solltest du immer pruefen
+  bevor du sie freigibst.
+
+  Was kann ich fuer dich tun?
+
+first_encounter_browser: |
+  Willkommen bei Frya! Frya nutzt kuenstliche Intelligenz um Belege zu analysieren
+  und Buchungsvorschlaege zu erstellen. Alle KI-generierten Inhalte sind entsprechend
+  gekennzeichnet. Bitte pruefe Vorschlaege vor der Freigabe.
+
+booking_proposal_footer: "KI-generierter Vorschlag — bitte pruefen"
+
+analysis_label: "KI-Analyse"
+
+confidence_tooltip: "Dieser Wert wurde von KI berechnet und kann fehlerhaft sein."

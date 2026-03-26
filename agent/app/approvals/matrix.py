@@ -34,7 +34,7 @@ DEFAULT_MATRIX_RULES: tuple[MatrixRule, ...] = (
     MatrixRule('correspondent_assign', 'AUTO', ('correspondent', 'assign_vendor', 'assign_contact', 'korrespondent')),
     MatrixRule('ocr_reanalyze', 'AUTO', ('ocr_reanalyze', 'ocr_retry', 'tika_reanalyze', 'ocr')),
     MatrixRule('rule_policy_edit', 'REQUIRE_USER_APPROVAL', ('rule_edit', 'policy_edit', 'rules_update', 'policy_update'), never_auto=True, strict_require=True),
-    MatrixRule('akaunting_bill_invoice_draft_create', 'PROPOSE_ONLY', ('bill_draft', 'invoice_draft', 'akaunting_draft', 'draft_create'), allow_auto_with_rule=True),
+    MatrixRule('booking_create', 'PROPOSE_ONLY', ('bill_draft', 'invoice_draft', 'booking_draft', 'draft_create'), allow_auto_with_rule=True),
     MatrixRule('booking_proposal_create', 'PROPOSE_ONLY', ('booking_proposal', 'buchungsvorschlag', 'posting_proposal')),
     MatrixRule('booking_finalize', 'REQUIRE_USER_APPROVAL', ('post_booking', 'booking_finalize', 'finalize_booking', 'buchung_finalisieren'), allow_auto_with_rule=True, strict_require=True),
     MatrixRule('payment_proposal_create', 'PROPOSE_ONLY', ('payment_proposal', 'zahlungsvorschlag'), allow_auto_with_rule=True),

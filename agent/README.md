@@ -59,14 +59,12 @@ Telegram ist kein freier Chatbot-Kanal. V1 ist eng und deterministisch.
 
 Unterstuetzte Intents:
 - `status.overview`
-- `open_items.list`
-- `problem_cases.list`
-- `case.show`
-- `approval.respond`
 - `help.basic`
+- sonstiger Text -> konservative Operator-Queue / Inbox
 
 ### Telegram ENV
 - `FRYA_TELEGRAM_BOT_TOKEN` (Pflicht fuer Replies)
+- `FRYA_TELEGRAM_WEBHOOK_SECRET` (empfohlen fuer Webhook-Schutz via `X-Telegram-Bot-Api-Secret-Token`)
 - `FRYA_TELEGRAM_DEFAULT_CHAT_ID` (optional, wird zur Gruppen-Allowlist addiert)
 - `FRYA_TELEGRAM_ALLOWED_CHAT_IDS` (kommagetrennte Gruppen-Allowlist)
 - `FRYA_TELEGRAM_ALLOWED_DIRECT_CHAT_IDS` (kommagetrennte Direktchat-Allowlist)
@@ -75,28 +73,32 @@ Unterstuetzte Intents:
 
 ### Telegram Betriebsregeln
 - Autorisierte Chats: normaler V1-Intent-Pfad mit deterministischen Antworten.
+- Freier Text ausserhalb `status`/`hilfe` wird nicht als Chatbot beantwortet, sondern als interner Operator-Eingang einsortiert.
 - Nicht autorisierte Chats/User: kurze Deny-Antwort ohne operative Daten.
+- Falsches Webhook-Secret wird hart abgewiesen.
 - Doppelte Updates (gleiche `update_id`) werden per Redis-basierter Dedup-Logik geblockt.
 - Bei Duplicate wird keine zweite Fachverarbeitung und keine zweite Reply ausgefuehrt.
 - Duplicate-Faelle bleiben nachvollziehbar im Audit (`TELEGRAM_DUPLICATE_IGNORED`).
 
 ### Telegram E2E Checkliste
 1. `FRYA_TELEGRAM_BOT_TOKEN` gesetzt.
-2. HTTPS-Route erreichbar: `POST /webhooks/telegram`.
-3. Telegram Webhook zeigt auf `<public-base-url>/webhooks/telegram`.
-4. Group- und/oder Direktchat in Allowlist (`FRYA_TELEGRAM_ALLOWED_CHAT_IDS`, `FRYA_TELEGRAM_ALLOWED_DIRECT_CHAT_IDS`).
-5. Optional User-Filter setzen (`FRYA_TELEGRAM_ALLOWED_USER_IDS`).
-6. Autorisierten Test senden (`hilfe`, `status`, `offene punkte`).
-7. Deny-Test aus nicht erlaubtem Chat/User senden.
-8. Duplicate-Test: identisches Update nur einmal verarbeiten.
-9. Audit pruefen auf:
+2. `FRYA_TELEGRAM_WEBHOOK_SECRET` gesetzt und Telegram-Webhook mit Secret konfiguriert.
+3. HTTPS-Route erreichbar: `POST /webhooks/telegram`.
+4. Telegram Webhook zeigt auf `<public-base-url>/webhooks/telegram`.
+5. Group- und/oder Direktchat in Allowlist (`FRYA_TELEGRAM_ALLOWED_CHAT_IDS`, `FRYA_TELEGRAM_ALLOWED_DIRECT_CHAT_IDS`).
+6. Optional User-Filter setzen (`FRYA_TELEGRAM_ALLOWED_USER_IDS`).
+7. Autorisierten Test senden (`/start`, `hilfe`, `status` oder freien Text fuer Inbox-Routing).
+8. Deny-Test aus nicht erlaubtem Chat/User senden.
+9. Duplicate-Test: identisches Update nur einmal verarbeiten.
+10. Audit pruefen auf:
    - `TELEGRAM_WEBHOOK_RECEIVED`
+   - `TELEGRAM_SECRET_DENIED` (bei falschem Secret)
    - `TELEGRAM_AUTH_DENIED` (bei nicht autorisiertem Test)
    - `TELEGRAM_INTENT_RECOGNIZED`
-   - `TELEGRAM_COMMAND_HANDLED`
+   - `TELEGRAM_ROUTED`
    - `TELEGRAM_REPLY_ATTEMPTED`
    - `TELEGRAM_DUPLICATE_IGNORED` (bei Duplicate-Test)
-10. Case in `/inspect/cases/{case_id}` sichtbar.
+11. Case in `/inspect/cases/{case_id}` sichtbar.
 
 ## Staging-Dauerloesung fuer `/app/data/rules`
 Der Agent laeuft in Staging mit persistentem Volume auf `/app/data`.

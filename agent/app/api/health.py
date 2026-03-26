@@ -11,8 +11,7 @@ router = APIRouter(tags=['health'])
 
 @router.get('/health')
 async def health() -> dict:
-    settings = get_settings()
-    return {'status': 'ok', 'service': 'frya-agent', 'llm_model': settings.llm_model}
+    return {'status': 'ok', 'service': 'frya-agent'}
 
 
 @router.get('/status')
@@ -29,7 +28,7 @@ async def status(_user: AuthUser = Depends(require_operator)) -> dict:
             'legacy_backend_service': 'legacy_only_if_present',
         },
         'sources_of_truth': {
-            'financial': 'akaunting',
+            'financial': 'frya_accounting_postgresql',
             'document': 'paperless',
             'decision': 'frya_audit_log_postgresql',
         },
@@ -55,20 +54,17 @@ async def status(_user: AuthUser = Depends(require_operator)) -> dict:
                 'tika',
                 'gotenberg',
                 'postgres',
-                'akaunting',
-                'mariadb',
                 'uptime-kuma',
                 'keys-ui',
                 'watchtower',
             ],
             'legacy_only': ['separate-backend-service'],
             'optional_extensions': ['paperless-ai', 'paperless-gpt'],
-            'critical_no_blind_auto_update': ['paperless', 'akaunting', 'mariadb', 'postgres', 'agent', 'n8n', 'traefik'],
+            'critical_no_blind_auto_update': ['paperless', 'postgres', 'agent', 'n8n', 'traefik'],
         },
         'integrations': {
             'n8n': settings.n8n_base_url,
             'paperless': settings.paperless_base_url,
-            'akaunting': settings.akaunting_base_url,
         },
         'safety': {
             'python_scheduler': 'disabled',

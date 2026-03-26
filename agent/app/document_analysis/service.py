@@ -291,7 +291,7 @@ class DocumentAnalysisService:
         refs: list[ExtractedField[str]] = []
         seen: set[str] = set()
         for line in lines:
-            for _, pattern in _REFERENCE_PATTERNS:
+            for ref_type, pattern in _REFERENCE_PATTERNS:
                 match = pattern.search(line)
                 if not match:
                     continue
@@ -300,7 +300,14 @@ class DocumentAnalysisService:
                     continue
                 seen.add(value)
                 refs.append(
-                    ExtractedField(value=value, status='FOUND', confidence=0.84, source_kind='OCR_TEXT', evidence_excerpt=line[:120])
+                    ExtractedField(
+                        value=value,
+                        status='FOUND',
+                        confidence=0.84,
+                        source_kind='OCR_TEXT',
+                        evidence_excerpt=line[:120],
+                        label=ref_type,
+                    )
                 )
         metadata_ref = metadata.get('reference') or metadata.get('archive_serial_number')
         if isinstance(metadata_ref, str) and metadata_ref.strip() and metadata_ref not in seen:
@@ -311,6 +318,7 @@ class DocumentAnalysisService:
                     confidence=0.72,
                     source_kind='PAPERLESS_METADATA',
                     evidence_excerpt=metadata_ref.strip()[:120],
+                    label='reference_number',
                 )
             )
         return refs

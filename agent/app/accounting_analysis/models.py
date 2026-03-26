@@ -271,10 +271,10 @@ class ExternalReturnClarificationCompletionResult(BaseModel):
     external_write_performed: bool = False
     summary: str
 
-AkauntingReconciliationStatus = Literal['FOUND', 'NOT_FOUND', 'ERROR']
+AccountingReconciliationStatus = Literal['FOUND', 'NOT_FOUND', 'ERROR']
 
 
-class AkauntingReconciliationInput(BaseModel):
+class AccountingReconciliationInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     case_id: str
@@ -282,17 +282,17 @@ class AkauntingReconciliationInput(BaseModel):
     object_id: str
     triggered_by: str
     note: str | None = None
-    source: str = 'akaunting_reconciliation_lookup'
+    source: str = 'accounting_reconciliation_lookup'
 
 
-class AkauntingReconciliationResult(BaseModel):
+class AccountingReconciliationResult(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    reconciliation_version: str = 'akaunting-reconciliation-v1'
+    reconciliation_version: str = 'accounting-reconciliation-v1'
     case_id: str
     object_type: str
     object_id: str
-    status: AkauntingReconciliationStatus
+    status: AccountingReconciliationStatus
     raw_data: dict | None = None
     error_detail: str | None = None
     lookup_note: str | None = None

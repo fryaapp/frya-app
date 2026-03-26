@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from app.accounting_analysis.models import (
     AccountingAnalysisInput,
@@ -103,7 +103,7 @@ class AccountingAnalysisService:
                     'Betrag, Steuerhinweis und Belegdatum vor manueller Weiterarbeit pruefen.',
                 ],
                 notes=[
-                    'Kein Akaunting-Write in V1.',
+                    'Kein externer Write in V1.',
                     'Keine Konten- oder Zahlungsfinalisierung durch den Agenten.',
                 ],
             )
@@ -122,7 +122,7 @@ class AccountingAnalysisService:
                     'Kein neuer freier Buchungsvorschlag ohne vorhandenen Rechnungsbezug.',
                 ],
                 notes=[
-                    'Kein Akaunting-Write in V1.',
+                    'Kein externer Write in V1.',
                     'Mahnung bleibt ein konservativer Review-Fall.',
                 ],
             )
@@ -242,6 +242,29 @@ class AccountingAnalysisService:
         tax = amount_summary.tax_amount
         total = amount_summary.total_amount
         if net.status != 'FOUND' or tax.status != 'FOUND' or net.value is None or tax.value is None:
+            # Fallback: if gross total is known, derive net+tax via standard 19% DE rate
+            if total.status == 'FOUND' and total.value is not None and total.value > 0:
+                derived_net = (total.value / Decimal('1.19')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                derived_tax = (total.value - derived_net).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                risks.append(AccountingRisk(
+                    code='TAX_DERIVED_FROM_GROSS',
+                    severity='INFO',
+                    message=(
+                        f'Netto/MwSt-Split nicht im Dokument gefunden — '
+                        f'aus Bruttobetrag abgeleitet (19%): Netto {derived_net} €, MwSt {derived_tax} €.'
+                    ),
+                    related_fields=['amount_summary'],
+                ))
+                return TaxHint(
+                    rate=AccountingField(
+                        value='19%',
+                        status='FOUND',
+                        confidence=0.55,
+                        source_kind='DERIVED',
+                        evidence_excerpt=f'derived:net={derived_net},tax={derived_tax},gross={total.value}',
+                    ),
+                    reason='MwSt-Split nicht im Dokument erkannt — 19% Standardsatz aus Bruttobetrag abgeleitet.',
+                ), risks
             return TaxHint(rate=AccountingField(value=None, status='MISSING', confidence=0.0, source_kind='NONE', evidence_excerpt=None), reason='Kein belastbarer Steuerhinweis im V1-Kontext.'), risks
         if total.value is not None and net.value + tax.value != total.value:
             risks.append(

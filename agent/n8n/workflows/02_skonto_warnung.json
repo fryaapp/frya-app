@@ -1,0 +1,131 @@
+{
+  "name": "FRYA 02 – Skonto-Warnung (täglich 08:00)",
+  "nodes": [
+    {
+      "id": "cron-trigger",
+      "name": "Cron 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "skonto-check",
+      "name": "FRYA Skonto-Warnung",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/n8n/skonto-warnung",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "={{ $env.FRYA_TENANT_ID }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "has-skonto",
+      "name": "Skonto läuft ab?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.count }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "send-telegram",
+      "name": "Telegram Skonto-Warnung",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 220],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/communicator/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.FRYA_TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ '⚡ Skonto-Warnung: ' + $json.count + ' Rechnung(en) mit ablaufendem Skonto.' }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Cron 08:00": {
+      "main": [
+        [{ "node": "FRYA Skonto-Warnung", "type": "main", "index": 0 }]
+      ]
+    },
+    "FRYA Skonto-Warnung": {
+      "main": [
+        [{ "node": "Skonto läuft ab?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Skonto läuft ab?": {
+      "main": [
+        [{ "node": "Telegram Skonto-Warnung", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

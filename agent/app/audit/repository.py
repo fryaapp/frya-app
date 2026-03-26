@@ -199,3 +199,23 @@ class AuditRepository:
             return [r['case_id'] for r in rows if r['case_id']]
         finally:
             await conn.close()
+
+    async def list_all_ordered(self, batch_size: int = 1000) -> list[tuple[int, str | None, str]]:
+        """Return (id, previous_hash, record_hash) for all rows ordered by id ASC.
+
+        Used exclusively for hash-chain integrity verification.
+        """
+        if self.is_memory:
+            return [
+                (i + 1, r.previous_hash, r.record_hash)
+                for i, r in enumerate(self._memory_records)
+            ]
+
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            rows = await conn.fetch(
+                'SELECT id, previous_hash, record_hash FROM frya_audit_log ORDER BY id ASC',
+            )
+            return [(r['id'], r['previous_hash'], r['record_hash']) for r in rows]
+        finally:
+            await conn.close()

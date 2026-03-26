@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FRYA Login</title>
-  <link rel="stylesheet" href="/ui/static/ui.css" />
+  <link rel="stylesheet" href="/ui/static/ui.css?v=p44" />
 </head>
 <body>
   <main class="content" style="max-width: 520px; margin: 4rem auto;">
@@ -23,6 +23,12 @@
       </label>
       <button type="submit">Anmelden</button>
     </form>
+    {% if request.query_params.get('reset') %}
+    <p class="panel-ok" style="margin-top:1rem;">Ihr Passwort wurde erfolgreich geaendert. Bitte melden Sie sich an.</p>
+    {% endif %}
+    <p style="margin-top:1rem; font-size:0.9em;">
+      <a href="/auth/forgot-password">Passwort vergessen?</a>
+    </p>
   </main>
 </body>
 </html>

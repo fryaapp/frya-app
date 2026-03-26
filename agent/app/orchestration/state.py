@@ -6,6 +6,7 @@ from typing import Any, Literal, TypedDict
 class AgentState(TypedDict, total=False):
     case_id: str
     source: str
+    tenant_id: str | None
     message: str
     document_ref: str | None
     paperless_metadata: dict[str, Any]
@@ -30,4 +31,8 @@ class AgentState(TypedDict, total=False):
     gate_requires_problem_case: bool
     execution_allowed: bool
     output: dict[str, Any]
+    document_analyst_model: str | None
+    case_engine_result: dict[str, Any] | None
+    # E-Rechnung fast path: raw PDF or XML bytes (skips LLM if e-invoice detected)
+    pdf_bytes: bytes | None
 

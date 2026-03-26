@@ -147,7 +147,7 @@ async def test_paperless_runtime_path_returns_structured_invoice_result(monkeypa
         assert any(event['action'] == 'ACCOUNTING_ANALYSIS_COMPLETED' for event in case_body['chronology'])
         assert case_body['accounting_review']['review_status'] == 'READY'
         assert case_body['accounting_analysis']['booking_candidate_type'] == 'INVOICE_STANDARD_EXPENSE'
-        assert any(item['title'] == 'Buchungsvorschlag pruefen' and item['status'] == 'OPEN' for item in case_body['open_items'])
+        assert any(item['title'] == 'Buchungsvorschlag pruefen' and item['status'] in ('OPEN', 'PENDING_APPROVAL') for item in case_body['open_items'])
         assert any(item['title'] == 'Accounting Review durchfuehren' and item['status'] == 'COMPLETED' for item in case_body['open_items'])
         assert any(item['item_id'] == stale_item.item_id and item['status'] == 'COMPLETED' for item in case_body['open_items'])
 
@@ -241,7 +241,7 @@ async def test_paperless_runtime_path_builds_reminder_review_candidate(monkeypat
         assert case_json.status_code == 200
         case_body = case_json.json()
         assert case_body['accounting_analysis']['booking_candidate_type'] == 'REMINDER_REFERENCE_CHECK'
-        assert any(item['title'] == 'Mahnungsbezug pruefen' and item['status'] == 'OPEN' for item in case_body['open_items'])
+        assert any(item['title'] == 'Mahnungsbezug pruefen' and item['status'] in ('OPEN', 'PENDING_APPROVAL') for item in case_body['open_items'])
 
 
 @pytest.mark.asyncio

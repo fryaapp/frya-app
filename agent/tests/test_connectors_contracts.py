@@ -1,14 +1,6 @@
 ﻿import pytest
 
-from app.connectors.accounting_akaunting import AkauntingConnector
 from app.connectors.notifications_telegram import TelegramConnector
-
-
-@pytest.mark.asyncio
-async def test_akaunting_stub_returns_safe_response():
-    connector = AkauntingConnector('http://akaunting.local', token=None)
-    result = await connector.create_booking_draft({'amount': 10})
-    assert result['status'] == 'stub'
 
 
 @pytest.mark.asyncio

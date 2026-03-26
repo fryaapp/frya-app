@@ -1,0 +1,73 @@
+/* M3 Design Tokens — Generated from seed #E87830 (FRYA Orange) */
+
+[data-theme="dark"], :root {
+  --md-primary: #FFB68E;
+  --md-on-primary: #522300;
+  --md-primary-container: #733400;
+  --md-on-primary-container: #FFDBC9;
+  --md-secondary: #E4BFA8;
+  --md-on-secondary: #422B1B;
+  --md-secondary-container: #5B4130;
+  --md-on-secondary-container: #FFDBC9;
+  --md-tertiary: #C6CB93;
+  --md-on-tertiary: #2F330A;
+  --md-tertiary-container: #464A1F;
+  --md-surface: #1A1110;
+  --md-on-surface: #F0DED7;
+  --md-on-surface-variant: #D7C2B9;
+  --md-surface-container-lowest: #201714;
+  --md-surface-container-low: #271D1A;
+  --md-surface-container: #322824;
+  --md-surface-container-high: #3D322F;
+  --md-surface-container-highest: #493E3A;
+  --md-outline: #A08D84;
+  --md-outline-variant: #52443D;
+  --md-error: #FFB4AB;
+  --md-on-error: #690005;
+  --md-error-container: #93000A;
+  --md-on-error-container: #FFDAD6;
+  --md-success: #7CDB8A;
+  --md-success-container: #00531C;
+  --md-warning: #E4C54A;
+  --md-warning-container: #554500;
+  --md-info: #A0C9FF;
+  --md-info-container: #00497D;
+  --md-inverse-surface: #F0DED7;
+  --md-inverse-on-surface: #362A26;
+}
+
+[data-theme="light"] {
+  --md-primary: #904B22;
+  --md-on-primary: #FFFFFF;
+  --md-primary-container: #FFDBC9;
+  --md-on-primary-container: #331200;
+  --md-secondary: #765846;
+  --md-on-secondary: #FFFFFF;
+  --md-secondary-container: #FFDBC9;
+  --md-on-secondary-container: #2B1609;
+  --md-tertiary: #5E6134;
+  --md-on-tertiary: #FFFFFF;
+  --md-tertiary-container: #E3E6AD;
+  --md-surface: #FFF8F5;
+  --md-on-surface: #201A17;
+  --md-on-surface-variant: #52443D;
+  --md-surface-container-lowest: #FFFFFF;
+  --md-surface-container-low: #FAF0EB;
+  --md-surface-container: #F4E6DF;
+  --md-surface-container-high: #EEDFD8;
+  --md-surface-container-highest: #E8DAD3;
+  --md-outline: #84746B;
+  --md-outline-variant: #D7C2B9;
+  --md-error: #BA1A1A;
+  --md-on-error: #FFFFFF;
+  --md-error-container: #FFDAD6;
+  --md-on-error-container: #410002;
+  --md-success: #006D2E;
+  --md-success-container: #9AF6A3;
+  --md-warning: #6D5E00;
+  --md-warning-container: #FCEA4A;
+  --md-info: #00639B;
+  --md-info-container: #CEE5FF;
+  --md-inverse-surface: #362A26;
+  --md-inverse-on-surface: #FBEEEA;
+}

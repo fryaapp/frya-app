@@ -121,6 +121,7 @@ def test_api_surface(tmp_path, monkeypatch):
     monkeypatch.setenv('FRYA_PAPERLESS_BASE_URL', 'http://paperless')
     monkeypatch.setenv('FRYA_AKAUNTING_BASE_URL', 'http://akaunting')
     monkeypatch.setenv('FRYA_N8N_BASE_URL', 'http://n8n')
+    monkeypatch.setenv('FRYA_TELEGRAM_WEBHOOK_SECRET', 'tg-secret')
     monkeypatch.setenv('FRYA_TELEGRAM_ALLOWED_CHAT_IDS', '-5200036710')
     monkeypatch.setenv('FRYA_TELEGRAM_ALLOWED_DIRECT_CHAT_IDS', '1310959044')
     monkeypatch.setenv('FRYA_TELEGRAM_ALLOWED_USER_IDS', '1310959044')
@@ -147,17 +148,34 @@ def test_api_surface(tmp_path, monkeypatch):
                 'text': 'status',
             },
         }
-        tg = client.post('/webhooks/telegram', json=tg_payload)
+        tg = client.post('/webhooks/telegram', json=tg_payload, headers={'x-telegram-bot-api-secret-token': 'tg-secret'})
         assert tg.status_code == 200
         tg_body = tg.json()
         assert tg_body['status'] == 'accepted'
         assert tg_body['intent'] == 'status.overview'
         tg_case_id = tg_body['case_id']
 
-        tg_dup = client.post('/webhooks/telegram', json=tg_payload)
+        tg_dup = client.post('/webhooks/telegram', json=tg_payload, headers={'x-telegram-bot-api-secret-token': 'tg-secret'})
         assert tg_dup.status_code == 200
         tg_dup_body = tg_dup.json()
         assert tg_dup_body['status'] == 'duplicate_ignored'
+
+        tg_inbox_payload = {
+            'update_id': 113,
+            'message': {
+                'message_id': 9,
+                'chat': {'id': -5200036710, 'type': 'group'},
+                'from': {'id': 1310959044, 'username': 'maze'},
+                'text': 'bitte pruefe die rueckfrage aus telegram',
+            },
+        }
+        tg_inbox = client.post('/webhooks/telegram', json=tg_inbox_payload, headers={'x-telegram-bot-api-secret-token': 'tg-secret'})
+        assert tg_inbox.status_code == 200
+        tg_inbox_body = tg_inbox.json()
+        assert tg_inbox_body['status'] == 'accepted'
+        assert tg_inbox_body['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
+        assert tg_inbox_body['open_item_id']
+        tg_inbox_case_id = tg_inbox_body['case_id']
 
         denied_payload = {
             'update_id': 112,
@@ -168,11 +186,25 @@ def test_api_surface(tmp_path, monkeypatch):
                 'text': 'status',
             },
         }
-        denied = client.post('/webhooks/telegram', json=denied_payload)
+        denied = client.post('/webhooks/telegram', json=denied_payload, headers={'x-telegram-bot-api-secret-token': 'tg-secret'})
         assert denied.status_code == 200
         denied_body = denied.json()
         assert denied_body['status'] == 'denied'
         denied_case = denied_body['case_id']
+
+        secret_payload = {
+            'update_id': 114,
+            'message': {
+                'message_id': 10,
+                'chat': {'id': -5200036710, 'type': 'group'},
+                'from': {'id': 1310959044, 'username': 'maze'},
+                'text': 'status',
+            },
+        }
+        secret_denied = client.post('/webhooks/telegram', json=secret_payload, headers={'x-telegram-bot-api-secret-token': 'wrong'})
+        assert secret_denied.status_code == 200
+        secret_denied_body = secret_denied.json()
+        assert secret_denied_body['status'] == 'denied'
 
         _login_admin(client)
 
@@ -284,19 +316,48 @@ def test_api_surface(tmp_path, monkeypatch):
 
         tg_case_json = client.get(f'/inspect/cases/{tg_case_id}/json')
         assert tg_case_json.status_code == 200
-        actions = [x['action'] for x in tg_case_json.json()['chronology']]
+        tg_case_body = tg_case_json.json()
+        actions = [x['action'] for x in tg_case_body['chronology']]
         assert actions.count('TELEGRAM_WEBHOOK_RECEIVED') >= 2
         assert actions.count('TELEGRAM_INTENT_RECOGNIZED') == 1
-        assert actions.count('TELEGRAM_COMMAND_HANDLED') == 1
+        assert actions.count('TELEGRAM_ROUTED') == 1
         assert actions.count('TELEGRAM_REPLY_ATTEMPTED') == 1
         assert 'TELEGRAM_DUPLICATE_IGNORED' in actions
+        assert tg_case_body['telegram_ingress']['routing_status'] == 'STATUS_REQUEST'
+        assert tg_case_body['telegram_ingress']['authorization_status'] == 'AUTHORIZED'
+        assert tg_case_body['telegram_case_link']['track_for_status'] is False
+        assert tg_case_body['telegram_ingress']['user_visible_status']['status_code'] == 'NOT_AVAILABLE'
 
         denied_case_json = client.get(f'/inspect/cases/{denied_case}/json')
         assert denied_case_json.status_code == 200
-        denied_actions = [x['action'] for x in denied_case_json.json()['chronology']]
+        denied_case_body = denied_case_json.json()
+        denied_actions = [x['action'] for x in denied_case_body['chronology']]
         assert 'TELEGRAM_WEBHOOK_RECEIVED' in denied_actions
         assert 'TELEGRAM_AUTH_DENIED' in denied_actions
         assert 'TELEGRAM_REPLY_ATTEMPTED' in denied_actions
+        assert denied_case_body['telegram_ingress']['routing_status'] == 'REJECTED_UNAUTHORIZED'
+
+        secret_case_json = client.get(f"/inspect/cases/{secret_denied_body['case_id']}/json")
+        assert secret_case_json.status_code == 200
+        assert secret_case_json.json()['telegram_ingress']['routing_status'] == 'REJECTED_SECRET'
+
+        tg_inbox_case_json = client.get(f'/inspect/cases/{tg_inbox_case_id}/json')
+        assert tg_inbox_case_json.status_code == 200
+        tg_inbox_case_body = tg_inbox_case_json.json()
+        assert tg_inbox_case_body['telegram_ingress']['routing_status'] in ('ACCEPTED_TO_INBOX', 'COMMUNICATOR_HANDLED')
+        assert tg_inbox_case_body['telegram_ingress']['open_item_id'] == tg_inbox_body['open_item_id']
+        assert tg_inbox_case_body['telegram_case_link']['track_for_status'] is True
+        assert tg_inbox_case_body['telegram_ingress']['user_visible_status']['status_code'] in ('IN_QUEUE', 'COMMUNICATOR_REPLIED')
+
+        tg_ui = client.get(f'/ui/cases/{tg_case_id}')
+        assert tg_ui.status_code == 200
+        assert 'Telegram Ingress' in tg_ui.text
+        assert 'STATUS_REQUEST' in tg_ui.text
+
+        tg_inbox_ui = client.get(f'/ui/cases/{tg_inbox_case_id}')
+        assert tg_inbox_ui.status_code == 200
+        assert 'Telegram Ingress' in tg_inbox_ui.text
+        assert ('ACCEPTED_TO_INBOX' in tg_inbox_ui.text or 'COMMUNICATOR_HANDLED' in tg_inbox_ui.text)
 
         assert client.get('/inspect/audit').status_code == 200
 

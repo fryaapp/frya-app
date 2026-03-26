@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>API-Keys & Credentials</h1>
+<p class="page-lead">Uebersicht aller konfigurierten Zugangsdaten. ENV-Keys nur lesbar — Aenderungen direkt in der <code>.env</code> auf dem Server.</p>
+
+<table class="api-keys-table">
+  <thead>
+    <tr>
+      <th>Dienst</th>
+      <th>Variable / Quelle</th>
+      <th>Wert</th>
+      <th>Status</th>
+      <th>Hilfe</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for key in api_keys %}
+    <tr class="{% if not key.is_set %}row-missing{% endif %}">
+      <td class="key-service">
+        {{ key.service }}
+        {% if key.sub_label %}<br><span class="sub-label">{{ key.sub_label }}</span>{% endif %}
+      </td>
+      <td class="key-variable">
+        <code>{{ key.variable }}</code>
+        {% if key.source == 'db' %}
+        <span class="source-badge source-db">DB</span>
+        {% else %}
+        <span class="source-badge source-env">ENV</span>
+        {% endif %}
+      </td>
+      <td class="key-value">
+        {% if key.is_set %}
+        <span class="masked-value">{{ key.masked }}</span>
+        {% else %}
+        <span class="not-set">— nicht gesetzt —</span>
+        {% endif %}
+        {% if key.edit_url %}
+        <a class="edit-link" href="{{ key.edit_url }}">bearbeiten</a>
+        {% else %}
+        <span class="env-hint-inline">In .env aendern</span>
+        {% endif %}
+      </td>
+      <td class="key-status">
+        {% if key.is_set %}
+        <span class="status-dot status-ok" title="Gesetzt">&#9679;</span>
+        {% else %}
+        <span class="status-dot status-missing" title="Fehlt">&#9679;</span>
+        {% endif %}
+      </td>
+      <td class="key-help">
+        {% if key.tooltip %}
+        <span class="help-icon" title="{{ key.tooltip }}">(?)</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p class="env-path-hint">Server .env: <code>/opt/dms-staging/.env</code> — nach Aenderung Container neu starten: <code>docker compose up -d --force-recreate agent</code></p>
+
+<style>
+.api-keys-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+}
+.api-keys-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  background: #f3f4f6;
+  border-bottom: 2px solid #ddd;
+  font-weight: 600;
+}
+.api-keys-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: middle;
+}
+.api-keys-table tr:last-child td { border-bottom: none; }
+.row-missing td { background: #fff7f7; }
+.key-service { font-weight: 500; min-width: 140px; }
+.sub-label { font-size: 0.78rem; color: #6b7280; font-weight: 400; }
+.key-variable code { font-size: 0.82rem; background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; word-break: break-all; }
+.source-badge { display: inline-block; font-size: 0.7rem; padding: 0.05rem 0.35rem; border-radius: 3px; margin-left: 0.3rem; vertical-align: middle; }
+.source-db { background: #dbeafe; color: #1e40af; }
+.source-env { background: #f3f4f6; color: #4b5563; }
+.masked-value { font-family: monospace; letter-spacing: 0.05em; }
+.not-set { color: #9ca3af; font-style: italic; }
+.edit-link { margin-left: 0.5rem; font-size: 0.8rem; color: #2563eb; }
+.env-hint-inline { margin-left: 0.5rem; font-size: 0.78rem; color: #9ca3af; }
+.status-dot { font-size: 1rem; }
+.status-ok { color: #16a34a; }
+.status-missing { color: #dc2626; }
+.help-icon {
+  display: inline-block;
+  cursor: help;
+  color: #6b7280;
+  border: 1px solid #d1d5db;
+  border-radius: 50%;
+  width: 1.3rem;
+  height: 1.3rem;
+  line-height: 1.25rem;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  user-select: none;
+}
+.help-icon:hover { background: #f3f4f6; color: #111; }
+.env-path-hint { margin-top: 1.5rem; font-size: 0.82rem; color: #6b7280; }
+.env-path-hint code { background: #f0f0f0; padding: 0.1rem 0.3rem; border-radius: 3px; }
+</style>
+{% endblock %}

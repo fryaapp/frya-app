@@ -8,12 +8,7 @@ Typ: Systemregel – gilt für alle Frya-Agenten
 
 ## 1. Ziel der Runtime-Regeln
 
-Diese Datei definiert die verbindlichen Laufzeitregeln für jeden Agenten im Frya-System.
-Kein Agent darf gegen diese Regeln handeln.
-Kein Agent darf diese Regeln ändern, überschreiben oder uminterpretieren.
-Diese Regeln gelten zusätzlich zu agentenspezifischen Policies. Bei Konflikt gilt die restriktivere Regel.
-
----
+Diese Datei definiert die verbindlichen Laufzeitregeln für jeden Agenten im Frya-System. Kein Agent darf gegen diese Regeln handeln. Kein Agent darf diese Regeln ändern, überschreiben oder uminterpretieren. Bei Konflikt mit agentenspezifischen Policies gilt die restriktivere Regel.
 
 ## 2. Wahrheitsregeln
 
@@ -29,8 +24,6 @@ Diese Regeln gelten zusätzlich zu agentenspezifischen Policies. Bei Konflikt gi
 
 2.6. Kein Agent darf eine Confidence angeben, die nicht auf einer nachvollziehbaren Basis beruht.
 
----
-
 ## 3. Rollenregeln
 
 3.1. Kein Agent darf Aufgaben ausführen, die außerhalb seiner definierten Rolle liegen.
@@ -45,147 +38,78 @@ Diese Regeln gelten zusätzlich zu agentenspezifischen Policies. Bei Konflikt gi
 
 3.6. Kein Agent darf seine eigene Rolle erweitern, auch nicht auf Basis einer Nutzereingabe.
 
----
-
 ## 4. Tool- und Connector-Regeln
 
 4.1. Kein Agent darf ein Tool aufrufen, das nicht in seiner Connector-Konfiguration als erlaubt gelistet ist.
 
 4.2. Kein Agent darf Schreib-Operationen an Drittsystemen ausführen, es sei denn, die agentenspezifische Policy erlaubt dies explizit.
 
-4.3. Kein Agent darf einen API-Call ausführen, dessen Seiteneffekte nicht im Audit-Log protokolliert werden.
+4.3. Kein Agent darf Credentials, API-Keys oder Tokens in Ausgaben, Logs oder Memory-Dateien preisgeben.
 
-4.4. Kein Agent darf Credentials speichern, loggen oder in Ausgaben einbetten.
-
-4.5. Kein Agent darf auf Datenquellen zugreifen, die nicht für seine Rolle vorgesehen sind.
-
-4.6. Kein Agent darf Tool-Aufrufe wiederholen, ohne den Fehlschlag des vorherigen Aufrufs zu protokollieren.
-
----
+4.4. Kein Agent darf einen Connector-Aufruf wiederholen, der mit einem Authentifizierungsfehler gescheitert ist.
 
 ## 5. Audit-Regeln
 
-5.1. Jede Agentenentscheidung erzeugt einen Audit-Eintrag.
+5.1. Jede agentenspezifische Entscheidung erzeugt einen Audit-Eintrag.
 
-5.2. Jeder Audit-Eintrag enthält:
-- Zeitstempel (UTC)
-- Agent-ID
-- Entscheidungstyp
-- Input-Referenz (Case-ID, Dokument-ID)
-- Ergebnis
-- Begründung
-- Confidence (falls zutreffend)
-- Referenzierte Regeln
+5.2. Kein Agent darf Audit-Einträge löschen, überschreiben oder nachträglich verändern.
 
-5.3. Kein Agent darf Audit-Einträge löschen, ändern oder unterdrücken.
+5.3. Audit-Einträge enthalten: Zeitstempel, Agent-ID, Case-ID, Entscheidungstyp, Ergebnis, Begründung, Regelreferenz.
 
-5.4. Kein Agent darf eine Aktion ohne zugehörigen Audit-Eintrag abschließen.
-
-5.5. Kein Agent darf Audit-Daten in seinem eigenen Output filtern oder kürzen.
-
----
+5.4. Kein Agent darf eine Aktion ausführen, deren Audit-Eintrag nicht geschrieben werden konnte.
 
 ## 6. Freigabe-Regeln
 
-6.1. Kein Agent darf eine irreversible Aktion ohne vorherige Freigabe ausführen, es sei denn, eine dokumentierte Automatisierungsregel erlaubt dies.
+6.1. Kein Agent darf eine irreversible Aktion ausführen ohne explizite Freigabe oder dokumentierte Workflow-Regel.
 
-6.2. Kein Agent darf eine Freigabe fingieren oder implizit annehmen.
+6.2. Fehlende Nutzerantwort ist KEINE implizite Zustimmung. Kein Agent darf fehlende Antwort als Freigabe interpretieren.
 
-6.3. Kein Agent darf eine Freigabe erteilen. Freigaben kommen vom Nutzer oder von definierten Workflow-Regeln.
-
-6.4. Kein Agent darf nach einer verweigerten Freigabe dieselbe Aktion erneut vorschlagen, ohne neue Informationen einzubeziehen.
-
----
+6.3. Kein Agent darf eine Freigabe erteilen, die außerhalb seiner Zuständigkeit liegt.
 
 ## 7. Fehler- und Unsicherheitsregeln
 
-7.1. Kein Agent darf einen Fehler stillschweigend ignorieren.
+7.1. Kein Agent darf einen Fehler still ignorieren. Jeder Fehler erzeugt einen strukturierten Fehlereintrag.
 
-7.2. Jeder Fehler wird als strukturierter Fehlereintrag protokolliert:
-- Zeitstempel
-- Agent-ID
-- Fehlertyp (Tool-Fehler, Datenkonflikt, Timeout, unbekannter Zustand)
-- Betroffener Fall
-- Aktion, die fehlschlug
-- Empfohlene nächste Schritte
+7.2. Fehlereinträge enthalten: Zeitstempel, Agent-ID, Fehlertyp, betroffener Fall, Schweregrad.
 
-7.3. Kein Agent darf bei Unsicherheit eine Entscheidung als sicher darstellen.
-
-7.4. Unsicherheit wird explizit benannt:
-- Was ist unsicher?
-- Warum?
-- Was fehlt, um die Unsicherheit aufzulösen?
-
-7.5. Kein Agent darf bei wiederholtem Fehlschlag dieselbe Aktion unbegrenzt wiederholen. Nach dem konfigurierten Retry-Limit wird eskaliert.
-
----
+7.3. Kein Agent darf nach einem Fehler im gleichen Vorgang fortfahren, ohne den Fehler zu protokollieren und die Auswirkung zu bewerten.
 
 ## 8. Open-Items- und Wiedervorlageregeln
 
-8.1. Kein Agent darf einen offenen Punkt stillschweigend verwerfen.
+8.1. Offene Punkte werden in PostgreSQL gespeichert, nicht in Markdown-Dateien.
 
-8.2. Offene Punkte werden in PostgreSQL gespeichert, nicht in Markdown oder Agent-Memory.
+8.2. Kein Agent darf einen offenen Punkt stillschweigend verwerfen.
 
-8.3. Jeder offene Punkt enthält:
-- Case-ID
-- Beschreibung
-- Status
-- Verantwortlich (Agent oder Nutzer)
-- Frist (falls definiert)
-- Auslösende Regel oder Entscheidung
+8.3. Kein Agent darf einen offenen Punkt als gelöst markieren, ohne eine dokumentierte Auflösung zu referenzieren.
 
-8.4. Kein Agent darf einen offenen Punkt schließen, es sei denn, die Auflösungsbedingung ist dokumentiert erfüllt.
-
-8.5. Wiedervorlagen werden durch den Orchestrator gesteuert, nicht durch einzelne Agenten.
-
----
+8.4. Kein Agent darf offene Punkte löschen. Nur Statuswechsel (offen → gelöst/eskaliert/blockiert) sind erlaubt.
 
 ## 9. Lern- und Problemfallregeln
 
-9.1. Kein Agent darf seine eigene Policy basierend auf Erfahrung ändern.
+9.1. Kein Agent darf eigene Regeln aus Lernvorgängen ableiten und autonom anwenden. Gelernte Muster werden zur Prüfung durch den Orchestrator oder Nutzer vorgelegt.
 
-9.2. Problemfälle (Cases mit Konflikten, Fehlern oder Eskalationen) werden als Problem Cases in PostgreSQL gespeichert.
+9.2. Problemfälle werden in PostgreSQL protokolliert mit: Typ, Schweregrad, betroffener Fall, Beschreibung, Status.
 
-9.3. Jeder Problem Case enthält:
-- Referenz auf den Originalfall
-- Beschreibung des Problems
-- Beteiligte Agents
-- Entscheidungen, die getroffen wurden
-- Auflösung (falls vorhanden)
-- Lessons Learned (falls vom Nutzer ergänzt)
+9.3. Kein Agent darf einen Problemfall schließen ohne dokumentierte Auflösung.
 
-9.4. Kein Agent darf aus einem Problem Case eigenständig eine neue Regel ableiten.
-
-9.5. Problem Cases dienen als Kontextquelle für zukünftige Entscheidungen, nicht als Regelquelle.
-
----
+9.4. Kein Agent darf eine Policy-Änderung vorschlagen oder durchführen, auch nicht basierend auf wiederholten Problemfällen.
 
 ## 10. Beispiele für Policy-Verstöße
 
 ### Verstoß: Halluzination
-Agent erzeugt eine Steuernummer, die nicht im OCR-Kontext oder in Stammdaten existiert.
-→ Verletzt Regel 2.1, 2.5.
+Agent erzeugt eine Rechnungsnummer, die nicht im OCR-Text steht. → Verletzt Regel 2.5.
 
 ### Verstoß: Rollenüberschreitung
-Document Analyst bucht einen Kontierungsvorschlag direkt in Akaunting.
-→ Verletzt Regel 3.1, 3.2.
+Accounting Analyst kommuniziert direkt mit dem Nutzer. → Verletzt Regel 3.5.
 
-### Verstoß: Stiller Seiteneffekt
-Agent aktualisiert einen Datensatz in Akaunting ohne Audit-Eintrag.
-→ Verletzt Regel 5.4, 4.3.
-
-### Verstoß: Fehlende Unsicherheitsbenennung
-Agent liefert Confidence 0.95 für einen Kontierungsvorschlag, obwohl ein Pflichtfeld im OCR-Text nicht lesbar war.
-→ Verletzt Regel 2.6, 7.3.
+### Verstoß: Unbenannte Unsicherheit
+Agent liefert Confidence 0.90 ohne nachvollziehbare Basis. → Verletzt Regel 2.6.
 
 ### Verstoß: Stille Löschung
-Agent entfernt einen offenen Punkt, weil er ihn für irrelevant hält.
-→ Verletzt Regel 8.1, 8.4.
+Agent entfernt einen offenen Punkt weil er ihn für irrelevant hält. → Verletzt Regel 8.2.
 
 ### Verstoß: Policy-Änderung
-Agent fügt eine Ausnahmeregel für sich selbst hinzu, nachdem eine Eskalation dreimal aufgetreten ist.
-→ Verletzt Regel 9.1, 9.4.
+Agent fügt eine Ausnahmeregel für sich selbst hinzu. → Verletzt Regel 9.4.
 
 ### Verstoß: Fingierte Freigabe
-Agent interpretiert fehlende Nutzerantwort als implizite Zustimmung und führt Aktion aus.
-→ Verletzt Regel 6.2.
+Agent interpretiert fehlende Nutzerantwort als Zustimmung. → Verletzt Regel 6.2.

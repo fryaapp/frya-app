@@ -1,0 +1,107 @@
+{
+  "name": "FRYA 06 – Tages-Summary (täglich 18:00)",
+  "nodes": [
+    {
+      "id": "cron-trigger",
+      "name": "Cron 18:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "tages-summary",
+      "name": "FRYA Tages-Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/n8n/tages-summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "tenant_id",
+              "value": "={{ $env.FRYA_TENANT_ID }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "send-telegram",
+      "name": "Telegram Tages-Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FRYA_AGENT_URL }}/api/communicator/send-message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-API-KEY",
+              "value": "={{ $env.FRYA_N8N_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $env.FRYA_TELEGRAM_CHAT_ID }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ '📊 Tages-Summary ' + $json.date + '\\nOffen: ' + $json.case_counts.open + ' | Überfällig: ' + $json.case_counts.overdue + ' | Gesamt offen: ' + $json.total_open }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Cron 18:00": {
+      "main": [
+        [{ "node": "FRYA Tages-Summary", "type": "main", "index": 0 }]
+      ]
+    },
+    "FRYA Tages-Summary": {
+      "main": [
+        [{ "node": "Telegram Tages-Summary", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

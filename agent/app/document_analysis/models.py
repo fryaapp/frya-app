@@ -8,10 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 FieldStatus = Literal['FOUND', 'MISSING', 'UNCERTAIN', 'CONFLICT']
 SourceKind = Literal['OCR_TEXT', 'PAPERLESS_METADATA', 'PREVIEW_TEXT', 'CASE_CONTEXT', 'DERIVED', 'NONE']
-DocumentTypeValue = Literal['INVOICE', 'REMINDER', 'LETTER', 'OTHER']
+DocumentTypeValue = Literal['INVOICE', 'REMINDER', 'LETTER', 'CONTRACT', 'NOTICE', 'TAX_DOCUMENT', 'RECEIPT', 'BANK_STATEMENT', 'SALARY', 'INSURANCE', 'DUNNING', 'CORRESPONDENCE', 'PAYSLIP', 'OFFER', 'CREDIT_NOTE', 'DELIVERY_NOTE', 'PRIVATE', 'AGB', 'WIDERRUF', 'OTHER']
 AnalysisDecision = Literal['ANALYZED', 'INCOMPLETE', 'LOW_CONFIDENCE', 'CONFLICT']
 RecommendedNextStep = Literal['ACCOUNTING_REVIEW', 'HUMAN_REVIEW', 'OCR_RECHECK', 'GENERAL_REVIEW']
 RiskSeverity = Literal['INFO', 'WARNING', 'HIGH']
+AnnotationType = Literal[
+    'payment_note', 'status_note', 'problem_note', 'payment_method',
+    'correction_note', 'warning_note', 'allocation_note', 'tax_advisor_note',
+    'check_mark', 'date_note', 'unknown',
+]
+AnnotationAction = Literal['CHECK_PAYMENT_EXISTS', 'FLAG_PROBLEM_CASE', 'SUGGEST_ALLOCATION', 'FLAG_FOR_TAX_ADVISOR', 'NONE']
 
 T = TypeVar('T')
 
@@ -24,6 +30,7 @@ class ExtractedField(BaseModel, Generic[T]):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     source_kind: SourceKind = 'NONE'
     evidence_excerpt: str | None = None
+    label: str | None = None  # Optional type label, e.g. 'invoice_number' for references
 
 
 class DetectedAmount(BaseModel):
@@ -38,6 +45,16 @@ class DetectedAmount(BaseModel):
     evidence_excerpt: str | None = None
 
 
+class Annotation(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    type: AnnotationType
+    raw_text: str
+    interpreted: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    action_suggested: AnnotationAction = 'NONE'
+
+
 class DocumentRisk(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -45,6 +62,13 @@ class DocumentRisk(BaseModel):
     severity: RiskSeverity
     message: str
     related_fields: list[str] = Field(default_factory=list)
+
+
+class LineItem(BaseModel):
+    description: str
+    quantity: float | None = None
+    unit_price: Decimal | None = None
+    total_price: Decimal | None = None
 
 
 class DocumentAnalysisInput(BaseModel):
@@ -74,10 +98,15 @@ class DocumentAnalysisResult(BaseModel):
     document_date: ExtractedField[date]
     due_date: ExtractedField[date]
     references: list[ExtractedField[str]] = Field(default_factory=list)
+    line_items: list[LineItem] = Field(default_factory=list)
     risks: list[DocumentRisk] = Field(default_factory=list)
+    annotations: list[Annotation] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     missing_fields: list[str] = Field(default_factory=list)
     recommended_next_step: RecommendedNextStep
     global_decision: AnalysisDecision
     ready_for_accounting_review: bool = False
     overall_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    has_attachments: bool = False
+    is_business_relevant: bool = True
+    private_info: str | None = None

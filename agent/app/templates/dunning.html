@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<style>
+body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; margin: 40px; }
+.sender { font-size: 9pt; color: #666; margin-bottom: 20px; }
+.recipient { margin-bottom: 30px; }
+h1 { font-size: 16pt; margin-bottom: 5px; color: #c00; }
+table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+th { background: #f5f5f5; text-align: left; padding: 8px; border-bottom: 2px solid #ddd; font-size: 10pt; }
+td { padding: 8px; border-bottom: 1px solid #eee; }
+.amount { text-align: right; }
+.footer { margin-top: 60px; font-size: 9pt; color: #666; border-top: 1px solid #ddd; padding-top: 10px; }
+</style>
+</head>
+<body>
+<div class="sender">{{ tenant.company_name }} &middot; {{ tenant.street }} &middot; {{ tenant.zip }} {{ tenant.city }}</div>
+<div class="recipient">
+  <strong>{{ contact.name }}</strong><br>
+  {% if contact.street %}{{ contact.street }}<br>{% endif %}
+  {% if contact.zip %}{{ contact.zip }} {{ contact.city }}{% endif %}
+</div>
+
+<h1>{{ dunning_level }}</h1>
+<p>Sehr geehrte/r {{ contact.name }},</p>
+<p>leider konnten wir f&uuml;r folgende Rechnungen noch keinen Zahlungseingang feststellen:</p>
+
+<table>
+  <thead>
+    <tr><th>Rechnung</th><th class="amount">Betrag</th><th>F&auml;llig seit</th><th>Tage &uuml;berf&auml;llig</th></tr>
+  </thead>
+  <tbody>
+    {% for item in open_items %}
+    <tr>
+      <td>{{ item.invoice_number or item.reference }}</td>
+      <td class="amount">{{ "%.2f"|format(item.remaining_amount) }} &euro;</td>
+      <td>{{ item.due_date }}</td>
+      <td>{{ item.days_overdue }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if interest_amount > 0 %}
+<p>Verzugszinsen ({{ interest_rate }}%): {{ "%.2f"|format(interest_amount) }} &euro;</p>
+{% endif %}
+{% if fee > 0 %}
+<p>Mahngeb&uuml;hr: {{ "%.2f"|format(fee) }} &euro;</p>
+{% endif %}
+<p><strong>Gesamtbetrag: {{ "%.2f"|format(total) }} &euro;</strong></p>
+
+<p>Bitte &uuml;berweisen Sie den ausstehenden Betrag bis zum {{ payment_deadline }}.</p>
+
+<div class="footer">
+  <p>
+    {{ tenant.company_name }}<br>
+    {% if tenant.iban %}IBAN: {{ tenant.iban }}{% endif %}
+    {% if tenant.bic %} &middot; BIC: {{ tenant.bic }}{% endif %}
+  </p>
+</div>
+</body>
+</html>

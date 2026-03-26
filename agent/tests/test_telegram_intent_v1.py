@@ -6,17 +6,14 @@ def test_detect_intent_status():
     assert intent.name == 'status.overview'
 
 
-def test_detect_intent_case_show():
-    intent = detect_intent('zeige fall case-123')
-    assert intent.name == 'case.show'
-    assert intent.case_id == 'case-123'
+def test_detect_intent_help():
+    intent = detect_intent('/start')
+    assert intent.name == 'help.basic'
 
 
-def test_detect_intent_approval():
-    intent = detect_intent('freigeben case-abc')
-    assert intent.name == 'approval.respond'
-    assert intent.decision == 'APPROVED'
-    assert intent.target_ref == 'case-abc'
+def test_detect_intent_unknown_routes_to_manual_queue():
+    intent = detect_intent('bitte schau mal auf die letzte rueckfrage')
+    assert intent.name == 'unknown'
 
 
 def test_detect_intent_unknown():

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<style>
+body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 11pt; color: #1a1a1a; margin: 40px; }
+.header { display: flex; justify-content: space-between; margin-bottom: 30px; }
+.sender { font-size: 9pt; color: #666; margin-bottom: 20px; }
+.recipient { margin-bottom: 30px; }
+h1 { font-size: 16pt; margin-bottom: 5px; }
+table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+th { background: #f5f5f5; text-align: left; padding: 8px; border-bottom: 2px solid #ddd; font-size: 10pt; }
+td { padding: 8px; border-bottom: 1px solid #eee; }
+.amount { text-align: right; }
+.totals { margin-top: 20px; float: right; width: 250px; }
+.totals tr td { padding: 4px 8px; }
+.totals .total { font-weight: bold; border-top: 2px solid #333; }
+.footer { margin-top: 60px; font-size: 9pt; color: #666; border-top: 1px solid #ddd; padding-top: 10px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <div class="sender">{{ tenant.company_name }} &middot; {{ tenant.street }} &middot; {{ tenant.zip }} {{ tenant.city }}</div>
+    <div class="recipient">
+      <strong>{{ contact.name }}</strong><br>
+      {% if contact.street %}{{ contact.street }}<br>{% endif %}
+      {% if contact.zip %}{{ contact.zip }} {{ contact.city }}{% endif %}
+    </div>
+  </div>
+</div>
+
+<h1>Rechnung {{ invoice.invoice_number }}</h1>
+<p>
+  Rechnungsdatum: {{ invoice.invoice_date }}<br>
+  {% if invoice.due_date %}Zahlungsziel: {{ invoice.due_date }}{% endif %}
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Pos</th>
+      <th>Beschreibung</th>
+      <th>Menge</th>
+      <th class="amount">Einzelpreis</th>
+      <th class="amount">MwSt</th>
+      <th class="amount">Gesamt</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ item.description }}</td>
+      <td>{{ item.quantity }} {{ item.unit or 'Stk' }}</td>
+      <td class="amount">{{ "%.2f"|format(item.unit_price) }} &euro;</td>
+      <td class="amount">{{ item.tax_rate }}%</td>
+      <td class="amount">{{ "%.2f"|format(item.total_price) }} &euro;</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<table class="totals">
+  <tr><td>Netto</td><td class="amount">{{ "%.2f"|format(invoice.net_amount) }} &euro;</td></tr>
+  <tr><td>USt {{ invoice.tax_rate }}%</td><td class="amount">{{ "%.2f"|format(invoice.tax_amount) }} &euro;</td></tr>
+  <tr class="total"><td>Brutto</td><td class="amount">{{ "%.2f"|format(invoice.gross_amount) }} &euro;</td></tr>
+</table>
+
+<div style="clear:both;"></div>
+
+<p style="margin-top: 30px;">Bitte &uuml;berweisen Sie den Betrag innerhalb von {{ invoice.payment_days or 14 }} Tagen auf folgendes Konto:</p>
+
+<div class="footer">
+  <p>
+    {{ tenant.company_name }} &middot; {{ tenant.street }} &middot; {{ tenant.zip }} {{ tenant.city }}<br>
+    {% if tenant.iban %}IBAN: {{ tenant.iban }}{% endif %}
+    {% if tenant.bic %} &middot; BIC: {{ tenant.bic }}{% endif %}<br>
+    {% if tenant.tax_id %}USt-IdNr.: {{ tenant.tax_id }}{% endif %}
+    {% if tenant.tax_number %} &middot; Steuernummer: {{ tenant.tax_number }}{% endif %}
+  </p>
+</div>
+</body>
+</html>

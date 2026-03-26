@@ -1,0 +1,74 @@
+# Akaunting API Schema (empirisch getestet, Stand: 22.03.2026)
+# Laravel 10.50.0, Image: akaunting/akaunting:latest (2026-03-06)
+# ACHTUNG: Undokumentierte API — kann sich bei Updates ohne Warnung aendern!
+
+date_tested: "2026-03-22"
+laravel_version: "10.50.0"
+image_date: "2026-03-06"
+
+auth:
+  method: "HTTP Basic Auth"
+  credentials: "FRYA_AKAUNTING_EMAIL + FRYA_AKAUNTING_PASSWORD"
+
+endpoints:
+  companies:
+    url: "/api/companies"
+    method: GET
+    status: verified
+    note: "Basis-Zugangstest"
+
+  contacts:
+    url: "/api/contacts"
+    method: GET, POST
+    params: "search={name}"
+    response_wrapper: "data[]"
+    status: verified
+
+  documents:
+    url: "/api/documents"
+    method: GET, POST
+    params: "search=type:bill|type:invoice, limit, date_from, date_to"
+    response_wrapper: "data[]"
+    status: verified
+    note: "Unified endpoint fuer Bills + Invoices (Akaunting v3)"
+
+  categories:
+    url: "/api/categories"
+    method: GET
+    params: "type=expense|income"
+    response_wrapper: "data[]"
+    status: verified
+
+  transactions:
+    url: "/api/transactions"
+    method: GET
+    params: "limit, date_from, date_to"
+    response_wrapper: "data[]"
+    status: verified
+    note: "search-Param fuer bare tokens liefert 0 Ergebnisse — client-side filtern"
+
+  accounts:
+    url: "/api/accounts"
+    method: GET
+    response_wrapper: "data[]"
+    status: verified
+
+response_format:
+  wrapper: '{"data": [...], "meta": {"total": N, "current_page": 1}}'
+  note: "Alle List-Endpoints wrappen in data[] mit meta-Pagination"
+
+known_issues:
+  - "search-Param bei /api/transactions liefert 0 fuer bare tokens — muss client-side gefiltert werden"
+  - "search-Param bei /api/documents mit bare reference tokens liefert HTTP 500 — nur type:bill/type:invoice sicher"
+  - "contact_id ist Integer, nicht UUID"
+  - "Kein DELETE-Endpoint fuer Documents/Contacts getestet"
+
+staging_data:
+  accounts: 1
+  transactions: 4
+  contacts: 0
+  invoices: 0
+  bills: 0
+  categories: 5
+  income_march_2026: 4070.00
+  expense_march_2026: 89.90

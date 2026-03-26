@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Auftragsverarbeitungsvertrag (AVV) — Template</h1>
+<p><a href="/ui/legal">&larr; Zurück zur Übersicht</a></p>
+<p class="notice">Dies ist ein Template gemäß Art. 28 DSGVO. Vor Verwendung durch einen Juristen prüfen lassen. Platzhalter sind als <strong>[BITTE AUSFÜLLEN]</strong> markiert.</p>
+
+<h2>§ 1 Gegenstand und Dauer</h2>
+<p>
+  Dieser Vertrag regelt die Auftragsverarbeitung gemäß Art. 28 DSGVO zwischen:
+</p>
+<p>
+  <strong>Auftraggeber (Verantwortlicher):</strong><br />
+  [BITTE AUSFÜLLEN: Firmenname, Adresse, vertreten durch]<br />
+  (nachfolgend „Auftraggeber")
+</p>
+<p>
+  <strong>Auftragnehmer (Auftragsverarbeiter):</strong><br />
+  [BITTE AUSFÜLLEN: FRYA-Betreiber, Adresse, vertreten durch]<br />
+  (nachfolgend „Auftragnehmer")
+</p>
+<p>
+  Der Vertrag gilt für die Laufzeit des Hauptvertrags über die Nutzung der FRYA-Plattform.
+</p>
+
+<h2>§ 2 Gegenstand der Verarbeitung</h2>
+<p>
+  Der Auftragnehmer verarbeitet im Auftrag des Auftraggebers personenbezogene Daten für folgende Zwecke:
+  Automatisierte Dokumentenverarbeitung, OCR-Analyse, KI-gestützte Buchungsvorschläge,
+  Fristüberwachung und Kommunikationsunterstützung.
+</p>
+
+<h2>§ 3 Art der Daten und Kreis der Betroffenen</h2>
+<p><strong>Datenarten:</strong> Buchungsbelege, Geschäftsdokumente (PDF, Bilder), OCR-Volltexte, Buchungsdaten, Chat-Protokolle, Nutzerdaten (Benutzername, E-Mail, Passwort-Hash).</p>
+<p><strong>Betroffene Personen:</strong> Mitarbeiter und Kunden des Auftraggebers, soweit deren Daten in verarbeiteten Dokumenten enthalten sind.</p>
+
+<h2>§ 4 Pflichten des Auftragnehmers</h2>
+<ol>
+  <li>Daten nur auf dokumentierte Weisung des Auftraggebers verarbeiten (Art. 28 Abs. 3 lit. a DSGVO).</li>
+  <li>Vertraulichkeit der verarbeitenden Personen sicherstellen (Art. 28 Abs. 3 lit. b DSGVO).</li>
+  <li>Alle erforderlichen technischen und organisatorischen Maßnahmen gem. Art. 32 DSGVO ergreifen (siehe TOMs).</li>
+  <li>Die Bedingungen dieses Vertrags einhalten, wenn ein weiterer Auftragsverarbeiter hinzugezogen wird.</li>
+  <li>Den Auftraggeber bei der Wahrung der Rechte betroffener Personen unterstützen.</li>
+  <li>Nach Abschluss der Dienstleistung alle personenbezogenen Daten löschen oder zurückgeben.</li>
+  <li>Dem Auftraggeber alle erforderlichen Informationen zur Verfügung stellen, um die Einhaltung der Pflichten nachzuweisen.</li>
+</ol>
+
+<h2>§ 5 Unterauftragnehmer</h2>
+<p>Folgende Unterauftragnehmer werden eingesetzt:</p>
+<table>
+  <thead>
+    <tr><th>Unterauftragnehmer</th><th>Sitz</th><th>Zweck</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>IONOS SE</td><td>Karl-Theodor-Str. 127, 68165 Mannheim, DE</td><td>Hosting, LLM-Inferenz (Frankfurt/M.)</td></tr>
+    <tr><td>Hetzner Online GmbH</td><td>Industriestr. 25, 91710 Gunzenhausen, DE</td><td>Server-Hosting, Backup-Speicher</td></tr>
+    <tr><td>Brevo SAS</td><td>7 rue de Madrid, 75008 Paris, FR</td><td>Transaktionale E-Mails</td></tr>
+  </tbody>
+</table>
+<p>Der Auftraggeber erteilt hiermit eine generelle Vorabgenehmigung für die genannten Unterauftragnehmer.</p>
+
+<h2>§ 6 Audit-Rechte</h2>
+<p>
+  Der Auftraggeber ist berechtigt, die Einhaltung der Datenschutzvorschriften durch den Auftragnehmer
+  zu überprüfen, insbesondere durch Anforderung von Nachweisen (TOMs, Zertifizierungen) oder
+  Durchführung von Audits nach vorheriger schriftlicher Ankündigung (Vorlaufzeit: [BITTE AUSFÜLLEN: z.B. 4 Wochen]).
+</p>
+
+<h2>§ 7 Löschung nach Vertragsende</h2>
+<p>
+  Nach Beendigung des Hauptvertrags werden alle personenbezogenen Daten des Auftraggebers
+  innerhalb von 30 Tagen vollständig gelöscht. Auf Wunsch erfolgt vor der Löschung ein
+  Datenexport (ZIP-Format) gemäß Art. 20 DSGVO. Gesetzliche Aufbewahrungspflichten bleiben unberührt.
+</p>
+
+<h2>§ 8 Haftung</h2>
+<p>
+  Die Haftung der Parteien richtet sich nach den Regelungen des Hauptvertrags und den
+  gesetzlichen Vorschriften der DSGVO (Art. 82). [BITTE AUSFÜLLEN: ggf. abweichende Haftungsregelung]
+</p>
+
+<h2>§ 9 Schlussbestimmungen</h2>
+<p>
+  Es gilt das Recht der Bundesrepublik Deutschland. Gerichtsstand ist [BITTE AUSFÜLLEN: Ort].<br />
+  Datum: [BITTE AUSFÜLLEN]<br />
+  Unterschriften beider Parteien erforderlich.
+</p>
+{% endblock %}

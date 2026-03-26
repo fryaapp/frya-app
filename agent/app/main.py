@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,10 +11,27 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.status import HTTP_303_SEE_OTHER
 
+from app.api.agent_config import router as agent_config_router
+from app.api.cases import router as case_engine_router
+from app.api.communicator_send import router as communicator_send_router
+from app.api.deadlines import router as deadlines_router
+from app.api.n8n_endpoints import router as n8n_router
+from app.api.risks import router as risks_router
+from app.api.memory import router as memory_router
+from app.api.email_intake_views import router as email_intake_router
+from app.api.user_views import router as user_router
+from app.api.tenant_views import router as tenant_router
+from app.api.gdpr_views import router as gdpr_router
+from app.api.preferences_views import router as preferences_router
+from app.api.feedback_views import router as feedback_router
+from app.api.dunning_views import router as dunning_router
+from app.api.export_views import router as export_router
 from app.api.approval_views import router as approval_router
+from app.api.booking_approval import router as booking_approval_router
 from app.api.audit_views import router as audit_router
 from app.api.case_views import router as case_router
 from app.api.health import router as health_router
@@ -22,22 +40,40 @@ from app.api.problem_views import router as problem_router
 from app.api.proposal_views import router as proposal_router
 from app.api.rules_views import router as rules_router
 from app.api.verfahrensdoku_views import router as verfahrensdoku_router
+from app.api.e_invoice_views import router as e_invoice_router
+from app.api.backfill_views import router as backfill_router
+from app.api.bulk_upload import router as bulk_upload_router
+from app.api.accounting_api import router as accounting_router
+from app.api.greeting_views import router as greeting_router
+from app.api.finance_views import router as finance_router
+from app.api.customer_api import router as customer_router
+from app.api.pdf_views import router as pdf_router
 from app.api.webhooks import router as webhooks_router
 from app.api.ws import router as ws_router
+from app.api.chat_ws import router as chat_ws_router
+from app.api.activity_views import router as activity_router
 from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
 from app.auth.csrf import require_csrf
 from app.auth.dependencies import require_admin
 from app.auth.models import AuthUser
 from app.auth.router import router as auth_router
+from app.auth.totp_router import router as totp_router
 from app.config import get_settings
 from app.dependencies import (
     get_approval_service,
     get_audit_service,
+    get_case_repository,
+    get_email_intake_repository,
+    get_llm_config_repository,
     get_open_items_service,
     get_policy_access_layer,
     get_problem_case_service,
     get_rule_change_audit_service,
+    get_telegram_case_link_service,
+    get_telegram_clarification_service,
+    get_user_repository,
+    get_tenant_repository,
 )
 from app.open_items.service import OpenItemsService
 from app.orchestration.graph import build_graph
@@ -46,7 +82,25 @@ from app.rules.audit_service import RuleChangeAuditService
 from app.rules.policy_access import REQUIRED_POLICY_ROLES
 from app.ui.router import router as ui_router
 
+_logger = logging.getLogger(__name__)
+
 AUTH_TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / 'ui' / 'templates'))
+
+
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add defensive HTTP security headers to every response."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault('X-Frame-Options', 'DENY')
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-XSS-Protection', '1; mode=block')
+        response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+        response.headers.setdefault(
+            'Strict-Transport-Security',
+            'max-age=31536000; includeSubDomains',
+        )
+        return response
 
 
 @asynccontextmanager
@@ -56,12 +110,85 @@ async def lifespan(app: FastAPI):
     problem_service: ProblemCaseService = get_problem_case_service()
     rule_change_service: RuleChangeAuditService = get_rule_change_audit_service()
     approval_service: ApprovalService = get_approval_service()
+    telegram_case_link_service = get_telegram_case_link_service()
+    telegram_clarification_service = get_telegram_clarification_service()
 
     await audit_service.initialize()
     await open_items_service.initialize()
     await problem_service.initialize()
     await rule_change_service.initialize()
     await approval_service.initialize()
+    await telegram_case_link_service.initialize()
+    await telegram_clarification_service.initialize()
+
+    email_intake_repo = get_email_intake_repository()
+    await email_intake_repo.initialize()
+
+    case_repo = get_case_repository()
+    await case_repo.initialize()
+
+    user_repo = get_user_repository()
+    await user_repo.initialize()
+
+    # ── Bootstrap admin ───────────────────────────────────────────────────────
+    # If FRYA_INITIAL_ADMIN_USERNAME + FRYA_INITIAL_ADMIN_PASSWORD are set and
+    # the user does not yet exist in the DB, create it now.  Idempotent: the
+    # existing row is never touched on subsequent restarts.
+    _boot_settings = get_settings()
+    _boot_username = _boot_settings.initial_admin_username
+    _boot_password = _boot_settings.initial_admin_password
+    if _boot_username and _boot_password:
+        _existing_admin = await user_repo.find_by_username(_boot_username)
+        if _existing_admin is None:
+            from app.auth.service import hash_password_pbkdf2
+            from app.auth.user_repository import UserRecord as _UserRecord
+            await user_repo.create_user(_UserRecord(
+                username=_boot_username,
+                email=_boot_settings.initial_admin_email,
+                role='admin',
+                password_hash=hash_password_pbkdf2(_boot_password),
+                is_active=True,
+            ))
+            await audit_service.log_event({
+                'event_id': str(uuid.uuid4()),
+                'case_id': 'system-bootstrap',
+                'source': 'system',
+                'agent_name': 'frya-bootstrap',
+                'approval_status': 'NOT_REQUIRED',
+                'action': 'ADMIN_BOOTSTRAP_CREATED',
+                'result': _boot_username,
+                'llm_output': {'username': _boot_username},
+            })
+
+    tenant_repo = get_tenant_repository()
+    await tenant_repo.initialize()
+
+    llm_config_repo = get_llm_config_repository()
+    await llm_config_repo.setup()
+
+    # AVV document storage
+    try:
+        from app.legal.avv_repository import AvvRepository
+        _avv_repo = AvvRepository(_boot_settings.database_url, _boot_settings.data_dir)
+        await _avv_repo.initialize()
+    except Exception as _avv_exc:
+        _logger.warning('AVV repository init failed: %s', _avv_exc)
+
+    # Accounting tables + SKR03
+    try:
+        from app.accounting.repository import AccountingRepository
+        _acct_repo = AccountingRepository(_boot_settings.database_url)
+        await _acct_repo.initialize()
+        # Seed SKR03 for default tenant
+        from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_acct_tid
+        _acct_tid = await _resolve_acct_tid()
+        if _acct_tid:
+            import uuid as _uuid_acct
+            count = await _acct_repo.seed_skr03(_uuid_acct.UUID(_acct_tid))
+            if count:
+                _logger.info('SKR03 seeded: %d accounts', count)
+    except Exception as exc:
+        _logger.warning('Accounting init failed: %s', exc)
 
     app.state.graph = build_graph()
 
@@ -110,6 +237,7 @@ app.add_middleware(
     https_only=settings.auth_cookie_secure,
     domain=settings.auth_cookie_domain,
 )
+app.add_middleware(_SecurityHeadersMiddleware)
 
 
 @app.exception_handler(HTTPException)
@@ -143,10 +271,17 @@ async def auth_exception_handler(request: Request, exc: HTTPException):
 ui_static_dir = Path(__file__).resolve().parent / 'ui' / 'static'
 app.mount('/ui/static', StaticFiles(directory=str(ui_static_dir)), name='ui_static')
 
+@app.get('/')
+async def root():
+    return RedirectResponse(url='/ui/dashboard', status_code=HTTP_303_SEE_OTHER)
+
+
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(totp_router)
 app.include_router(webhooks_router)
 app.include_router(ws_router)
+app.include_router(chat_ws_router)
 app.include_router(audit_router)
 app.include_router(case_router)
 app.include_router(open_items_router)
@@ -154,7 +289,32 @@ app.include_router(problem_router)
 app.include_router(proposal_router)
 app.include_router(rules_router)
 app.include_router(approval_router)
+app.include_router(booking_approval_router)
 app.include_router(verfahrensdoku_router)
+app.include_router(e_invoice_router)
+app.include_router(backfill_router)
+app.include_router(bulk_upload_router)
+app.include_router(agent_config_router)
+app.include_router(case_engine_router)
+app.include_router(deadlines_router)
+app.include_router(n8n_router)
+app.include_router(communicator_send_router)
+app.include_router(risks_router)
+app.include_router(memory_router)
+app.include_router(email_intake_router)
+app.include_router(user_router)
+app.include_router(tenant_router)
+app.include_router(gdpr_router)
+app.include_router(preferences_router)
+app.include_router(feedback_router)
+app.include_router(dunning_router)
+app.include_router(export_router)
+app.include_router(customer_router)
+app.include_router(accounting_router)
+app.include_router(greeting_router)
+app.include_router(finance_router)
+app.include_router(activity_router)
+app.include_router(pdf_router)
 app.include_router(ui_router)
 
 
@@ -196,6 +356,7 @@ async def run_agent_case(
     state = {
         'case_id': case_id,
         'source': payload.get('source', 'api'),
+        'tenant_id': payload.get('tenant_id') or None,
         'message': payload.get('message', payload.get('ocr_text', '')),
         'document_ref': payload.get('document_ref'),
         'paperless_metadata': payload.get('paperless_metadata') or {},

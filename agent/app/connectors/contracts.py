@@ -21,6 +21,7 @@ class NotificationMessage:
     target: str
     text: str
     metadata: dict | None = None
+    reply_markup: dict | None = None
 
 
 class DMSConnector(ABC):
