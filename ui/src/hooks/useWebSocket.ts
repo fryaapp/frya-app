@@ -107,11 +107,11 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
       wsRef.current.send(JSON.stringify({ type: 'message', text }))
     } else {
       // Fallback: use REST endpoint when WebSocket is not connected
-      api.post<{ text: string; case_ref: string | null; suggestions: string[] }>('/chat', { text })
+      api.post<{ reply: string; case_ref: string | null; suggestions: string[] }>('/chat', { message: text })
         .then((res) => {
           onMessageRef.current({
             type: 'message_complete',
-            text: res.text,
+            text: res.reply,
             case_ref: res.case_ref,
             suggestions: res.suggestions || [],
           })

@@ -35,7 +35,15 @@ export function UploadPage() {
     setFiles(incoming.map((f) => ({ name: f.name, size: f.size, status: 'uploading' as const })))
 
     try {
-      const result = await api.bulkUpload<BulkUploadResult>('/documents/bulk-upload', incoming)
+      // Note: bulk-upload is at /api/documents/bulk-upload (no /v1/)
+      const form = new FormData()
+      incoming.forEach((f) => form.append('files', f))
+      const h: Record<string, string> = {}
+      const token = localStorage.getItem('frya-token')
+      if (token) h['Authorization'] = `Bearer ${token}`
+      const res = await fetch('/api/documents/bulk-upload', { method: 'POST', headers: h, body: form })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const result = await res.json() as BulkUploadResult
 
       // Map backend results to file statuses
       const updated: FileStatus[] = incoming.map((f) => {

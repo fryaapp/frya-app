@@ -220,59 +220,6 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
 # ---------------------------------------------------------------------------
 
 
-class ChatRequest(BaseModel):
-    text: str
-    token: str
-
-
-class ChatResponse(BaseModel):
-    text: str
-    case_ref: str | None = None
-    suggestions: list[str] = []
-
-
-@router.post('', response_model=ChatResponse)
-async def chat_sync(body: ChatRequest) -> ChatResponse:
-    """Synchronous chat endpoint — POST /api/v1/chat.
-
-    Accepts ``{"text": "...", "token": "JWT"}`` and returns the full
-    assistant reply in one response.
-    """
-    try:
-        jwt_payload = _validate_jwt(body.token)
-    except ValueError as exc:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-
-    user_id: str = jwt_payload.get('sub', 'unknown')
-    tenant_id: str = jwt_payload.get('tid', '')
-
-    try:
-        result = await _get_communicator_reply(body.text.strip(), user_id, tenant_id)
-    except Exception:
-        logger.exception('POST /api/v1/chat error for user=%s', user_id)
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=500,
-            detail='Interner Fehler — bitte versuche es erneut.',
-        )
-
-    if result and result.handled:
-        reply_text = result.reply_text
-        case_ref = (
-            result.turn.context_resolution.resolved_case_ref
-            if result.turn.context_resolution
-            else None
-        )
-    else:
-        reply_text = (
-            'Entschuldigung, ich konnte deine Nachricht '
-            'gerade nicht verarbeiten. Bitte versuche es erneut.'
-        )
-        case_ref = None
-
-    return ChatResponse(
-        text=reply_text,
-        case_ref=case_ref,
-        suggestions=_DEFAULT_SUGGESTIONS,
-    )
+# NOTE: Synchronous POST /api/v1/chat is provided by customer_api.py
+# (expects {"message": "..."} with Bearer auth). Removed from here to
+# avoid duplicate route conflict.
