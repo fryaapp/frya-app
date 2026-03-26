@@ -64,7 +64,7 @@ export function ChatInput({ onSend, onFileUploaded, disabled, placeholder }: Cha
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-        placeholder={placeholder || 'Nachricht an Frya\u2026'}
+        placeholder={placeholder || 'Nachricht an Frya…'}
         className="flex-1 px-4 py-3 bg-surface-container-high text-on-surface rounded-m3-xl border-none focus:outline-none focus:ring-2 focus:ring-primary/30 text-sm placeholder:text-on-surface-variant/50"
         disabled={disabled}
       />

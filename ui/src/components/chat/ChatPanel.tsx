@@ -103,7 +103,7 @@ export function ChatPanel() {
   }, [addUserMessage, send, openSplit])
 
   const handleFileUploaded = useCallback(() => {
-    addNotification('Datei wird hochgeladen und analysiert\u2026', 'analysis')
+    addNotification('Datei wird hochgeladen und analysiert…', 'analysis')
   }, [addNotification])
 
   // Auto-scroll to bottom on new messages
@@ -126,7 +126,7 @@ export function ChatPanel() {
       {/* Connection status */}
       {!connected && (
         <div className="px-4 py-1.5 bg-warning-container/50 text-center">
-          <span className="text-xs text-warning">Verbindung wird hergestellt\u2026</span>
+          <span className="text-xs text-warning">Verbindung wird hergestellt…</span>
         </div>
       )}
 

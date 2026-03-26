@@ -16,12 +16,13 @@ export function Dropzone({ onFiles, disabled = false, maxFiles = 50, maxSizeMB =
   const inputRef = useRef<HTMLInputElement>(null)
 
   const validate = useCallback(
-    (files: File[]): File[] | null => {
+    (rawFiles: File[]): File[] | null => {
       setWarning(null)
+      let files = rawFiles
 
       if (files.length > maxFiles) {
-        setWarning(`Maximal ${maxFiles} Dateien erlaubt (${files.length} ausgewählt).`)
-        return null
+        setWarning(`Maximal ${maxFiles} Dateien auf einmal — die ersten ${maxFiles} werden hochgeladen.`)
+        files = files.slice(0, maxFiles)
       }
 
       const tooLarge = files.filter((f) => f.size > maxSizeMB * 1024 * 1024)

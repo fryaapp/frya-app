@@ -4,6 +4,7 @@ import { Dropzone } from '../components/upload/Dropzone'
 import { PipelineStatus } from '../components/upload/PipelineStatus'
 import type { FileStatus } from '../components/upload/types'
 import { api } from '../lib/api'
+import { useChatStore } from '../stores/chatStore'
 
 interface BulkUploadResult {
   processed: number
@@ -70,6 +71,13 @@ export function UploadPage() {
         cases: result.cases_created,
         review: result.needs_review,
       })
+
+      // Notify chat
+      const addNotification = useChatStore.getState().addNotification
+      addNotification(
+        `${incoming.length} Belege empfangen — ich schau sie mir an…`,
+        'upload',
+      )
     } catch {
       // Mark all as error
       setFiles(incoming.map((f) => ({

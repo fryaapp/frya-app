@@ -74,7 +74,10 @@ export function SplitView({ contextContent, chatContent, idleContent }: SplitVie
         <div className="h-px bg-outline-variant/40 shrink-0" />
 
         {/* Chat Panel — bottom ~42% */}
-        <div style={{ flex: '0 0 42%', maxHeight: '42%' }} className="min-h-0">
+        <div
+          style={{ flex: '0 0 42%', maxHeight: '42%' }}
+          className="min-h-0 bg-surface-container-lowest rounded-t-[16px]"
+        >
           {chatContent}
         </div>
       </div>

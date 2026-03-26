@@ -153,7 +153,7 @@ export function CorrectionDialog({ caseId, currentProposal, onDone, onCancel }: 
             Abbrechen
           </Button>
           <Button variant="filled" icon="send" onClick={handleSubmit} disabled={sending}>
-            {sending ? 'Wird gesendet\u2026' : 'Korrektur senden'}
+            {sending ? 'Wird gesendet…' : 'Korrektur senden'}
           </Button>
         </div>
       </Card>

@@ -86,6 +86,15 @@ export function LoginPage() {
           >
             {loading ? 'Anmelden...' : 'Anmelden'}
           </button>
+
+          <div className="text-center mt-2">
+            <a
+              href="/forgot-password"
+              className="text-sm text-primary hover:underline"
+            >
+              Passwort vergessen?
+            </a>
+          </div>
         </form>
       </div>
     </div>

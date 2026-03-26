@@ -53,14 +53,14 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 
 function confidenceColor(c: number): 'success' | 'info' | 'warning' | 'error' | 'default' {
   if (c >= 0.85) return 'success'
-  if (c >= 0.65) return 'info'
+  if (c >= 0.70) return 'info'
   if (c >= 0.40) return 'warning'
   return 'error'
 }
 
 function confidenceLabel(c: number): string {
   if (c >= 0.85) return 'Sicher'
-  if (c >= 0.65) return 'Hoch'
+  if (c >= 0.70) return 'Hoch'
   if (c >= 0.40) return 'Mittel'
   return 'Unsicher'
 }
@@ -246,7 +246,7 @@ export function BelegDetail({ caseId, onClose }: BelegDetailProps) {
               icon="check"
               onClick={() => handleAction('approve')}
               disabled={actionLoading}
-              className="flex-1"
+              className="flex-1 !bg-success-container !text-success"
             >
               Freigeben
             </Button>

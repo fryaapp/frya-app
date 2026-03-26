@@ -665,6 +665,195 @@ async def logout(user: AuthUser = Depends(require_authenticated)) -> dict:
     return {'status': 'logged_out'}
 
 
+# ---------------------------------------------------------------------------
+# AUTH: Forgot / Reset / Change Password + Activate (P-22 Security)
+# ---------------------------------------------------------------------------
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+class ActivateRequest(BaseModel):
+    token: str
+
+
+@router.post('/auth/forgot-password')
+async def forgot_password(body: ForgotPasswordRequest) -> dict:
+    """Request a password-reset link via e-mail."""
+    from app.dependencies import get_mail_service, get_password_reset_service, get_user_repository
+
+    repo = get_user_repository()
+    reset_service = get_password_reset_service()
+
+    user = await repo.find_by_email(body.email.strip())
+    if user is not None:
+        token = await reset_service.issue_reset_token(user.username)
+        from app.config import get_settings
+        settings = get_settings()
+        reset_link = f'{settings.app_base_url}/reset-password?token={token}'
+        try:
+            mail_service = get_mail_service()
+            await mail_service.send_mail(
+                to=body.email.strip(),
+                subject='Ihr FRYA Passwort-Reset',
+                body_html=_forgot_password_html(reset_link),
+                body_text=_forgot_password_text(reset_link),
+                tenant_id=user.tenant_id,
+            )
+        except Exception as exc:
+            logger.warning('Failed to send password reset mail: %s', exc)
+
+    # Always return same response — no info leak
+    return {'message': 'Falls ein Konto existiert, wurde eine E-Mail gesendet.'}
+
+
+@router.post('/auth/reset-password')
+async def reset_password(body: ResetPasswordRequest) -> dict:
+    """Set a new password using a reset token."""
+    from app.auth.service import hash_password_pbkdf2
+    from app.dependencies import get_password_reset_service, get_user_repository
+
+    reset_service = get_password_reset_service()
+
+    username = await reset_service.validate_token(body.token)
+    if username is None:
+        raise HTTPException(status_code=400, detail='Link ungültig oder abgelaufen.')
+
+    confirmed = await reset_service.consume_token(body.token)
+    if confirmed is None:
+        raise HTTPException(status_code=400, detail='Link ungültig oder abgelaufen.')
+
+    repo = get_user_repository()
+    new_hash = hash_password_pbkdf2(body.new_password)
+    await repo.update_password(confirmed, new_hash)
+
+    return {'message': 'Passwort wurde geändert.'}
+
+
+@router.post('/auth/change-password')
+async def change_password(
+    body: ChangePasswordRequest,
+    user: AuthUser = Depends(require_authenticated),
+) -> dict:
+    """Change the current user's password (requires valid session)."""
+    from app.auth.jwt_auth import create_access_token, create_refresh_token
+    from app.auth.service import hash_password_pbkdf2, verify_password
+    from app.dependencies import get_user_repository
+
+    repo = get_user_repository()
+    record = await repo.find_by_username(user.username)
+    if record is None:
+        raise HTTPException(status_code=404, detail='Benutzer nicht gefunden.')
+
+    if not verify_password(body.current_password, record.password_hash or ''):
+        raise HTTPException(status_code=400, detail='Aktuelles Passwort ist falsch.')
+
+    new_hash = hash_password_pbkdf2(body.new_password)
+    await repo.update_password(user.username, new_hash)
+
+    # Issue fresh JWT pair so the client stays authenticated
+    tenant_id = record.tenant_id or 'default'
+    new_access = create_access_token(record.username, tenant_id, record.role)
+    new_refresh = create_refresh_token(record.username)
+
+    return {
+        'message': 'Passwort wurde geändert.',
+        'access_token': new_access,
+        'refresh_token': new_refresh,
+    }
+
+
+@router.post('/auth/activate')
+async def activate_account(body: ActivateRequest) -> dict:
+    """Activate a user account using an invitation/activation token."""
+    from app.dependencies import get_password_reset_service, get_user_repository
+
+    reset_service = get_password_reset_service()
+
+    username = await reset_service.validate_token(body.token)
+    if username is None:
+        raise HTTPException(status_code=400, detail='Aktivierungslink ungültig oder abgelaufen.')
+
+    confirmed = await reset_service.consume_token(body.token)
+    if confirmed is None:
+        raise HTTPException(status_code=400, detail='Aktivierungslink ungültig oder abgelaufen.')
+
+    repo = get_user_repository()
+    await repo.activate_user(confirmed)
+
+    return {'message': 'Konto wurde aktiviert.'}
+
+
+# ---------------------------------------------------------------------------
+# GDPR Proxy Endpoints (customer-facing, resolves tenant automatically)
+# ---------------------------------------------------------------------------
+
+@router.get('/gdpr/export')
+async def gdpr_export_proxy(user: AuthUser = Depends(require_authenticated)):
+    """GDPR data export proxy — resolves tenant automatically."""
+    from app.api.gdpr_views import export_tenant_data
+    from app.dependencies import (
+        get_audit_service, get_case_repository,
+        get_tenant_repository, get_user_repository,
+    )
+
+    tenant_id = await _resolve_tenant_uuid()
+    return await export_tenant_data(
+        tenant_id=str(tenant_id),
+        current_user=user,
+        tenant_repo=get_tenant_repository(),
+        case_repo=get_case_repository(),
+        audit_svc=get_audit_service(),
+        user_repo=get_user_repository(),
+    )
+
+
+@router.post('/gdpr/delete')
+async def gdpr_delete_proxy(user: AuthUser = Depends(require_authenticated)):
+    """GDPR deletion request proxy — resolves tenant automatically."""
+    from app.api.gdpr_views import request_tenant_deletion
+    from app.dependencies import (
+        get_audit_service, get_tenant_repository, get_user_repository,
+    )
+
+    tenant_id = await _resolve_tenant_uuid()
+    return await request_tenant_deletion(
+        tenant_id=str(tenant_id),
+        current_user=user,
+        tenant_repo=get_tenant_repository(),
+        user_repo=get_user_repository(),
+        audit_svc=get_audit_service(),
+    )
+
+
+def _forgot_password_html(link: str) -> str:
+    return (
+        '<html><body>'
+        '<h2>Passwort zurücksetzen</h2>'
+        '<p>Sie haben einen Passwort-Reset angefordert. Klicken Sie auf den folgenden Link:</p>'
+        f'<p><a href="{link}">{link}</a></p>'
+        '<p>Dieser Link ist 30 Minuten gültig.</p>'
+        '<p>Falls Sie keinen Reset angefordert haben, ignorieren Sie diese Mail.</p>'
+        '</body></html>'
+    )
+
+
+def _forgot_password_text(link: str) -> str:
+    return (
+        'Passwort zurücksetzen\n\n'
+        'Sie haben einen Passwort-Reset angefordert.\n\n'
+        f'{link}\n\n'
+        'Dieser Link ist 30 Minuten gültig.\n'
+    )
+
+
 # ── WebSocket Connection Manager ─────────────────────────────────────────────
 
 

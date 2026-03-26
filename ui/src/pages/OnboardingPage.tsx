@@ -210,7 +210,7 @@ export function OnboardingPage() {
                   disabled={!disclaimerAccepted || saving}
                   onClick={handleFinish}
                 >
-                  {saving ? 'Wird gespeichert\u2026' : "Los geht's!"}
+                  {saving ? 'Wird gespeichert…' : "Los geht's!"}
                 </Button>
               </div>
             </div>

@@ -157,7 +157,7 @@ export function ApprovalButtons({ caseId, onAction }: ApprovalButtonsProps) {
   /* Haupt-Buttons */
   return (
     <div className="flex flex-wrap gap-2 px-4 py-3">
-      <Button variant="filled" icon="check" onClick={() => handleAction('approve')} disabled={loading}>
+      <Button variant="filled" icon="check" onClick={() => handleAction('approve')} disabled={loading} className="!bg-success-container !text-success">
         Freigeben
       </Button>
       <Button variant="tonal" icon="edit" onClick={() => handleAction('correct')} disabled={loading}>

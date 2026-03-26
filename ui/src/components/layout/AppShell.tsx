@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { BottomNav } from './BottomNav'
+import { IconRail } from './IconRail'
 import { SplitView } from './SplitView'
 import { ChatPanel } from '../chat/ChatPanel'
 import { StartPage } from '../../pages/StartPage'
@@ -7,13 +8,16 @@ import { Icon } from '../m3'
 
 /**
  * AppShell — Main layout.
- * Manages SplitView (idle vs active), BottomNav, and BugReport FAB.
+ * Manages IconRail (desktop), SplitView (idle vs active), BottomNav (mobile), and BugReport FAB.
  */
 export function AppShell() {
   return (
-    <div className="flex flex-col h-screen bg-surface">
+    <div className="flex h-screen bg-surface">
+      {/* Desktop icon rail — visible on md+ */}
+      <IconRail className="hidden md:flex" />
+
       {/* Main content area */}
-      <main className="flex-1 pb-16 overflow-hidden">
+      <main className="flex-1 pb-16 md:pb-0 overflow-hidden">
         <SplitView
           idleContent={<StartPage />}
           contextContent={<Outlet />}
@@ -21,7 +25,7 @@ export function AppShell() {
         />
       </main>
 
-      {/* Bottom navigation */}
+      {/* Bottom navigation — mobile only */}
       <BottomNav />
 
       {/* Bug report FAB */}
@@ -34,10 +38,10 @@ function BugReportFAB() {
   return (
     <button
       onClick={() => window.open('/feedback', '_self')}
-      className="fixed bottom-20 right-4 z-50 w-12 h-12 rounded-m3-lg bg-tertiary-container flex items-center justify-center shadow-md hover:opacity-90 transition-opacity"
+      className="fixed bottom-3 right-3 z-50 w-[30px] h-[30px] rounded-[10px] bg-surface-container-low border border-outline-variant flex items-center justify-center hover:bg-error-container hover:border-error hover:text-error transition-colors"
       aria-label="Feedback senden"
     >
-      <Icon name="bug_report" size={20} className="text-on-tertiary-container" />
+      <Icon name="bug_report" size={14} className="text-on-surface-variant" />
     </button>
   )
 }

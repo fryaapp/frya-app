@@ -342,7 +342,7 @@ export function CaseDetail({ caseId }: CaseDetailProps) {
                     {event.agent && (
                       <span className="font-medium">
                         {AGENT_LABELS[event.agent] ?? event.agent}
-                        {' \u00B7 '}
+                        {' · '}
                       </span>
                     )}
                     {formatTimestamp(event.timestamp)}

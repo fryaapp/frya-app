@@ -255,6 +255,25 @@ class UserRepository:
         finally:
             await conn.close()
 
+    async def activate_user(self, username: str) -> None:
+        """Set is_active=True for a user (account activation)."""
+        if self.is_memory:
+            u = self._memory.get(username)
+            if u:
+                self._memory[username] = u.model_copy(update={
+                    'is_active': True,
+                    'updated_at': datetime.utcnow(),
+                })
+            return
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            await conn.execute(
+                "UPDATE frya_users SET is_active=TRUE, updated_at=NOW() WHERE username=$1",
+                username,
+            )
+        finally:
+            await conn.close()
+
     async def deactivate_by_tenant(self, tenant_id: str) -> int:
         """Deactivate all users belonging to a tenant. Returns count."""
         if self.is_memory:
