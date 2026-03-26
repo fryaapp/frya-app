@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Icon, Card, Chip } from '../components/m3'
+import { Icon } from '../components/m3'
 import { ChatInput } from '../components/chat'
 import { useUiStore } from '../stores/uiStore'
 import { useChatStore } from '../stores/chatStore'
@@ -71,64 +71,61 @@ export function StartPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Vertically centered content area */}
       <div className="flex-1 flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-[440px] text-center">
-          {/* ---- Eco icon avatar ---- */}
+        <div className="w-full max-w-[520px] px-5 md:px-7 text-center">
+          {/* Avatar */}
           <div className="flex justify-center mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-primary-container flex items-center justify-center">
-              <Icon name="eco" size={24} filled className="text-on-primary-container" />
+            <div className="w-14 h-14 rounded-[20px] bg-primary-container flex items-center justify-center">
+              <Icon name="eco" size={28} filled className="text-on-primary-container" />
             </div>
           </div>
 
-          {/* ---- Greeting from API ---- */}
+          {/* Greeting */}
           {loading ? (
-            <div className="animate-pulse space-y-2 mb-6">
-              <div className="h-6 w-40 bg-surface-container-high rounded mx-auto" />
-              <div className="h-4 w-56 bg-surface-container-high rounded mx-auto" />
+            <div className="animate-pulse space-y-3 mb-6">
+              <div className="h-7 w-48 bg-surface-container-high rounded-lg mx-auto" />
+              <div className="h-4 w-64 bg-surface-container-high rounded mx-auto" />
             </div>
           ) : data && (
             <>
-              <h1 className="text-lg font-display font-bold text-on-surface leading-tight mb-1">
+              <h1 className="font-display font-semibold text-on-surface leading-tight mb-2" style={{ fontSize: 'clamp(24px, 4vw, 30px)', letterSpacing: '-0.01em' }}>
                 {data.greeting}
               </h1>
-              <p className="text-sm text-on-surface-variant mb-6">
+              <p className="text-sm text-on-surface-variant leading-[1.7] max-w-[420px] mx-auto">
                 {data.status_summary}
               </p>
             </>
           )}
 
-          {/* ---- Urgent warning card ---- */}
+          {/* Urgent warning */}
           {data?.urgent && (
-            <Card variant="outlined" className="mb-5 text-left bg-warning-container border-warning">
-              <div className="flex items-start gap-3">
-                <Icon name="warning" size={20} className="text-warning shrink-0 mt-0.5" />
-                <p className="text-sm text-on-surface">{data.urgent.text}</p>
-              </div>
-            </Card>
+            <div className="mt-4 bg-error-container rounded-[14px] px-4 py-3 text-left flex items-start gap-2.5 max-w-[440px] mx-auto">
+              <Icon name="priority_high" size={18} className="text-error shrink-0 mt-0.5" />
+              <p className="text-[13px] text-error leading-snug">{data.urgent.text}</p>
+            </div>
           )}
 
-          {/* ---- Suggestion chips from API ---- */}
+          {/* Suggestion chips */}
           {data?.suggestions && data.suggestions.length > 0 && (
-            <div className="flex flex-wrap justify-center gap-2 mb-4">
+            <div className="flex flex-wrap justify-center gap-1.5 mt-5 max-w-[440px] mx-auto">
               {data.suggestions.map((label) => (
-                <Chip
+                <button
                   key={label}
-                  label={label}
-                  color="primary"
                   onClick={() => handleSend(label)}
-                />
+                  className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-[20px] border border-outline-variant text-on-surface text-xs font-medium hover:bg-surface-container-high hover:border-outline transition-all cursor-pointer"
+                >
+                  {label}
+                </button>
               ))}
             </div>
           )}
+
+          {/* Chat input — in greeting area, not fixed */}
+          <div className="mt-5 max-w-[440px] mx-auto">
+            <ChatInput onSend={handleSend} placeholder="Nachricht an Frya…" />
+          </div>
         </div>
       </div>
-
-      {/* ---- Chat input at bottom ---- */}
-      <ChatInput
-        onSend={handleSend}
-        placeholder="Nachricht an Frya\u2026"
-      />
     </div>
   )
 }

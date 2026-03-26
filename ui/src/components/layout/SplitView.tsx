@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { useUiStore } from '../../stores/uiStore'
-import { Icon } from '../m3'
 
 interface SplitViewProps {
   /** Content for the context panel (top ~58%) */
@@ -23,7 +22,6 @@ interface SplitViewProps {
 export function SplitView({ contextContent, chatContent, idleContent }: SplitViewProps) {
   const splitOpen = useUiStore((s) => s.splitOpen)
   const contextType = useUiStore((s) => s.contextType)
-  const closeSplit = useUiStore((s) => s.closeSplit)
 
   return (
     <div className="relative h-full overflow-hidden">
@@ -50,21 +48,12 @@ export function SplitView({ contextContent, chatContent, idleContent }: SplitVie
           transform: splitOpen ? 'translateY(0)' : 'translateY(20px)',
         }}
       >
-        {/* Context Panel — top ~58% */}
-        <div className="relative" style={{ flex: '0 0 58%', maxHeight: '58%' }}>
-          {/* Close button */}
-          <button
-            onClick={closeSplit}
-            className="absolute top-2 right-2 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-surface-container-high/80 hover:bg-surface-container-highest transition-colors"
-            aria-label="Kontext schließen"
-          >
-            <Icon name="close" size={18} className="text-on-surface-variant" />
-          </button>
-
+        {/* Context Panel — top 60% */}
+        <div className="relative" style={{ flex: '0 0 60%', maxHeight: '60%' }}>
           <div className="h-full overflow-y-auto">
             {contextType !== 'none' ? contextContent : (
               <div className="flex items-center justify-center h-full text-on-surface-variant/40 text-sm">
-                Kontext wird geladen...
+                Kontext wird geladen…
               </div>
             )}
           </div>
@@ -73,10 +62,10 @@ export function SplitView({ contextContent, chatContent, idleContent }: SplitVie
         {/* Subtle separator — NO slider, NO drag handle */}
         <div className="h-px bg-outline-variant/40 shrink-0" />
 
-        {/* Chat Panel — bottom ~42% */}
+        {/* Chat Panel — bottom 40% */}
         <div
-          style={{ flex: '0 0 42%', maxHeight: '42%' }}
-          className="min-h-0 bg-surface-container-lowest rounded-t-[16px]"
+          style={{ flex: '0 0 40%', maxHeight: '40%' }}
+          className="min-h-0 bg-surface-container-lowest rounded-t-[20px]"
         >
           {chatContent}
         </div>

@@ -12,14 +12,14 @@ const chipColors: Record<string, string> = {
   warning: 'bg-warning-container text-warning',
   error: 'bg-error-container text-error',
   info: 'bg-info-container text-info',
-  default: 'bg-surface-container-high text-on-surface-variant',
+  default: 'border border-outline-variant text-on-surface hover:bg-surface-container-high',
 }
 
 export function Chip({ label, color = 'default', icon, onClick, className = '' }: ChipProps) {
   const Tag = onClick ? 'button' : 'span'
   return (
     <Tag
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-m3-sm text-xs font-semibold ${chipColors[color]} ${onClick ? 'cursor-pointer hover:opacity-80' : ''} ${className}`}
+      className={`inline-flex items-center gap-1 px-3.5 py-1.5 rounded-[20px] text-xs font-medium transition-all ${chipColors[color]} ${onClick ? 'cursor-pointer' : ''} ${className}`}
       onClick={onClick}
     >
       {icon && <span className="material-symbols-rounded" style={{ fontSize: 16 }}>{icon}</span>}

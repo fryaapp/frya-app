@@ -6,11 +6,11 @@ services:
       - ./ui/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frya-ui.rule=Host(`staging.myfrya.de`)"
+      - "traefik.http.routers.frya-ui.rule=Host(`app.staging.myfrya.de`)"
       - "traefik.http.routers.frya-ui.entrypoints=websecure"
       - "traefik.http.routers.frya-ui.tls=true"
       - "traefik.http.routers.frya-ui.tls.certresolver=le"
-      - "traefik.http.routers.frya-ui-http.rule=Host(`staging.myfrya.de`)"
+      - "traefik.http.routers.frya-ui-http.rule=Host(`app.staging.myfrya.de`)"
       - "traefik.http.routers.frya-ui-http.entrypoints=web"
       - "traefik.http.routers.frya-ui-http.middlewares=redirect-to-https@file"
       - "traefik.http.services.frya-ui.loadbalancer.server.port=80"

@@ -46,6 +46,7 @@ from app.api.bulk_upload import router as bulk_upload_router
 from app.api.accounting_api import router as accounting_router
 from app.api.greeting_views import router as greeting_router
 from app.api.finance_views import router as finance_router
+from app.api.auth_views import router as auth_views_router
 from app.api.customer_api import router as customer_router
 from app.api.pdf_views import router as pdf_router
 from app.api.webhooks import router as webhooks_router
@@ -310,6 +311,7 @@ app.include_router(feedback_router)
 app.include_router(dunning_router)
 app.include_router(export_router)
 app.include_router(customer_router)
+app.include_router(auth_views_router)
 app.include_router(accounting_router)
 app.include_router(greeting_router)
 app.include_router(finance_router)

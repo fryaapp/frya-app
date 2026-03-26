@@ -83,21 +83,22 @@ export function Dropzone({ onFiles, disabled = false, maxFiles = 50, maxSizeMB =
         role="button"
         tabIndex={0}
         className={`
-          flex flex-col items-center justify-center gap-3 px-6 py-10 rounded-m3-lg
+          flex flex-col items-center justify-center gap-2 rounded-[18px]
           border-2 border-dashed cursor-pointer transition-all
           ${disabled ? 'opacity-40 pointer-events-none' : ''}
           ${dragOver
             ? 'border-primary bg-primary/8 scale-[1.01]'
-            : 'border-outline-variant bg-surface-container-low hover:border-outline hover:bg-surface-container'
+            : 'border-outline-variant hover:border-outline hover:bg-surface-container'
           }
         `}
+        style={{ padding: '24px 16px' }}
       >
         <Icon
-          name="upload_file"
-          size={48}
-          className={dragOver ? 'text-primary' : 'text-on-surface-variant'}
+          name="cloud_upload"
+          size={28}
+          className={dragOver ? 'text-primary' : 'text-on-surface-variant opacity-30'}
         />
-        <p className="text-sm font-semibold text-on-surface text-center">
+        <p className="text-sm font-medium text-on-surface text-center">
           Gib mir hier all deine Belege
         </p>
         <p className="text-xs text-on-surface-variant text-center">
@@ -106,7 +107,7 @@ export function Dropzone({ onFiles, disabled = false, maxFiles = 50, maxSizeMB =
       </div>
 
       {warning && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-m3-sm bg-error-container">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-[14px] bg-error-container">
           <Icon name="warning" size={18} className="text-error" />
           <p className="text-xs text-error">{warning}</p>
         </div>
