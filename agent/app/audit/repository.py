@@ -159,6 +159,47 @@ class AuditRepository:
         finally:
             await conn.close()
 
+    async def list_recent_for_tenant(
+        self, tenant_id: str, case_ids: list[str], limit: int = 500
+    ) -> Sequence[AuditRecord]:
+        """Return recent audit records scoped to a single tenant.
+
+        Matches records whose case_id starts with 'tenant:{tenant_id}'
+        OR whose case_id is in the provided list of tenant case IDs.
+        """
+        tenant_prefix = f'tenant:{tenant_id}'
+        if self.is_memory:
+            filtered = [
+                r for r in self._memory_records
+                if r.case_id.startswith(tenant_prefix) or r.case_id in case_ids
+            ]
+            filtered.sort(key=lambda x: x.created_at, reverse=True)
+            return filtered[:limit]
+
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            rows = await conn.fetch(
+                'SELECT event_id, case_id, source, document_ref, accounting_ref, agent_name, workflow_name, '
+                'approval_status, llm_model, llm_input_hash, llm_output_hash, llm_input_json, llm_output_json, action, result, '
+                'policy_refs, previous_hash, record_hash, created_at '
+                'FROM frya_audit_log '
+                'WHERE case_id LIKE $1 OR case_id = ANY($2::text[]) '
+                'ORDER BY created_at DESC LIMIT $3',
+                tenant_prefix + '%',
+                case_ids,
+                limit,
+            )
+            records: list[AuditRecord] = []
+            for row in rows:
+                payload = dict(row)
+                payload['policy_refs'] = self._normalize_policy_refs(payload.get('policy_refs'))
+                payload['llm_input'] = payload.pop('llm_input_json', None)
+                payload['llm_output'] = payload.pop('llm_output_json', None)
+                records.append(AuditRecord(**json.loads(json.dumps(payload, default=str))))
+            return records
+        finally:
+            await conn.close()
+
     async def list_by_case(self, case_id: str, limit: int = 500) -> Sequence[AuditRecord]:
         if self.is_memory:
             filtered = [r for r in self._memory_records if r.case_id == case_id]

@@ -48,6 +48,15 @@ class AuditService:
         records = await self.repository.list_recent(limit=limit)
         return list(records)
 
+    async def recent_for_tenant(
+        self, tenant_id: str, case_ids: list[str] | None = None, limit: int = 500
+    ) -> list[AuditRecord]:
+        """Return recent audit records scoped to a single tenant (GDPR-compliant)."""
+        records = await self.repository.list_recent_for_tenant(
+            tenant_id=tenant_id, case_ids=case_ids or [], limit=limit
+        )
+        return list(records)
+
     async def by_case(self, case_id: str, limit: int = 500) -> list[AuditRecord]:
         return list(await self.repository.list_by_case(case_id=case_id, limit=limit))
 
