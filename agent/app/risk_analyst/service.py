@@ -1,6 +1,6 @@
 """Risk/Consistency Analyst — deterministic checks + optional LLM summary.
 
-Five rule-based checks run for every case (no LLM needed).
+Six rule-based checks run for every case (no LLM needed).
 LLM is called only when at least one MEDIUM+ finding exists, to produce
 a human-readable German summary.  Falls back to a template summary on any error.
 
@@ -23,6 +23,7 @@ from app.risk_analyst.rules import (
     check_booking_plausibility,
     check_duplicate_detection,
     check_tax_plausibility,
+    check_timeline,
     check_vendor_consistency,
 )
 from app.risk_analyst.schemas import (
@@ -122,6 +123,7 @@ class RiskAnalystService:
             check_tax_plausibility(case),
             check_vendor_consistency(case, documents),
             check_booking_plausibility(case),
+            check_timeline(case, documents),
         ]
 
         overall = compute_overall_risk(checks)
@@ -314,5 +316,6 @@ def _check_type_to_conflict(check_type: str) -> str:
         'tax_plausibility': 'amount_mismatch',
         'vendor_consistency': 'vendor_mismatch',
         'booking_plausibility': 'amount_mismatch',
+        'timeline_check': 'date_mismatch',
     }
     return mapping.get(check_type, 'amount_mismatch')

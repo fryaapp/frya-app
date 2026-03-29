@@ -18,6 +18,27 @@ from app.risk_analyst.schemas import RiskCheck
 
 _ALLOWED_TAX_RATES = {0.0, 7.0, 19.0}
 
+# ---------------------------------------------------------------------------
+# Expected document-type chronological order for Timeline Check
+# ---------------------------------------------------------------------------
+
+_EXPECTED_ORDER: dict[str, int] = {
+    'Eingangsrechnung': 0,
+    'Rechnung': 0,
+    'Ausgangsrechnung': 0,
+    'Zahlungserinnerung': 1,
+    'Gutschrift': 1,
+    'Kontoauszug': 1,
+    'Mahnung': 2,
+    'Zweite Mahnung': 3,
+    'Letzte Mahnung': 4,
+    'Inkasso': 5,
+    'Anwaltsschreiben': 6,
+}
+
+_MAHNUNG_TYPES = {'Zahlungserinnerung', 'Mahnung', 'Zweite Mahnung', 'Letzte Mahnung', 'Inkasso'}
+_RECHNUNG_TYPES = {'Eingangsrechnung', 'Rechnung', 'Ausgangsrechnung'}
+
 
 # ---------------------------------------------------------------------------
 # a) Amount consistency
@@ -409,4 +430,95 @@ def check_booking_plausibility(case: CaseRecord) -> RiskCheck:
             f'Buchungsvorschlag plausibel '
             f'(Konfidenz {confidence:.0%}, Konten {soll}/{haben}).'
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# f) Timeline check — §3.6 Chronologische Plausibilität
+# ---------------------------------------------------------------------------
+
+def check_timeline(
+    case: CaseRecord,
+    documents: list[CaseDocumentRecord],
+) -> RiskCheck:
+    """Prüft ob die Dokumentreihenfolge im Vorgang chronologisch plausibel ist.
+
+    Regel: Mahnung NACH Rechnung, nicht davor. Inkasso NACH Mahnung, etc.
+    """
+    case_id = str(case.id)
+
+    if len(documents) < 2:
+        return RiskCheck(
+            case_id=case_id,
+            check_type='timeline_check',
+            severity='OK',
+            finding='Weniger als 2 Dokumente — Timeline-Check uebersprungen.',
+        )
+
+    # Build timeline: (date_str, document_type, filename)
+    timeline: list[tuple[str, str, str]] = []
+    for doc in documents:
+        doc_type = doc.document_type or doc.metadata.get('document_type', '')
+        doc_date = (
+            doc.metadata.get('date')
+            or doc.metadata.get('issue_date')
+            or (doc.assigned_at.date().isoformat() if doc.assigned_at else '9999-99-99')
+        )
+        timeline.append((str(doc_date), doc_type, doc.filename or ''))
+
+    # Sort by date
+    timeline.sort(key=lambda t: t[0])
+
+    anomalies: list[str] = []
+
+    # Check 1: Reverse ordering — only flag escalation types
+    # (Mahnung before Rechnung, Inkasso before Mahnung, etc.)
+    # Neutral types (Kontoauszug, Gutschrift) are excluded from ordering checks
+    _ESCALATION_TYPES = _MAHNUNG_TYPES | _RECHNUNG_TYPES | {'Anwaltsschreiben'}
+    for i in range(1, len(timeline)):
+        prev_date, prev_type, _ = timeline[i - 1]
+        curr_date, curr_type, _ = timeline[i]
+
+        # Only check ordering between escalation-relevant types
+        if prev_type not in _ESCALATION_TYPES or curr_type not in _ESCALATION_TYPES:
+            continue
+
+        prev_order = _EXPECTED_ORDER.get(prev_type, -1)
+        curr_order = _EXPECTED_ORDER.get(curr_type, -1)
+
+        if prev_order >= 0 and curr_order >= 0 and prev_order > curr_order:
+            anomalies.append(
+                f'{prev_type} ({prev_date}) liegt chronologisch VOR '
+                f'{curr_type} ({curr_date}). '
+                f'Erwartete Reihenfolge: {curr_type} vor {prev_type}.'
+            )
+
+    # Check 2: Mahnung without any Rechnung in the case
+    doc_types = {t[1] for t in timeline}
+    has_mahnung = bool(doc_types & _MAHNUNG_TYPES)
+    has_rechnung = bool(doc_types & _RECHNUNG_TYPES)
+
+    if has_mahnung and not has_rechnung:
+        anomalies.append(
+            'Mahnung ohne zugehoerige Rechnung im Vorgang. '
+            'Ursprungsrechnung fehlt moeglicherweise.'
+        )
+
+    if not anomalies:
+        return RiskCheck(
+            case_id=case_id,
+            check_type='timeline_check',
+            severity='OK',
+            finding='Dokumentreihenfolge chronologisch plausibel.',
+        )
+
+    # Determine severity
+    severity: str = 'HIGH' if any('VOR' in a for a in anomalies) else 'MEDIUM'
+
+    return RiskCheck(
+        case_id=case_id,
+        check_type='timeline_check',
+        severity=severity,  # type: ignore[arg-type]
+        finding='TIMELINE_ANOMALY: ' + ' | '.join(anomalies),
+        recommendation='Dokumentreihenfolge und Datumszuordnung pruefen.',
     )
