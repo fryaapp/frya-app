@@ -129,7 +129,7 @@ export function ChatPanel() {
 
   // Last message suggestions
   const lastMsg = messages[messages.length - 1]
-  const suggestions = lastMsg?.role === 'assistant' && !lastMsg.isStreaming ? lastMsg.suggestions || [] : []
+  const suggestions = lastMsg?.role === 'frya' && !lastMsg.isStreaming ? lastMsg.suggestions || [] : []
 
   return (
     <div className="flex flex-col h-full">

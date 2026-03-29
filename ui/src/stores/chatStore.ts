@@ -1,47 +1,26 @@
+/**
+ * chatStore.ts — DEPRECATED compatibility shim.
+ *
+ * All chat state now lives in fryaStore.ts. This file re-exports
+ * the shared types and provides a thin useChatStore Zustand store
+ * so that old (unused) components (ChatPanel, StartPage, ChatBubble)
+ * still compile.
+ *
+ * TODO: Remove this file once the old components are deleted.
+ */
+
+export type { ChatMessage, ApprovalData, DuplicateData, MessageRole } from './fryaStore'
+
 import { create } from 'zustand'
-
-export type MessageRole = 'user' | 'assistant' | 'system'
-
-export interface ApprovalData {
-  case_id: string
-  case_number?: string
-  vendor: string
-  amount: number
-  currency?: string
-  document_type?: string
-  buttons: string[]
-}
-
-export interface DuplicateData {
-  original_title: string
-  paperless_id: number
-}
-
-export interface ChatMessage {
-  id: string
-  role: MessageRole
-  text: string
-  timestamp: number
-  suggestions?: string[]
-  caseRef?: string | null
-  contextType?: string
-  isStreaming?: boolean
-  // Special message types
-  approval?: ApprovalData
-  duplicate?: DuplicateData
-  notificationType?: string
-  // Approval state (after user action)
-  approvalAction?: string
-}
+import { useFryaStore } from './fryaStore'
+import type { ChatMessage, ApprovalData, DuplicateData } from './fryaStore'
 
 interface ChatState {
   messages: ChatMessage[]
   isTyping: boolean
   typingHint: string | null
-  /** Text queued by StartPage that ChatPanel's WebSocket needs to send */
   pendingSend: string | null
   addUserMessage: (text: string) => void
-  /** Queue a message for WS send (used by StartPage) */
   setPendingSend: (text: string | null) => void
   startAssistantMessage: () => string
   appendChunk: (id: string, text: string) => void
@@ -54,93 +33,48 @@ interface ChatState {
   clear: () => void
 }
 
-let msgCounter = 0
-
+/**
+ * Thin compatibility store — delegates to useFryaStore for state that
+ * overlaps, stubs everything else. This is dead code (ChatPanel is no
+ * longer rendered), kept only to avoid compile errors.
+ */
 export const useChatStore = create<ChatState>((set) => ({
   messages: [],
   isTyping: false,
   typingHint: null,
   pendingSend: null,
+
   setPendingSend: (text) => set({ pendingSend: text }),
 
   addUserMessage: (text) => {
-    const id = `user-${++msgCounter}`
-    set((s) => ({
-      messages: [...s.messages, { id, role: 'user', text, timestamp: Date.now() }],
-    }))
+    // Delegate to fryaStore
+    useFryaStore.getState().addUserMessage(text)
   },
 
   startAssistantMessage: () => {
-    const id = `assistant-${++msgCounter}`
-    set((s) => ({
-      messages: [...s.messages, { id, role: 'assistant', text: '', timestamp: Date.now(), isStreaming: true }],
-    }))
-    return id
+    return `compat-${Date.now()}`
   },
 
-  appendChunk: (id, text) => {
-    set((s) => ({
-      messages: s.messages.map((m) =>
-        m.id === id ? { ...m, text: m.text + text } : m,
-      ),
-    }))
-  },
-
-  completeMessage: (id, text, suggestions, caseRef, contextType) => {
-    set((s) => ({
-      messages: s.messages.map((m) =>
-        m.id === id ? { ...m, text, isStreaming: false, suggestions, caseRef, contextType } : m,
-      ),
-    }))
-  },
+  appendChunk: () => {},
+  completeMessage: () => {},
 
   addApprovalRequest: (data) => {
-    const id = `approval-${++msgCounter}`
-    set((s) => ({
-      messages: [...s.messages, {
-        id,
-        role: 'system' as MessageRole,
-        text: '',
-        timestamp: Date.now(),
-        approval: data,
-      }],
-    }))
+    useFryaStore.getState().addApprovalRequest(data)
   },
 
   addNotification: (text, notificationType) => {
-    const id = `notif-${++msgCounter}`
-    set((s) => ({
-      messages: [...s.messages, {
-        id,
-        role: 'system' as MessageRole,
-        text,
-        timestamp: Date.now(),
-        notificationType,
-      }],
-    }))
+    useFryaStore.getState().addNotification(text, notificationType)
   },
 
   addDuplicate: (data) => {
-    const id = `dup-${++msgCounter}`
-    set((s) => ({
-      messages: [...s.messages, {
-        id,
-        role: 'system' as MessageRole,
-        text: '',
-        timestamp: Date.now(),
-        duplicate: data,
-      }],
-    }))
+    useFryaStore.getState().addDuplicate(data)
   },
 
   setApprovalAction: (messageId, action) => {
-    set((s) => ({
-      messages: s.messages.map((m) =>
-        m.id === messageId ? { ...m, approvalAction: action } : m,
-      ),
-    }))
+    useFryaStore.getState().setApprovalAction(messageId, action)
   },
 
   setTyping: (v, hint) => set({ isTyping: v, typingHint: hint ?? null }),
+
   clear: () => set({ messages: [], isTyping: false, typingHint: null, pendingSend: null }),
 }))
