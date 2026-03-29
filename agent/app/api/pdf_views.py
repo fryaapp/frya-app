@@ -147,6 +147,32 @@ async def get_invoice_pdf(
         tenant=tenant_dict,
     )
 
+    # ── ZUGFeRD / Factur-X embedding (EN 16931 BASIC) ────────────────────
+    # Embed structured CII XML into the generated PDF so recipients can
+    # process it as an e-invoice.  Failure is non-fatal — the plain PDF
+    # is returned if embedding fails.
+    try:
+        from app.e_invoice.generator import embed_zugferd
+        zugferd_data = {
+            'invoice_number': invoice.invoice_number,
+            'invoice_date': invoice.invoice_date,
+            'due_date': invoice.due_date,
+            'net_amount': float(invoice.net_total),
+            'tax_amount': float(invoice.tax_total),
+            'gross_amount': float(invoice.gross_total),
+            'currency': 'EUR',
+            'seller_name': tenant_dict.get('company_name', ''),
+            'seller_tax_id': tenant_dict.get('tax_id', ''),
+            'buyer_name': contact_dict.get('name', ''),
+            'iban': tenant_dict.get('iban', ''),
+            'bic': tenant_dict.get('bic', ''),
+            'items': items_list,
+        }
+        pdf_bytes = embed_zugferd(pdf_bytes, zugferd_data)
+        logger.info('ZUGFeRD embedded into invoice %s', invoice.invoice_number)
+    except Exception as exc:
+        logger.warning('ZUGFeRD-Einbettung fehlgeschlagen fuer %s: %s', invoice.invoice_number, exc)
+
     filename = f'Rechnung_{invoice.invoice_number}.pdf'
     return Response(
         content=pdf_bytes,

@@ -281,12 +281,24 @@ class TelegramMediaIngressService:
         # ── Upload to Paperless (Single Source of Truth) ──────────────────────
         paperless_task_id: str | None = None
         if self.paperless_connector is not None:
+            # Image preprocessing: strip EXIF (GDPR), resize, wrap as PDF
+            from app.preprocessing.image_processor import is_image, process_image_to_pdf
+
+            _pl_filename = attachment.file_name or Path(stored_relative_path).name
+            _pl_content = content
+            if is_image(_pl_filename):
+                try:
+                    _pl_content, _pl_filename = process_image_to_pdf(_pl_content, _pl_filename)
+                except Exception as _pp_exc:
+                    logger.warning('Image preprocessing failed for %s: %s', _pl_filename, _pp_exc)
+                    # Fall through with original bytes
+
             # Encode case_id in title so the post-consumption webhook can correlate
-            _pl_title = f'frya:{case_id}:{attachment.file_name or stored_relative_path}'
+            _pl_title = f'frya:{case_id}:{_pl_filename}'
             try:
                 _pl_result = await self.paperless_connector.upload_document(
-                    content,
-                    filename=attachment.file_name or Path(stored_relative_path).name,
+                    _pl_content,
+                    filename=_pl_filename,
                     title=_pl_title,
                 )
                 paperless_task_id = _pl_result.get('task_id') if isinstance(_pl_result, dict) else str(_pl_result)
