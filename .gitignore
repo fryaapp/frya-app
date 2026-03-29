@@ -48,3 +48,13 @@ xyz/
 
 # Lokale n8n-Instanz (nicht agent/n8n/ Workflow-Templates)
 /n8n/
+
+# Claude Code / RuFlo
+.claude/
+.claude-flow/
+.swarm/
+.mcp.json
+CLAUDE.md
+
+# Generated images (not source)
+Gemini_Generated_Image_*

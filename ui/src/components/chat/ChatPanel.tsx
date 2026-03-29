@@ -27,9 +27,7 @@ export function ChatPanel() {
     switch (msg.type) {
       case 'typing':
         setTyping(msg.active, msg.hint)
-        if (msg.active && !streamIdRef.current) {
-          streamIdRef.current = startAssistantMessage()
-        }
+        // Don't create streamIdRef here — let TypingIndicator show until chunks arrive
         break
 
       case 'chunk':
@@ -39,10 +37,13 @@ export function ChatPanel() {
         appendChunk(streamIdRef.current, msg.text)
         break
 
-      case 'message_complete':
-        if (streamIdRef.current) {
-          completeMessage(streamIdRef.current, msg.text, msg.suggestions, msg.case_ref, msg.context_type)
+      case 'message_complete': {
+        // If no streaming message exists (e.g. REST fallback), create one
+        if (!streamIdRef.current) {
+          streamIdRef.current = startAssistantMessage()
         }
+        completeMessage(streamIdRef.current, msg.text, msg.suggestions, msg.case_ref, msg.context_type)
+      }
         // If context_type is present, open the split with that context
         if (msg.context_type && msg.context_type !== 'none') {
           openSplit(msg.context_type as Parameters<typeof openSplit>[0])
@@ -93,6 +94,15 @@ export function ChatPanel() {
 
   const { send, connected } = useWebSocket(handleWsMessage)
 
+  // Drain pending message queued by StartPage (which doesn't have WS access)
+  const pendingSend = useChatStore((s) => s.pendingSend)
+  useEffect(() => {
+    if (pendingSend && connected) {
+      send(pendingSend)
+      useChatStore.getState().setPendingSend(null)
+    }
+  }, [pendingSend, connected, send])
+
   const handleSend = useCallback((text: string) => {
     addUserMessage(text)
     send(text)
@@ -131,12 +141,7 @@ export function ChatPanel() {
       )}
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
-        {messages.length === 0 && (
-          <div className="text-center text-on-surface-variant/50 text-xs mt-6">
-            Dein Chat mit Frya erscheint hier.
-          </div>
-        )}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4">
 
         {/* Older messages fade — show opacity gradient on first few visible */}
         {messages.map((m, i) => {
@@ -155,11 +160,13 @@ export function ChatPanel() {
       <SuggestionChips suggestions={suggestions} onSelect={handleSend} />
 
       {/* Input */}
-      <ChatInput
-        onSend={handleSend}
-        onFileUploaded={handleFileUploaded}
-        disabled={!connected}
-      />
+      <div className="px-3 pb-3 pt-1">
+        <ChatInput
+          onSend={handleSend}
+          onFileUploaded={handleFileUploaded}
+          disabled={!connected}
+        />
+      </div>
     </div>
   )
 }

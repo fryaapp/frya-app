@@ -86,6 +86,22 @@ AGENT_CATALOG: dict[str, dict] = {
         'agent_status': 'active',
         'note': 'IONOS DE — Llama-3.1-405B-Instruct-FP8 (Langzeitgedächtnis-Kuration)',
     },
+    'orchestrator_router': {
+        'label': 'Orchestrator Router (Fast)',
+        'provider': 'ionos',
+        'target_model': 'mistralai/Mistral-Small-24B-Instruct',
+        'base_url': IONOS_BASE_URL,
+        'agent_status': 'active',
+        'note': 'IONOS DE — Mistral-Small-24B (Schnelles Intent-Routing, 90% der Anfragen)',
+    },
+    'communicator_fallback': {
+        'label': 'Kommunikator Fallback',
+        'provider': 'ionos',
+        'target_model': 'mistralai/Mistral-Small-24B-Instruct',
+        'base_url': IONOS_BASE_URL,
+        'agent_status': 'active',
+        'note': 'IONOS DE — Mistral-Small-24B (Fallback wenn Anthropic nicht erreichbar)',
+    },
 }
 
 # Ordered list used for UI display and API validation

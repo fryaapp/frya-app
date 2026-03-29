@@ -50,6 +50,9 @@ class ChatResponse(BaseModel):
     reply: str
     case_ref: str | None = None
     suggestions: list[str] = Field(default_factory=list)
+    content_blocks: list[dict] = Field(default_factory=list)
+    actions: list[dict] = Field(default_factory=list)
+    routing: str | None = None
 
 @router.post('/chat')
 async def send_chat_message(
@@ -93,7 +96,20 @@ async def send_chat_message(
     )
 
     if result is None or not result.reply_text:
-        return ChatResponse(reply='FRYA: Ich konnte deine Nachricht nicht verarbeiten.', suggestions=[])
+        return ChatResponse(reply='Ich konnte deine Nachricht nicht verarbeiten.', suggestions=[])
+
+    # Strip "FRYA:" prefix
+    reply_raw = result.reply_text
+    if reply_raw.startswith('FRYA:'):
+        reply_raw = reply_raw[5:].strip()
+    result.reply_text = reply_raw
+
+    # --- Name-update side-effect (same as WS handler) ---
+    from app.api.chat_ws import _extract_name_intent, _persist_display_name
+    extracted_name = _extract_name_intent(body.message)
+    if extracted_name:
+        tenant_id = getattr(user, 'tenant_id', '') or ''
+        await _persist_display_name(user.username, tenant_id, extracted_name)
 
     conv_store = get_communicator_conversation_store()
     conv_mem = await conv_store.load(chat_id)
@@ -101,7 +117,57 @@ async def send_chat_message(
 
     intent = classify_intent(body.message)
     suggestions = _build_suggestions(intent, case_ref)
-    return ChatResponse(reply=result.reply_text, case_ref=case_ref, suggestions=suggestions)
+
+    # --- TieredOrchestrator + ResponseBuilder integration ---
+    content_blocks: list[dict] = []
+    actions: list[dict] = []
+    routing: str | None = None
+    try:
+        from app.api.chat_ws import _get_tiered_orchestrator, _get_response_builder
+        orchestrator = _get_tiered_orchestrator()
+        if orchestrator:
+            routing_result = await orchestrator.route(message=body.message)
+            tier_intent = routing_result.get('intent')
+            routing = routing_result.get('routing')
+
+            # Fetch real data for content_blocks
+            agent_results: dict = {}
+            if tier_intent and routing in ('regex', 'fast'):
+                try:
+                    from app.agents.service_registry import build_service_registry
+                    _i2s = {
+                        'SHOW_INBOX': ('inbox_service', 'list_pending'),
+                        'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
+                        'SHOW_DEADLINES': ('deadline_service', 'list'),
+                        'SHOW_BOOKINGS': ('booking_service', 'list'),
+                        'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
+                    }
+                    si = _i2s.get(tier_intent)
+                    if si:
+                        reg = build_service_registry()
+                        svc = reg.get(si[0])
+                        if svc:
+                            m = getattr(svc, si[1], None)
+                            if m:
+                                agent_results = await m() or {}
+                except Exception:
+                    pass
+
+            rb = _get_response_builder()
+            if rb and tier_intent:
+                enhanced = rb.build(intent=tier_intent, agent_results=agent_results, communicator_text=result.reply_text)
+                content_blocks = enhanced.get('content_blocks', [])
+                actions = enhanced.get('actions', [])
+                if actions:
+                    suggestions = [a['chat_text'] for a in actions[:3]]
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning('REST chat integration failed: %s', exc)
+
+    return ChatResponse(
+        reply=result.reply_text, case_ref=case_ref, suggestions=suggestions,
+        content_blocks=content_blocks, actions=actions, routing=routing,
+    )
 
 def _build_suggestions(intent: str | None, case_ref: str | None) -> list[str]:
     if case_ref:
@@ -789,6 +855,72 @@ async def activate_account(body: ActivateRequest) -> dict:
     await repo.activate_user(confirmed)
 
     return {'message': 'Konto wurde aktiviert.'}
+
+
+# ---------------------------------------------------------------------------
+# User Settings
+# ---------------------------------------------------------------------------
+
+
+@router.get('/settings')
+async def get_user_settings(user: AuthUser = Depends(require_authenticated)) -> dict:
+    """User-Einstellungen lesen (frya_user_preferences)."""
+    from app.dependencies import get_settings
+    import asyncpg
+    settings = get_settings()
+    if settings.database_url.startswith('memory://'):
+        return {'display_name': '', 'theme': 'system'}
+    try:
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            rows = await conn.fetch(
+                "SELECT key, value FROM frya_user_preferences WHERE user_id = $1",
+                user.username,
+            )
+            prefs = {r['key']: r['value'] for r in rows}
+            return {
+                'display_name': prefs.get('display_name', ''),
+                'theme': prefs.get('theme', 'system'),
+                'formal_address': prefs.get('formal_address', 'false') == 'true',
+                'notification_channel': prefs.get('notification_channel', 'in_app'),
+            }
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning('get_user_settings failed: %s', exc)
+        return {'display_name': '', 'theme': 'system'}
+
+
+@router.put('/settings')
+async def update_user_settings(
+    data: dict,
+    user: AuthUser = Depends(require_authenticated),
+) -> dict:
+    """User-Einstellungen aktualisieren."""
+    from app.dependencies import get_settings
+    import asyncpg
+    settings = get_settings()
+    allowed = {'display_name', 'theme', 'formal_address', 'notification_channel', 'emoji_enabled'}
+    if settings.database_url.startswith('memory://'):
+        return {'status': 'ok'}
+    try:
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            for key, value in data.items():
+                if key in allowed:
+                    await conn.execute(
+                        """INSERT INTO frya_user_preferences (tenant_id, user_id, key, value, updated_at)
+                        VALUES ('default', $1, $2, $3, NOW())
+                        ON CONFLICT (tenant_id, user_id, key) DO UPDATE
+                          SET value = EXCLUDED.value, updated_at = NOW()""",
+                        user.username, key, str(value),
+                    )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning('update_user_settings failed: %s', exc)
+        return {'status': 'error', 'message': str(exc)}
+    return {'status': 'ok'}
 
 
 # ---------------------------------------------------------------------------

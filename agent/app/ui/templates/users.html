@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Alpha-Nutzer</h1>
+<p class="page-lead">Nutzer einladen, verwalten und Token-Kosten einsehen.</p>
+
+<!-- Invite Form -->
+<div style="background:#f8f9fb; border:1px solid #e0e3e8; border-radius:8px; padding:20px; margin-bottom:24px; max-width:500px;">
+  <h2 style="font-size:16px; margin:0 0 12px 0;">Neuen Alpha-Tester einladen</h2>
+  <form method="post" action="/ui/users/invite" style="display:flex; flex-direction:column; gap:10px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+    <div style="display:flex; gap:8px;">
+      <input name="username" type="text" placeholder="Benutzername" required
+        style="flex:1; padding:8px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px;" />
+      <input name="email" type="email" placeholder="E-Mail" required
+        style="flex:1; padding:8px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px;" />
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <select name="role" style="padding:8px 12px; border:1px solid #ccc; border-radius:6px; font-size:14px;">
+        <option value="operator">Nutzer</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button type="submit"
+        style="padding:8px 20px; background:#D0601A; color:#fff; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer;">
+        Einladen
+      </button>
+    </div>
+  </form>
+
+  {% if invite_result %}
+  <div style="margin-top:12px; padding:10px 14px; border-radius:6px;
+    background:{% if invite_result.invite_sent %}#e8f5e9{% else %}#fff3e0{% endif %};
+    color:{% if invite_result.invite_sent %}#2e7d32{% else %}#e65100{% endif %};
+    font-size:13px;">
+    <strong>{{ invite_result.username }}</strong> angelegt.
+    {% if invite_result.invite_sent %}
+      Einladungs-E-Mail an {{ invite_result.email }} gesendet.
+    {% else %}
+      E-Mail konnte nicht gesendet werden.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if invite_error %}
+  <div style="margin-top:12px; padding:10px 14px; border-radius:6px; background:#ffebee; color:#c62828; font-size:13px;">
+    {{ invite_error }}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Users Table -->
+<h2>Registrierte Nutzer ({{ users|length }})</h2>
+{% if users %}
+<table>
+  <thead>
+    <tr>
+      <th>Benutzername</th>
+      <th>E-Mail</th>
+      <th>Rolle</th>
+      <th>Status</th>
+      <th>Bug-Meldungen</th>
+      <th>Token-Kosten (EUR)</th>
+      <th>Aktionen</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td><strong>{{ u.username }}</strong></td>
+      <td>{{ u.email or '-' }}</td>
+      <td>
+        {% if u.role == 'admin' %}
+        <span class="state-badge state-warn">Admin</span>
+        {% else %}
+        <span class="state-badge state-ok">Nutzer</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if u.is_active %}
+        <span class="state-badge state-ok">Aktiv</span>
+        {% else %}
+        <span class="state-badge state-err">Inaktiv</span>
+        {% endif %}
+      </td>
+      <td>{{ feedback_counts.get(u.username, 0) }}</td>
+      <td>{{ '%.4f' | format(token_costs.get(u.username, 0)) }}</td>
+      <td>
+        {% if u.username != auth_user.username %}
+        <form method="post" action="/ui/users/delete" style="display:inline;"
+          onsubmit="return confirm('Nutzer «{{ u.username }}» wirklich vollstaendig loeschen? Alle Daten werden unwiderruflich entfernt.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}" />
+          <input type="hidden" name="username" value="{{ u.username }}" />
+          <button type="submit"
+            style="padding:4px 10px; background:#c62828; color:#fff; border:none; border-radius:4px; font-size:12px; cursor:pointer;"
+            title="Nutzer vollstaendig loeschen">
+            ✕ Loeschen
+          </button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-sub">Noch keine Nutzer angelegt.</p>
+{% endif %}
+
+<!-- Token Summary -->
+{% if token_summary %}
+<h2 style="margin-top:24px;">Token-Kosten Uebersicht</h2>
+<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+  <div style="background:#f0f4ff; border:1px solid #c8d6e5; border-radius:8px; padding:14px 20px; min-width:140px;">
+    <div style="font-size:12px; color:#666;">Gesamt-Tokens</div>
+    <div style="font-size:22px; font-weight:700;">{{ '{:,}'.format(token_summary.total_tokens) }}</div>
+  </div>
+  <div style="background:#fef9f0; border:1px solid #f0d9a8; border-radius:8px; padding:14px 20px; min-width:140px;">
+    <div style="font-size:12px; color:#666;">Geschaetzte Kosten</div>
+    <div style="font-size:22px; font-weight:700;">{{ '%.4f' | format(token_summary.total_cost) }} EUR</div>
+  </div>
+  <div style="background:#f0faf0; border:1px solid #b8e6b8; border-radius:8px; padding:14px 20px; min-width:140px;">
+    <div style="font-size:12px; color:#666;">LLM-Aufrufe</div>
+    <div style="font-size:22px; font-weight:700;">{{ token_summary.call_count }}</div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Recent Feedback -->
+<h2>Neueste Bug-Meldungen</h2>
+{% if feedback_items %}
+<table>
+  <thead>
+    <tr>
+      <th>Datum</th>
+      <th>User</th>
+      <th>Seite</th>
+      <th>Beschreibung</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in feedback_items[:20] %}
+    <tr>
+      <td>{{ item.created_at.strftime('%d.%m.%Y %H:%M') if item.created_at else '-' }}</td>
+      <td>{{ item.user_id[:12] }}</td>
+      <td><code>{{ item.page or '-' }}</code></td>
+      <td>{{ item.description[:200] }}</td>
+      <td>
+        {% if item.status == 'NEW' %}
+        <span class="state-badge state-warn">Neu</span>
+        {% elif item.status == 'IN_PROGRESS' %}
+        <span class="state-badge">In Bearbeitung</span>
+        {% elif item.status == 'RESOLVED' %}
+        <span class="state-badge state-ok">Erledigt</span>
+        {% else %}
+        <span class="state-badge">{{ item.status }}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-sub">Noch keine Bug-Meldungen.</p>
+{% endif %}
+{% endblock %}

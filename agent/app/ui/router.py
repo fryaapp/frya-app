@@ -62,6 +62,7 @@ from app.dependencies import (
     get_telegram_document_analyst_start_service,
     get_rule_change_audit_service,
     get_rule_loader,
+    get_user_repository,
 )
 from app.memory.file_store import FileStore
 from app.open_items.models import OpenItem
@@ -2702,6 +2703,318 @@ async def ui_feedback(request: Request, auth_user: AuthUser = Depends(require_ad
         'feedback.html',
         _ctx(request, title='Feedback', auth_user=auth_user, items=items),
     )
+
+
+@router.get('/feedback/{feedback_id}', response_class=HTMLResponse)
+async def ui_feedback_detail(request: Request, feedback_id: str, auth_user: AuthUser = Depends(require_admin)):
+    from app.feedback.repository import FeedbackRepository
+    repo = FeedbackRepository(get_settings().database_url)
+    item = await repo.get_by_id(feedback_id)
+    if not item:
+        return HTMLResponse('<h1>Nicht gefunden</h1>', status_code=404)
+    # system_info may come as JSON string from DB — parse to dict
+    import json as _json
+    si = item.get('system_info')
+    if isinstance(si, str):
+        try:
+            item['system_info'] = _json.loads(si)
+        except Exception:
+            item['system_info'] = {'raw': si}
+    return TEMPLATES.TemplateResponse(
+        request,
+        'feedback_detail.html',
+        _ctx(request, title='Feedback Detail', auth_user=auth_user, item=item),
+    )
+
+
+@router.post('/feedback/export')
+async def ui_feedback_export(request: Request, auth_user: AuthUser = Depends(require_admin)):
+    """Export endpoint for Operator-UI (session-based auth)."""
+    import json as _json
+    import datetime
+    from app.feedback.repository import FeedbackRepository
+    body = await request.json()
+    feedback_ids = body.get('feedback_ids', [])
+    if not feedback_ids:
+        raise HTTPException(status_code=400, detail='No feedback_ids provided')
+    repo = FeedbackRepository(get_settings().database_url)
+    items = []
+    for fid in feedback_ids:
+        item = await repo.get_by_id(fid)
+        if item:
+            items.append(item)
+    if not items:
+        raise HTTPException(status_code=404, detail='No feedback items found')
+
+    md_lines = [
+        '# FRYA Bug-Report Export',
+        f'Exportiert: {datetime.datetime.now().strftime("%d.%m.%Y %H:%M")}',
+        f'Anzahl: {len(items)}',
+        '', '---', '',
+    ]
+    for i, item in enumerate(items, 1):
+        created = item.get('created_at')
+        created = created.strftime('%d.%m.%Y %H:%M') if hasattr(created, 'strftime') else str(created)[:16]
+        md_lines.append(f'## Bug #{i}: {item.get("description", "")[:80]}')
+        md_lines.append('')
+        md_lines.append(f'- **ID:** `{item["id"]}`')
+        md_lines.append(f'- **User:** {item.get("user_id", "?")}')
+        md_lines.append(f'- **Seite:** {item.get("page", "?")}')
+        md_lines.append(f'- **Status:** {item.get("status", "?")}')
+        md_lines.append(f'- **Datum:** {created}')
+        md_lines.append('')
+        md_lines.append('### Beschreibung')
+        md_lines.append(item.get('description', '(leer)'))
+        md_lines.append('')
+        si = item.get('system_info')
+        if si and isinstance(si, dict):
+            md_lines.append('### Systeminfos')
+            for k, v in si.items():
+                md_lines.append(f'- **{k}:** {v}')
+            md_lines.append('')
+        if item.get('screenshot_data'):
+            md_lines.append('### Screenshot')
+            md_lines.append(f'![Bug {i} Screenshot]({item["screenshot_data"]})')
+            md_lines.append('')
+        md_lines.append('---')
+        md_lines.append('')
+
+    await repo.mark_exported(feedback_ids)
+    return {'markdown': '\n'.join(md_lines), 'count': len(items), 'exported_ids': feedback_ids}
+
+
+@router.patch('/feedback/{feedback_id}/status')
+async def ui_feedback_update_status(request: Request, feedback_id: str, auth_user: AuthUser = Depends(require_admin)):
+    """Status update endpoint for Operator-UI (session-based auth)."""
+    body = await request.json()
+    status = body.get('status', '')
+    if status not in ('NEW', 'IN_PROGRESS', 'RESOLVED'):
+        raise HTTPException(status_code=400, detail='Invalid status')
+    from app.feedback.repository import FeedbackRepository
+    repo = FeedbackRepository(get_settings().database_url)
+    await repo.update_status(feedback_id, status)
+    return {'feedback_id': feedback_id, 'status': status}
+
+
+# ---------------------------------------------------------------------------
+# Alpha-User Management
+# ---------------------------------------------------------------------------
+
+@router.get('/users', response_class=HTMLResponse)
+async def ui_users(request: Request, auth_user: AuthUser = Depends(require_admin)):
+    import asyncpg
+    from app.feedback.repository import FeedbackRepository
+    user_repo = get_user_repository()
+    settings = get_settings()
+
+    # Fetch users
+    users_raw = await user_repo.list_users()
+    users = [
+        {'username': u.username, 'email': u.email, 'role': u.role,
+         'is_active': u.is_active, 'tenant_id': u.tenant_id}
+        for u in users_raw
+    ]
+
+    # Feedback counts per user
+    feedback_items = []
+    feedback_counts: dict[str, int] = {}
+    try:
+        fb_repo = FeedbackRepository(settings.database_url)
+        feedback_items = await fb_repo.list_all()
+        for item in feedback_items:
+            uid = getattr(item, 'user_id', '') or ''
+            feedback_counts[uid] = feedback_counts.get(uid, 0) + 1
+    except Exception:
+        pass
+
+    # Token costs per user
+    token_costs: dict[str, float] = {}
+    token_summary = {'total_tokens': 0, 'total_cost': 0.0, 'call_count': 0}
+    if not settings.database_url.startswith('memory://'):
+        try:
+            conn = await asyncpg.connect(settings.database_url)
+            try:
+                rows = await conn.fetch(
+                    "SELECT agent_id, SUM(total_tokens) as tokens, SUM(estimated_cost_eur) as cost, COUNT(*) as calls "
+                    "FROM frya_token_usage GROUP BY agent_id"
+                )
+                for row in rows:
+                    token_costs[row['agent_id']] = float(row['cost'] or 0)
+                    token_summary['total_tokens'] += int(row['tokens'] or 0)
+                    token_summary['total_cost'] += float(row['cost'] or 0)
+                    token_summary['call_count'] += int(row['calls'] or 0)
+            finally:
+                await conn.close()
+        except Exception:
+            pass
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'users.html',
+        _ctx(request, title='Alpha-Nutzer', auth_user=auth_user,
+             users=users, feedback_counts=feedback_counts,
+             token_costs=token_costs, token_summary=token_summary,
+             feedback_items=feedback_items, invite_result=None, invite_error=None),
+    )
+
+
+@router.post('/users/invite', response_class=HTMLResponse)
+async def ui_users_invite(request: Request, auth_user: AuthUser = Depends(require_admin)):
+    form = await request.form()
+    username = str(form.get('username', '')).strip().lower().replace(' ', '')
+    email = str(form.get('email', '')).strip()
+    role = str(form.get('role', 'operator'))
+
+    invite_result = None
+    invite_error = None
+
+    if not username or not email:
+        invite_error = 'Benutzername und E-Mail sind erforderlich.'
+    else:
+        try:
+            from app.auth.user_repository import UserRecord
+            from app.auth.reset_service import PasswordResetService
+            user_repo = get_user_repository()
+            settings = get_settings()
+
+            existing = await user_repo.find_by_username(username)
+            if existing:
+                invite_error = f'Benutzername "{username}" ist bereits vergeben.'
+            else:
+                record = UserRecord(
+                    username=username, email=email, role=role,
+                    tenant_id=None, is_active=True, session_version=1,
+                )
+                await user_repo.create_user(record)
+
+                # Issue invite token + send mail
+                invite_sent = False
+                try:
+                    from app.dependencies import get_password_reset_service, get_mail_service
+                    from app.auth.router import _reset_mail_html, _reset_mail_text
+                    reset_svc = get_password_reset_service()
+                    token = await reset_svc.issue_invite_token(username)
+                    invite_link = f'{settings.app_base_url}/auth/reset-password?token={token}&first=true'
+                    mail_svc = get_mail_service()
+                    await mail_svc.send_mail(
+                        to=email,
+                        subject='Ihr Zugang zu FRYA',
+                        body_html=_reset_mail_html(invite_link, first=True),
+                        body_text=_reset_mail_text(invite_link, first=True),
+                        tenant_id=None,
+                    )
+                    invite_sent = True
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning('invite mail failed: %s', exc)
+
+                invite_result = {'username': username, 'email': email, 'invite_sent': invite_sent}
+        except Exception as exc:
+            invite_error = f'Fehler: {exc}'
+
+    # Re-render page with result
+    from starlette.responses import RedirectResponse
+    # Store flash in session if available, otherwise re-render
+    # For simplicity, re-render the full page
+    import asyncpg
+    from app.feedback.repository import FeedbackRepository
+    user_repo2 = get_user_repository()
+    settings2 = get_settings()
+    users_raw = await user_repo2.list_users()
+    users = [{'username': u.username, 'email': u.email, 'role': u.role,
+              'is_active': u.is_active, 'tenant_id': u.tenant_id} for u in users_raw]
+    feedback_items = []
+    feedback_counts: dict[str, int] = {}
+    try:
+        fb_repo = FeedbackRepository(settings2.database_url)
+        feedback_items = await fb_repo.list_all()
+        for item in feedback_items:
+            uid = getattr(item, 'user_id', '') or ''
+            feedback_counts[uid] = feedback_counts.get(uid, 0) + 1
+    except Exception:
+        pass
+    token_costs: dict[str, float] = {}
+    token_summary = {'total_tokens': 0, 'total_cost': 0.0, 'call_count': 0}
+    if not settings2.database_url.startswith('memory://'):
+        try:
+            conn = await asyncpg.connect(settings2.database_url)
+            try:
+                rows = await conn.fetch(
+                    "SELECT agent_id, SUM(total_tokens) as tokens, SUM(estimated_cost_eur) as cost, COUNT(*) as calls "
+                    "FROM frya_token_usage GROUP BY agent_id"
+                )
+                for row in rows:
+                    token_costs[row['agent_id']] = float(row['cost'] or 0)
+                    token_summary['total_tokens'] += int(row['tokens'] or 0)
+                    token_summary['total_cost'] += float(row['cost'] or 0)
+                    token_summary['call_count'] += int(row['calls'] or 0)
+            finally:
+                await conn.close()
+        except Exception:
+            pass
+
+    return TEMPLATES.TemplateResponse(
+        request,
+        'users.html',
+        _ctx(request, title='Alpha-Nutzer', auth_user=auth_user,
+             users=users, feedback_counts=feedback_counts,
+             token_costs=token_costs, token_summary=token_summary,
+             feedback_items=feedback_items,
+             invite_result=invite_result, invite_error=invite_error),
+    )
+
+
+@router.post('/users/delete', response_class=HTMLResponse)
+async def ui_users_delete(request: Request, auth_user: AuthUser = Depends(require_admin)):
+    """Vollständig einen Nutzer löschen (DSGVO-konform)."""
+    form = await request.form()
+    username = str(form.get('username', '')).strip()
+
+    if not username:
+        from starlette.responses import RedirectResponse
+        return RedirectResponse('/ui/users', status_code=303)
+
+    if username == auth_user.username:
+        from starlette.responses import RedirectResponse
+        return RedirectResponse('/ui/users', status_code=303)
+
+    import asyncpg
+    settings = get_settings()
+    user_repo = get_user_repository()
+
+    try:
+        # 1. Delete user record from auth store
+        existing = await user_repo.find_by_username(username)
+        if existing:
+            await user_repo.delete_user(username)
+
+        # 2. Delete related DB data (conversations, token_usage, feedback, etc.)
+        if not settings.database_url.startswith('memory://'):
+            conn = await asyncpg.connect(settings.database_url)
+            try:
+                # Delete conversations
+                await conn.execute(
+                    "DELETE FROM frya_conversations WHERE user_id = $1", username)
+                # Delete token usage
+                await conn.execute(
+                    "DELETE FROM frya_token_usage WHERE agent_id = $1", username)
+                # Delete feedback
+                await conn.execute(
+                    "DELETE FROM frya_feedback WHERE user_id = $1", username)
+                # Delete user preferences
+                await conn.execute(
+                    "DELETE FROM frya_user_preferences WHERE user_id = $1", username)
+            except Exception:
+                pass  # Tables may not exist yet
+            finally:
+                await conn.close()
+
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning('user delete failed: %s', exc)
+
+    from starlette.responses import RedirectResponse
+    return RedirectResponse('/ui/users', status_code=303)
 
 
 # ---------------------------------------------------------------------------

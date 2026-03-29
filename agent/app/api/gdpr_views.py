@@ -78,7 +78,7 @@ async def export_tenant_data(
             break
         for case in batch:
             cases_data.append(case.model_dump(mode='json'))
-            case_docs = await case_repo.get_case_documents(case.case_id)
+            case_docs = await case_repo.get_case_documents(str(case.id))
             for doc in case_docs:
                 docs_data.append(doc.model_dump(mode='json'))
         offset += len(batch)

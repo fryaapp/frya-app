@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -148,6 +148,70 @@ async def get_contact(contact_id: str, user: AuthUser = Depends(require_authenti
     return contact.model_dump(mode='json')
 
 
+@router.get('/contacts/{contact_id}/dossier')
+async def get_contact_dossier(contact_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
+    """Komplette Kundenakte — Kontakt + Stats + letzte Buchungen + offene Posten."""
+    tid = await _resolve_tenant()
+    repo = _get_repo()
+
+    contact = await repo.get_contact_by_id(tid, uuid.UUID(contact_id))
+    if not contact:
+        raise HTTPException(status_code=404, detail='Kontakt nicht gefunden')
+
+    # Get bookings for this contact
+    all_bookings = await repo.list_bookings(tid, limit=10000)
+    contact_bookings = [b for b in all_bookings if b.contact_id == contact_id]
+    contact_bookings.sort(key=lambda b: b.booking_date, reverse=True)
+    recent = contact_bookings[:10]
+
+    # Get open items for this contact
+    try:
+        open_items = await repo.list_open_items_by_contact(tid, uuid.UUID(contact_id))
+    except Exception:
+        open_items = []
+
+    # Stats
+    income = sum(float(b.gross_amount) for b in contact_bookings if b.booking_type == 'INCOME')
+    expenses = sum(float(b.gross_amount) for b in contact_bookings if b.booking_type == 'EXPENSE')
+    open_amount = sum(float(oi.original_amount - oi.paid_amount) for oi in open_items if oi.status in ('OPEN', 'OVERDUE', 'PARTIALLY_PAID'))
+    overdue = [oi for oi in open_items if oi.status == 'OVERDUE' or (oi.due_date and oi.due_date < date.today() and oi.status == 'OPEN')]
+
+    return {
+        'contact': {
+            'id': contact.id, 'name': contact.name,
+            'display_name': contact.display_name,
+            'category': getattr(contact, 'category', 'OTHER'),
+            'contact_type': contact.contact_type,
+            'email': contact.email, 'phone': contact.phone,
+            'address': f'{contact.address_street or ""}, {contact.address_zip or ""} {contact.address_city or ""}'.strip(', ') or None,
+            'tax_id': contact.tax_id, 'iban': contact.iban,
+            'notes': contact.notes,
+            'default_payment_terms_days': getattr(contact, 'default_payment_terms_days', 14),
+        },
+        'stats': {
+            'total_revenue': income,
+            'total_expenses': expenses,
+            'open_amount': open_amount,
+            'overdue_count': len(overdue),
+            'booking_count': len(contact_bookings),
+            'first_contact': min((b.booking_date.isoformat() for b in contact_bookings), default=None),
+            'last_contact': max((b.booking_date.isoformat() for b in contact_bookings), default=None),
+        },
+        'recent_bookings': [
+            {'booking_number': b.booking_number, 'date': b.booking_date.isoformat(),
+             'description': b.description, 'amount': float(b.gross_amount), 'type': b.booking_type}
+            for b in recent
+        ],
+        'open_items': [
+            {'id': oi.id, 'amount': float(oi.original_amount),
+             'paid': float(oi.paid_amount),
+             'due_date': oi.due_date.isoformat() if oi.due_date else None,
+             'status': oi.status}
+            for oi in open_items
+        ],
+    }
+
+
 # ── Open Items ───────────────────────────────────────────────────────────────
 
 @router.get('/open-items')
@@ -202,6 +266,74 @@ async def get_invoice(invoice_id: str, user: AuthUser = Depends(require_authenti
     if not inv:
         raise HTTPException(status_code=404, detail='invoice_not_found')
     return inv.model_dump(mode='json')
+
+
+@router.post('/invoices/{invoice_id}/finalize')
+async def finalize_invoice(invoice_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
+    """Finalize a DRAFT invoice: set status=SENT, create booking + open item."""
+    tid = await _resolve_tenant()
+    repo = _get_repo()
+
+    invoices = await repo.list_invoices(tid)
+    inv = next((i for i in invoices if i.id == invoice_id), None)
+    if not inv:
+        raise HTTPException(status_code=404, detail='invoice_not_found')
+    if inv.status != 'DRAFT':
+        raise HTTPException(status_code=409, detail=f'Invoice is already {inv.status}')
+
+    # 1. Create booking (Erlöse) — BEFORE status change so we can rollback
+    booking_svc = _get_booking_svc()
+    booking = await booking_svc.create_manual_booking(
+        tenant_id=tid,
+        booking_date=date.today(),
+        description=f'Rechnung {inv.invoice_number} — {inv.gross_total}€',
+        account_soll='1200',  # Forderungen aus L+L
+        account_haben='7000',  # Umsatzerlöse 19%
+        gross_amount=inv.gross_total,
+        booking_type='INCOME',
+        created_by=user.username,
+        net_amount=inv.net_total,
+        tax_rate=Decimal('19.00'),
+        tax_amount=inv.tax_total,
+        document_number=inv.invoice_number,
+    )
+
+    # 2. Create open item (Forderung)
+    oi_due = inv.due_date if inv.due_date else (date.today() + timedelta(days=14))
+    if isinstance(oi_due, str):
+        oi_due = date.fromisoformat(oi_due)
+    oi = await repo.create_open_item(tid, {
+        'contact_id': inv.contact_id,
+        'item_type': 'RECEIVABLE',
+        'original_amount': float(inv.gross_total),
+        'paid_amount': 0.0,
+        'currency': 'EUR',
+        'due_date': oi_due,
+        'reference': inv.invoice_number,
+        'status': 'OPEN',
+        'case_id': None,
+    })
+
+    # 3. Update status to SENT (only after booking + OP succeeded)
+    from app.dependencies import get_settings
+    settings = get_settings()
+    import asyncpg
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        await conn.execute(
+            "UPDATE frya_invoices SET status = 'SENT' WHERE id = $1::uuid",
+            invoice_id,
+        )
+    finally:
+        await conn.close()
+
+    return {
+        'status': 'finalized',
+        'invoice_status': 'SENT',
+        'booking_id': booking.id,
+        'booking_number': booking.booking_number,
+        'open_item_id': oi.id if oi else None,
+    }
 
 
 # ── Reports ──────────────────────────────────────────────────────────────────

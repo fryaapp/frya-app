@@ -255,6 +255,17 @@ class UserRepository:
         finally:
             await conn.close()
 
+    async def delete_user(self, username: str) -> None:
+        """Permanently delete a user record (DSGVO-compliant full deletion)."""
+        if self.is_memory:
+            self._memory.pop(username, None)
+            return
+        conn = await asyncpg.connect(self.database_url)
+        try:
+            await conn.execute("DELETE FROM frya_users WHERE username=$1", username)
+        finally:
+            await conn.close()
+
     async def activate_user(self, username: str) -> None:
         """Set is_active=True for a user (account activation)."""
         if self.is_memory:

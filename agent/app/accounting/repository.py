@@ -65,17 +65,36 @@ SKR03_SEED: list[tuple[str, str, str, float | None]] = [
 
 
 def compute_booking_hash(booking_data: dict, previous_hash: str) -> str:
-    """GoBD: SHA-256 hash-chain for booking journal."""
-    payload = json.dumps({
-        'previous_hash': previous_hash,
-        'booking_number': booking_data['booking_number'],
-        'booking_date': str(booking_data['booking_date']),
-        'account_soll': booking_data['account_soll'],
-        'account_haben': booking_data['account_haben'],
-        'gross_amount': str(booking_data['gross_amount']),
-        'description': booking_data['description'],
-        'created_at': str(booking_data['created_at']),
-    }, sort_keys=True)
+    """GoBD: SHA-256 hash-chain for booking journal.
+
+    Uses a deterministic pipe-separated format to avoid JSON/datetime serialization
+    drift.  The ``created_at`` field is normalized to second precision (no
+    microseconds) so the hash is identical before and after a DB round-trip.
+    """
+    # Normalize created_at to second precision — DB stores microseconds but
+    # Python's str(datetime) and asyncpg's returned datetime may differ after
+    # the round-trip.  Truncating to seconds keeps the hash deterministic.
+    raw_ts = booking_data.get('created_at', '')
+    if hasattr(raw_ts, 'strftime'):
+        ts_str = raw_ts.strftime('%Y-%m-%dT%H:%M:%S')
+    else:
+        # Already a string — truncate to seconds
+        ts_str = str(raw_ts)[:19].replace(' ', 'T')
+
+    # Normalize gross_amount to 2 decimal places
+    raw_amount = booking_data['gross_amount']
+    amount_str = f'{float(raw_amount):.2f}'
+
+    payload = '|'.join([
+        previous_hash,
+        str(booking_data['booking_number']),
+        str(booking_data['booking_date']),
+        booking_data['account_soll'],
+        booking_data['account_haben'],
+        amount_str,
+        booking_data['description'],
+        ts_str,
+    ])
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
@@ -785,7 +804,14 @@ class AccountingRepository:
             address_city=row.get('address_city'), address_country=row.get('address_country', 'Deutschland'),
             tax_id=row.get('tax_id'), tax_number=row.get('tax_number'),
             iban=row.get('iban'), bic=row.get('bic'),
-            default_account=row.get('default_account'), notes=row.get('notes'),
+            default_account=row.get('default_account'),
+            category=row.get('category', 'OTHER'),
+            notes=row.get('notes'),
+            default_payment_terms_days=row.get('default_payment_terms_days', 14),
+            default_skonto_percent=row.get('default_skonto_percent'),
+            default_skonto_days=row.get('default_skonto_days'),
+            tags=row.get('tags') or [],
+            paperless_correspondent_id=row.get('paperless_correspondent_id'),
             is_active=row.get('is_active', True),
             created_at=row.get('created_at'), updated_at=row.get('updated_at'),
         )

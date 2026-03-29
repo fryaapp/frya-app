@@ -38,7 +38,11 @@ interface ChatState {
   messages: ChatMessage[]
   isTyping: boolean
   typingHint: string | null
+  /** Text queued by StartPage that ChatPanel's WebSocket needs to send */
+  pendingSend: string | null
   addUserMessage: (text: string) => void
+  /** Queue a message for WS send (used by StartPage) */
+  setPendingSend: (text: string | null) => void
   startAssistantMessage: () => string
   appendChunk: (id: string, text: string) => void
   completeMessage: (id: string, text: string, suggestions?: string[], caseRef?: string | null, contextType?: string) => void
@@ -56,6 +60,8 @@ export const useChatStore = create<ChatState>((set) => ({
   messages: [],
   isTyping: false,
   typingHint: null,
+  pendingSend: null,
+  setPendingSend: (text) => set({ pendingSend: text }),
 
   addUserMessage: (text) => {
     const id = `user-${++msgCounter}`
@@ -136,5 +142,5 @@ export const useChatStore = create<ChatState>((set) => ({
   },
 
   setTyping: (v, hint) => set({ isTyping: v, typingHint: hint ?? null }),
-  clear: () => set({ messages: [], isTyping: false, typingHint: null }),
+  clear: () => set({ messages: [], isTyping: false, typingHint: null, pendingSend: null }),
 }))

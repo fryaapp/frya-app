@@ -8,7 +8,7 @@ function getConfidenceInfo(c: number | null): { label: string; color: string } {
   if (c >= 0.85) return { label: 'Sicher', color: 'bg-success-container text-success' }
   if (c >= 0.70) return { label: 'Hoch', color: 'bg-info-container text-info' }
   if (c >= 0.40) return { label: 'Mittel', color: 'bg-warning-container text-warning' }
-  return { label: 'Unsicher', color: 'bg-error-container text-error border border-dashed border-error/30' }
+  return { label: 'Unsicher', color: 'bg-warning-container text-warning border border-dashed border-warning/30' }
 }
 
 export function ConfidenceBadge({ confidence, className = '' }: BadgeProps) {

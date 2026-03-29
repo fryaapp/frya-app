@@ -4,7 +4,8 @@ WS /api/v1/chat/stream?token=JWT
 POST /api/v1/chat  (synchronous fallback)
 
 Protocol (inbound):
-  {"type": "message", "text": "..."}
+  {"type": "message", "text": "...", "quick_action": {...}}  # quick_action optional
+  {"type": "form_submit", "form_type": "...", "data": {...}}
   {"type": "ping"}
 
 Protocol (outbound):
@@ -12,8 +13,17 @@ Protocol (outbound):
   {"type": "typing", "active": true/false}
   {"type": "chunk", "text": "..."}
   {"type": "ui_hint", "action": "open_context", "context_type": "..."}
-  {"type": "message_complete", "text": "...", "case_ref": null, "context_type": "...", "suggestions": [...]}
+  {"type": "message_complete", "text": "...", "case_ref": null, "context_type": "...",
+   "suggestions": [...], "content_blocks": [...], "actions": [...]}
   {"type": "error", "message": "..."}
+
+FLOW (after integration):
+  1. User sends message (+ optional quick_action)
+  2. TieredOrchestrator.route() → intent + routing tier (regex/fast/deep)
+  3. For regex/fast: intent is known, skip to step 5
+  4. For deep/fallback: Communicator pipeline (existing code)
+  5. ResponseBuilder adds content_blocks + actions to response
+  6. Backward-compat: text, suggestions, context_type always present
 """
 from __future__ import annotations
 
@@ -42,6 +52,108 @@ from app.telegram.models import TelegramActor, TelegramNormalizedIngressMessage
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/v1/chat', tags=['chat'])
+
+# ---------------------------------------------------------------------------
+# New modules (Phase G/H/I integration)
+# ---------------------------------------------------------------------------
+
+_tiered_orchestrator = None
+_response_builder = None
+
+
+def _get_tiered_orchestrator():
+    global _tiered_orchestrator
+    if _tiered_orchestrator is None:
+        try:
+            from app.agents.tiered_orchestrator import TieredOrchestrator
+            from app.agents.action_router import ActionRouter
+            from app.agents.service_registry import build_service_registry
+            services = build_service_registry()
+            action_router = ActionRouter(services=services)
+            _tiered_orchestrator = TieredOrchestrator(action_router=action_router)
+            logger.info('TieredOrchestrator initialized with ActionRouter (%d services)', len(services))
+        except Exception as exc:
+            logger.warning('TieredOrchestrator unavailable: %s', exc)
+    return _tiered_orchestrator
+
+
+def _get_response_builder():
+    global _response_builder
+    if _response_builder is None:
+        try:
+            from app.agents.response_builder import ResponseBuilder
+            _response_builder = ResponseBuilder()
+        except Exception as exc:
+            logger.warning('ResponseBuilder unavailable: %s', exc)
+    return _response_builder
+
+
+# Map TieredOrchestrator intents to context_type for the frontend
+_TIER_INTENT_TO_CONTEXT: dict[str, str] = {
+    'SHOW_INBOX': 'inbox',
+    'SHOW_FINANCE': 'finance',
+    'SHOW_DEADLINES': 'deadlines',
+    'SHOW_BOOKINGS': 'bookings',
+    'SHOW_OPEN_ITEMS': 'open_items',
+    'SHOW_CONTACT': 'contact_card',
+    'SHOW_EXPORT': 'finance',
+    'CREATE_INVOICE': 'invoice_draft',
+    'CREATE_CONTACT': 'contact_card',
+    'CREATE_REMINDER': 'deadlines',
+    'SETTINGS': 'settings',
+    'UPLOAD': 'upload_status',
+    'STATUS_OVERVIEW': 'none',
+    'SMALL_TALK': 'none',
+    'APPROVE': 'inbox',
+}
+
+
+# ---------------------------------------------------------------------------
+# Name-update detection — detects "Ich heiße X" etc. and persists it
+# ---------------------------------------------------------------------------
+
+import re
+
+_NAME_PATTERNS = [
+    re.compile(r'(?:ich\s+hei(?:ß|ss)e|mein\s+name\s+ist|nenn\s+mich|ich\s+bin(?:\s+die|\s+der)?)\s+(\w[\w\s-]{0,30})', re.IGNORECASE),
+]
+
+
+def _extract_name_intent(user_text: str) -> str | None:
+    """Extract a display-name from the user message, or return None."""
+    text = user_text.strip()
+    for pat in _NAME_PATTERNS:
+        m = pat.search(text)
+        if m:
+            name = m.group(1).strip().rstrip('.!?,;')
+            # Sanity: at least 2 chars, not a common filler
+            if len(name) >= 2 and name.lower() not in ('da', 'ja', 'so', 'es', 'ok'):
+                return name
+    return None
+
+
+async def _persist_display_name(user_id: str, tenant_id: str, new_name: str) -> None:
+    """Write display_name to frya_user_preferences (upsert)."""
+    try:
+        from app.dependencies import get_settings
+        settings = get_settings()
+        db_url = settings.database_url
+        if db_url.startswith('memory://'):
+            return
+        import asyncpg
+        conn = await asyncpg.connect(db_url)
+        try:
+            await conn.execute('''
+                INSERT INTO frya_user_preferences (tenant_id, user_id, key, value, updated_at)
+                VALUES ($1, $2, 'display_name', $3, NOW())
+                ON CONFLICT (tenant_id, user_id, key) DO UPDATE
+                  SET value = EXCLUDED.value, updated_at = NOW()
+            ''', tenant_id, user_id, new_name)
+            logger.info('Persisted display_name=%s for user=%s', new_name, user_id)
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning('Failed to persist display_name: %s', exc)
 
 # ---------------------------------------------------------------------------
 # Typing hints (intent -> user-facing status text)
@@ -193,6 +305,11 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
             data: dict = await websocket.receive_json()
             msg_type = data.get('type')
 
+            # ── Fallback: no type but has text → treat as message ────────
+            if not msg_type and data.get('text'):
+                msg_type = 'message'
+                data['type'] = 'message'
+
             # ── Ping / Pong ───────────────────────────────────────────────
             if msg_type == 'ping':
                 await websocket.send_json({'type': 'pong'})
@@ -216,6 +333,23 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                 })
 
                 try:
+                    # --- Phase 1: TieredOrchestrator intent routing ---
+                    quick_action = data.get('quick_action')
+                    tier_intent = None
+                    tier_routing = None
+                    orchestrator = _get_tiered_orchestrator()
+                    if orchestrator:
+                        try:
+                            routing_result = await orchestrator.route(
+                                message=text, quick_action=quick_action,
+                            )
+                            tier_intent = routing_result.get('intent')
+                            tier_routing = routing_result.get('routing')
+                            logger.info('TieredOrchestrator: intent=%s routing=%s', tier_intent, tier_routing)
+                        except Exception as exc:
+                            logger.warning('TieredOrchestrator failed, falling back: %s', exc)
+
+                    # --- Phase 2: Communicator (always, for natural-language reply) ---
                     result = await _get_communicator_reply(text, user_id, tenant_id)
 
                     if result and result.handled:
@@ -232,14 +366,22 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         )
                         case_ref = None
 
+                    # --- Name-update side-effect ---
+                    extracted_name = _extract_name_intent(text)
+                    if extracted_name:
+                        await _persist_display_name(user_id, tenant_id, extracted_name)
+
                     # --- Determine context_type ---
-                    # Try intent from communicator first, fall back to keywords.
-                    intent = getattr(result, 'intent', None) if result else None
-                    context_type = (
-                        INTENT_TO_CONTEXT.get(intent, 'none')
-                        if intent
-                        else _detect_context_type(text)
-                    )
+                    # Prefer TieredOrchestrator intent, then communicator, then keywords
+                    if tier_intent and tier_intent in _TIER_INTENT_TO_CONTEXT:
+                        context_type = _TIER_INTENT_TO_CONTEXT[tier_intent]
+                    else:
+                        comm_intent = getattr(result, 'intent', None) if result else None
+                        context_type = (
+                            INTENT_TO_CONTEXT.get(comm_intent, 'none')
+                            if comm_intent
+                            else _detect_context_type(text)
+                        )
 
                     # Send ui_hint before message_complete when relevant.
                     if context_type != 'none':
@@ -249,12 +391,69 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             'context_type': context_type,
                         })
 
+                    # --- Phase 3: Fetch data for content_blocks via ServiceRegistry ---
+                    agent_results: dict = {}
+                    if tier_intent and tier_routing in ('regex', 'fast', 'action_router'):
+                        try:
+                            from app.agents.service_registry import build_service_registry
+                            _intent_to_service = {
+                                'SHOW_INBOX': ('inbox_service', 'list_pending'),
+                                'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
+                                'SHOW_DEADLINES': ('deadline_service', 'list'),
+                                'SHOW_BOOKINGS': ('booking_service', 'list'),
+                                'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
+                                'SHOW_CONTACT': ('contact_service', 'get_dossier'),
+                                'SETTINGS': ('settings_service', 'get'),
+                            }
+                            svc_info = _intent_to_service.get(tier_intent)
+                            if svc_info:
+                                registry = build_service_registry()
+                                svc = registry.get(svc_info[0])
+                                if svc:
+                                    method = getattr(svc, svc_info[1], None)
+                                    if method:
+                                        agent_results = await method() or {}
+                        except Exception as exc:
+                            logger.warning('Service data fetch failed: %s', exc)
+
+                    # --- Phase 4: ResponseBuilder (content_blocks + actions) ---
+                    content_blocks: list = []
+                    actions: list = []
+                    rb = _get_response_builder()
+                    if rb and tier_intent:
+                        try:
+                            enhanced = rb.build(
+                                intent=tier_intent,
+                                agent_results=agent_results,
+                                communicator_text=reply_text,
+                            )
+                            content_blocks = enhanced.get('content_blocks', [])
+                            actions = enhanced.get('actions', [])
+                        except Exception as exc:
+                            logger.warning('ResponseBuilder failed: %s', exc)
+
+                    # --- Strip "FRYA:" prefix from reply text ---
+                    if reply_text and reply_text.startswith('FRYA:'):
+                        reply_text = reply_text[5:].strip()
+                    if reply_text and reply_text.startswith('FRYA: '):
+                        reply_text = reply_text[6:].strip()
+
+                    # Build final response (backward-compatible + new fields)
+                    suggestions = (
+                        [a['chat_text'] for a in actions[:3]]
+                        if actions
+                        else _DEFAULT_SUGGESTIONS
+                    )
+
                     await websocket.send_json({
                         'type': 'message_complete',
                         'text': reply_text,
                         'case_ref': case_ref,
                         'context_type': context_type,
-                        'suggestions': _DEFAULT_SUGGESTIONS,
+                        'suggestions': suggestions,
+                        'content_blocks': content_blocks,
+                        'actions': actions,
+                        'routing': tier_routing,
                     })
 
                 except Exception:
@@ -271,11 +470,52 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
 
                 continue
 
-            # ── Unknown frame type ────────────────────────────────────────
-            await websocket.send_json({
-                'type': 'error',
-                'message': f'Unbekannter Nachrichtentyp: {msg_type}',
-            })
+            # ── Form submit ─────────────────────────────────────────────
+            if msg_type == 'form_submit':
+                form_type = data.get('form_type', '')
+                form_data = data.get('data', {})
+                logger.info('Form submit: type=%s user=%s', form_type, user_id)
+                try:
+                    from app.services.form_handlers import (
+                        handle_invoice_form, handle_contact_form, handle_settings_form,
+                    )
+                    rb = _get_response_builder()
+                    if form_type == 'invoice':
+                        result = await handle_invoice_form(form_data, user_id)
+                        text = f'FRYA: Rechnung {result.get("invoice_number","?")} erstellt ({result.get("gross_total","?")}€, Entwurf).'
+                    elif form_type == 'contact':
+                        result = await handle_contact_form(form_data, user_id)
+                        text = f'FRYA: Kontakt {form_data.get("name","?")} gespeichert.'
+                    elif form_type == 'settings':
+                        result = await handle_settings_form(form_data, user_id)
+                        text = 'FRYA: Einstellungen gespeichert.'
+                    else:
+                        result = {}
+                        text = f'FRYA: Formular "{form_type}" wird noch nicht unterstützt.'
+
+                    response: dict = {
+                        'type': 'message_complete',
+                        'text': text,
+                        'content_blocks': [],
+                        'actions': [],
+                        'suggestions': _DEFAULT_SUGGESTIONS,
+                        'context_type': 'none',
+                    }
+                    if rb:
+                        enhanced = rb.build(f'SUBMIT_{form_type.upper()}', result, text)
+                        response['content_blocks'] = enhanced.get('content_blocks', [])
+                        response['actions'] = enhanced.get('actions', [])
+                    await websocket.send_json(response)
+                except Exception as exc:
+                    logger.exception('form_submit error: %s', exc)
+                    await websocket.send_json({
+                        'type': 'error',
+                        'message': f'Formular-Fehler: {str(exc)[:200]}',
+                    })
+                continue
+
+            # ── Unknown frame type — silently ignore, never show to user ──
+            logger.warning('Ignoring unknown WS frame: type=%s keys=%s', msg_type, list(data.keys()))
 
     except WebSocketDisconnect:
         logger.info('WS chat disconnected: user=%s', user_id)

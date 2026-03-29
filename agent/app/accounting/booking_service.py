@@ -190,12 +190,12 @@ class BookingService:
 
             expected_hash = compute_booking_hash({
                 'booking_number': b.booking_number,
-                'booking_date': str(b.booking_date),
+                'booking_date': b.booking_date,
                 'account_soll': b.account_soll,
                 'account_haben': b.account_haben,
-                'gross_amount': str(b.gross_amount),
+                'gross_amount': b.gross_amount,
                 'description': b.description,
-                'created_at': str(b.created_at),
+                'created_at': b.created_at,
             }, b.previous_hash or '0' * 64)
 
             if b.booking_hash != expected_hash:
