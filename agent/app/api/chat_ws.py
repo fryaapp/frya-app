@@ -27,6 +27,7 @@ FLOW (after integration):
 """
 from __future__ import annotations
 
+import html as _html
 import logging
 import uuid
 from typing import Any
@@ -36,6 +37,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.auth.jwt_auth import decode_token
+from app.security.input_sanitizer import sanitize_user_message
 from app.dependencies import (
     get_audit_service,
     get_chat_history_store,
@@ -132,8 +134,21 @@ def _extract_name_intent(user_text: str) -> str | None:
     return None
 
 
+def _sanitize_display_name(name: str) -> str:
+    """Sanitize display_name to prevent XSS."""
+    # HTML-escape first
+    name = _html.escape(name, quote=True)
+    # Only allow letters, numbers, spaces, hyphens, German umlauts
+    name = re.sub(r'[^\w\s\-äöüÄÖÜß]', '', name)
+    # Max 50 chars
+    return name[:50].strip()
+
+
 async def _persist_display_name(user_id: str, tenant_id: str, new_name: str) -> None:
     """Write display_name to frya_user_preferences (upsert)."""
+    new_name = _sanitize_display_name(new_name)
+    if not new_name:
+        return
     try:
         from app.dependencies import get_settings
         settings = get_settings()
@@ -174,6 +189,8 @@ _GENERIC_TYPING_HINT = 'Einen Moment...'
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+MAX_WS_MESSAGE_LENGTH = 4000
 
 _DEFAULT_SUGGESTIONS: list[str] = [
     'Was gibt es Neues?',
@@ -324,6 +341,38 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         'message': 'Leere Nachricht',
                     })
                     continue
+
+                # H-2: Max message length guard
+                if len(text) > MAX_WS_MESSAGE_LENGTH:
+                    await websocket.send_json({
+                        'type': 'error',
+                        'message': f'Nachricht zu lang (max {MAX_WS_MESSAGE_LENGTH} Zeichen).',
+                    })
+                    continue
+
+                # H-1: Prompt-injection protection before any LLM processing
+                sanitized = sanitize_user_message(text)
+                if sanitized.is_blocked:
+                    logger.warning(
+                        'BLOCKED prompt injection from user=%s score=%.2f patterns=%s',
+                        user_id, sanitized.risk_score, sanitized.detected_patterns,
+                    )
+                    await websocket.send_json({
+                        'type': 'message_complete',
+                        'text': 'Ich kann diese Nachricht leider nicht verarbeiten.',
+                        'case_ref': None,
+                        'context_type': 'none',
+                        'suggestions': _DEFAULT_SUGGESTIONS,
+                        'content_blocks': [],
+                        'actions': [],
+                    })
+                    continue
+                if sanitized.is_suspected:
+                    logger.warning(
+                        'SUSPECTED prompt injection from user=%s score=%.2f patterns=%s',
+                        user_id, sanitized.risk_score, sanitized.detected_patterns,
+                    )
+                text = sanitized.cleaned_text
 
                 # Typing indicator ON with hint
                 await websocket.send_json({
@@ -510,7 +559,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     logger.exception('form_submit error: %s', exc)
                     await websocket.send_json({
                         'type': 'error',
-                        'message': f'Formular-Fehler: {str(exc)[:200]}',
+                        'message': 'Formular konnte nicht verarbeitet werden. Bitte versuche es erneut.',
                     })
                 continue
 

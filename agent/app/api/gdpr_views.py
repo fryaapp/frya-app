@@ -71,6 +71,7 @@ async def export_tenant_data(
     # Collect cases
     cases_data: list[dict] = []
     docs_data: list[dict] = []
+    tenant_case_ids: list[str] = []
     offset = 0
     while True:
         batch = await case_repo.list_cases(tid_uuid, offset=offset, limit=200)
@@ -78,6 +79,7 @@ async def export_tenant_data(
             break
         for case in batch:
             cases_data.append(case.model_dump(mode='json'))
+            tenant_case_ids.append(str(case.id))
             case_docs = await case_repo.get_case_documents(str(case.id))
             for doc in case_docs:
                 docs_data.append(doc.model_dump(mode='json'))
@@ -85,8 +87,10 @@ async def export_tenant_data(
         if len(batch) < 200:
             break
 
-    # Collect audit log (recent 500 events — global log, no tenant filter available)
-    audit_records = await audit_svc.recent(limit=500)
+    # Collect audit log — tenant-scoped (only events belonging to this tenant)
+    audit_records = await audit_svc.recent_for_tenant(
+        tenant_id=tenant_id, case_ids=tenant_case_ids, limit=500
+    )
     audit_data = [r.model_dump(mode='json') for r in audit_records]
 
     # Collect users
@@ -118,7 +122,7 @@ async def export_tenant_data(
                 f'  tenant.json            - Mandant-Stammdaten\n'
                 f'  cases.json             - Alle Vorgaenge des Mandanten\n'
                 f'  documents_metadata.json - Dokument-Metadaten (kein Dateiinhalt)\n'
-                f'  audit_log.json         - Audit-Log (letzte 500 Eintraege, mandantenuebergreifend)\n'
+                f'  audit_log.json         - Audit-Log (letzte 500 Eintraege, mandantenbezogen)\n'
                 f'  users.json             - Nutzerdaten (ohne Passwort-Hash)\n'
             ),
         )
