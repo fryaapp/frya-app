@@ -328,8 +328,26 @@ async def run_document_analyst(state: AgentState) -> AgentState:
     # If raw PDF or XML bytes are present and contain a ZUGFeRD / XRechnung
     # e-invoice, parse the structured XML directly.  Machine-readable XML is
     # ground truth — confidence 1.0, no LLM needed.
+    #
+    # Two detection layers:
+    #   1. preprocessing.einvoice_detector — lightweight dict extraction
+    #   2. e_invoice.parser — full EInvoiceData + DocumentAnalysisResult conversion
     _pdf_bytes: bytes | None = state.get('pdf_bytes')  # type: ignore[assignment]
     if _pdf_bytes:
+        try:
+            from app.preprocessing.einvoice_detector import extract_einvoice_data
+            _einvoice_dict = extract_einvoice_data(_pdf_bytes)
+            if _einvoice_dict is not None:
+                _logger.info(
+                    'E-invoice detected via preprocessing: source=%s level=%s invoice=%s',
+                    _einvoice_dict.get('source'),
+                    _einvoice_dict.get('level'),
+                    _einvoice_dict.get('invoice_number'),
+                )
+                state['einvoice_metadata'] = _einvoice_dict
+        except Exception as exc:
+            _logger.debug('Preprocessing e-invoice detection failed: %s', exc)
+
         try:
             from app.e_invoice.parser import (
                 detect_e_invoice,

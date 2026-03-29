@@ -272,6 +272,20 @@ async def bulk_upload(
             continue
         upload_pairs.append((file_bytes, filename, item['id']))
 
+    # ── Step 6a: Image preprocessing (GDPR: strip EXIF, resize, wrap as PDF) ──
+    from app.preprocessing.image_processor import is_image, process_image_to_pdf
+
+    preprocessed_pairs: list[tuple[bytes, str, str]] = []
+    for file_bytes, filename, item_id in upload_pairs:
+        if is_image(filename):
+            try:
+                file_bytes, filename = process_image_to_pdf(file_bytes, filename)
+            except Exception as exc:
+                logger.warning('Image preprocessing failed for %s: %s', filename, exc)
+                # Fall through with original bytes — Paperless can still handle it
+        preprocessed_pairs.append((file_bytes, filename, item_id))
+    upload_pairs = preprocessed_pairs
+
     # Upload via connector (Semaphore(5) inside upload_documents_batch)
     paperless_connector = bulk_svc.paperless
     files_for_upload = [(fb, fn) for fb, fn, _ in upload_pairs]
