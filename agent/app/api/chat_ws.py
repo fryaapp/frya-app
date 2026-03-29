@@ -502,10 +502,8 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             logger.warning('ResponseBuilder failed: %s', exc)
 
                     # --- Strip "FRYA:" prefix from reply text ---
-                    if reply_text and reply_text.startswith('FRYA:'):
-                        reply_text = reply_text[5:].strip()
-                    if reply_text and reply_text.startswith('FRYA: '):
-                        reply_text = reply_text[6:].strip()
+                    if reply_text:
+                        reply_text = re.sub(r'^FRYA:\s*', '', reply_text)
 
                     # Build final response (backward-compatible + new fields)
                     suggestions = (
