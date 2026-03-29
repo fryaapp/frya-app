@@ -81,6 +81,7 @@ async def _get_display_name(username: str, tenant_id: uuid.UUID) -> str:
         if db_url.startswith('memory://'):
             return username
         import asyncpg
+        # TODO(P-53): Replace with connection pool from app lifespan
         conn = await asyncpg.connect(db_url)
         try:
             row = await conn.fetchrow(
