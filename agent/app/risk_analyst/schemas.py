@@ -13,6 +13,7 @@ CheckType = Literal[
     'tax_plausibility',
     'vendor_consistency',
     'booking_plausibility',
+    'timeline_check',
 ]
 
 _SEVERITY_ORDER: dict[str, int] = {
