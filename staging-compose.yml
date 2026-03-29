@@ -156,55 +156,6 @@ services:
       retries: 10
       start_period: 90s
 
-  akaunting:
-    image: akaunting/akaunting:latest
-    container_name: frya-akaunting
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_CONNECTION: pgsql
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_DATABASE: akaunting
-      DB_USERNAME: frya
-      DB_PASSWORD: ${STAGING_POSTGRES_PASSWORD}
-      DB_PREFIX: akai_
-      ADMIN_EMAIL: admin@myfrya.de
-      ADMIN_PASSWORD: ${STAGING_AKAUNTING_ADMIN_PASSWORD}
-      APP_URL: https://akaunting.staging.myfrya.de
-    volumes:
-      - akaunting_data:/var/www/html/storage
-    networks:
-      - frya-internal
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.akaunting.rule=Host(`akaunting.staging.myfrya.de`)
-      - traefik.http.routers.akaunting.entrypoints=websecure
-      - traefik.http.routers.akaunting.tls.certresolver=le
-      - traefik.http.services.akaunting.loadbalancer.server.port=80
-      - com.centurylinklabs.watchtower.enable=false
-
-  mariadb:
-    image: mariadb:11
-    container_name: frya-mariadb
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${STAGING_MARIADB_ROOT_PASSWORD}
-      MYSQL_DATABASE: akaunting
-      MYSQL_USER: akaunting
-      MYSQL_PASSWORD: ${STAGING_MARIADB_PASSWORD}
-    volumes:
-      - mariadb_data:/var/lib/mysql
-    networks:
-      - frya-internal
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   n8n:
     image: n8nio/n8n:latest
     container_name: frya-n8n
@@ -283,8 +234,6 @@ volumes:
   paperless_media:
   paperless_export:
   paperless_consume:
-  akaunting_data:
-  mariadb_data:
   n8n_data:
   uptime_kuma_data:
 

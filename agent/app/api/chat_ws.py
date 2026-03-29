@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import html as _html
 import logging
+import time
 import uuid
 from typing import Any
 
@@ -156,6 +157,7 @@ async def _persist_display_name(user_id: str, tenant_id: str, new_name: str) -> 
         if db_url.startswith('memory://'):
             return
         import asyncpg
+        # TODO(P-53): Replace with connection pool from app lifespan
         conn = await asyncpg.connect(db_url)
         try:
             await conn.execute('''
@@ -317,6 +319,11 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
     await websocket.accept()
     logger.info('WS chat connected: user=%s tenant=%s', user_id, tenant_id)
 
+    # Rate limiting state (per connection)
+    _msg_count = 0
+    _rate_window_start = time.monotonic()
+    _MAX_MESSAGES_PER_MINUTE = 30
+
     try:
         while True:
             data: dict = await websocket.receive_json()
@@ -347,6 +354,19 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     await websocket.send_json({
                         'type': 'error',
                         'message': f'Nachricht zu lang (max {MAX_WS_MESSAGE_LENGTH} Zeichen).',
+                    })
+                    continue
+
+                # G-1: Per-connection rate limiting
+                now = time.monotonic()
+                if now - _rate_window_start > 60:
+                    _msg_count = 0
+                    _rate_window_start = now
+                _msg_count += 1
+                if _msg_count > _MAX_MESSAGES_PER_MINUTE:
+                    await websocket.send_json({
+                        'type': 'error',
+                        'message': 'Zu viele Nachrichten. Bitte warte einen Moment.',
                     })
                     continue
 
