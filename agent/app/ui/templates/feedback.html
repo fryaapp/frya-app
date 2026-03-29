@@ -4,34 +4,48 @@
 <p class="page-lead">Alle gemeldeten Probleme und Verbesserungsvorschlaege.</p>
 
 {% if items %}
+<div style="margin-bottom:16px; display:flex; gap:12px; align-items:center;">
+  <button id="btn-export" style="background:#D0601A;color:#fff;border:none;padding:8px 20px;border-radius:8px;font-weight:600;cursor:pointer;" disabled>
+    Markierte exportieren (0)
+  </button>
+  <button id="btn-toggle-all" style="background:transparent;border:1px solid #ccc;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13px;">
+    Alle/Keine
+  </button>
+  <span id="export-status" style="font-size:12px;color:#666;"></span>
+</div>
+
 <table>
   <thead>
     <tr>
+      <th style="width:30px"><input type="checkbox" id="check-all"></th>
       <th>Datum</th>
       <th>User</th>
       <th>Seite</th>
       <th>Beschreibung</th>
       <th>Status</th>
+      <th>Exp.</th>
     </tr>
   </thead>
   <tbody>
     {% for item in items %}
-    <tr>
+    <tr data-feedback-id="{{ item.id }}">
+      <td><input type="checkbox" class="fb-check" value="{{ item.id }}"></td>
       <td>{{ item.created_at.strftime('%d.%m.%Y %H:%M') if item.created_at else '-' }}</td>
-      <td>{{ item.user_id[:8] }}...</td>
-      <td><code>{{ item.page or '-' }}</code></td>
-      <td>{{ item.description[:200] }}</td>
+      <td><strong>{{ item.user_id }}</strong></td>
+      <td><code style="font-size:11px;">{{ (item.page or '-')[-30:] }}</code></td>
+      <td>{{ item.description[:120] }}{{ '...' if item.description|length > 120 else '' }}</td>
       <td>
         {% if item.status == 'NEW' %}
         <span class="state-badge state-warn">Neu</span>
         {% elif item.status == 'IN_PROGRESS' %}
-        <span class="state-badge">In Bearbeitung</span>
+        <span class="state-badge">In Bearb.</span>
         {% elif item.status == 'RESOLVED' %}
         <span class="state-badge state-ok">Erledigt</span>
         {% else %}
         <span class="state-badge">{{ item.status }}</span>
         {% endif %}
       </td>
+      <td>{% if item.exported %}<span title="Bereits exportiert" style="color:green;">&#10003;</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>
@@ -39,4 +53,6 @@
 {% else %}
 <p class="empty-sub">Noch kein Feedback eingegangen.</p>
 {% endif %}
+
+<script src="/ui/static/feedback_admin.js?v=3"></script>
 {% endblock %}

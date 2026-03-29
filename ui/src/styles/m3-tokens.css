@@ -1,59 +1,84 @@
 /* M3 Design Tokens — Generated from seed #E87830 (FRYA Orange) */
+/* V2: Vibrant + High Contrast */
 
 :root {
-  --frya-primary: #FFB68E;
-  --frya-on-primary: #522300;
-  --frya-primary-container: #733400;
-  --frya-on-primary-container: #FFDBC9;
+  /* ── Primary ── */
+  --frya-primary: #F08A3A;
+  --frya-on-primary: #fff;
+  --frya-primary-container: #8B4513;
+  --frya-on-primary-container: #FFD5B8;
+
+  /* ── Secondary ── */
   --frya-secondary-container: #5B4130;
   --frya-on-secondary-container: #FFDBC9;
+
+  /* ── Tertiary ── */
   --frya-tertiary-container: #464A1F;
   --frya-on-tertiary-container: #C6CB93;
-  --frya-surface: #1A1110;
-  --frya-on-surface: #F0DED7;
-  --frya-on-surface-variant: #D7C2B9;
-  --frya-surface-container-lowest: #201714;
-  --frya-surface-container-low: #271D1A;
-  --frya-surface-container: #322824;
-  --frya-surface-container-high: #3D322F;
-  --frya-outline: #A08D84;
-  --frya-outline-variant: #52443D;
-  --frya-error: #FFB4AB;
-  --frya-error-container: #93000A;
-  --frya-success: #7CDB8A;
-  --frya-success-container: #00531C;
-  --frya-warning: #E4C54A;
-  --frya-warning-container: #554500;
-  --frya-info: #A0C9FF;
-  --frya-info-container: #00497D;
-  --frya-page-bg: #0a0807;
+
+  /* ── Surfaces — wider spread for contrast ── */
+  --frya-surface: #141010;
+  --frya-on-surface: #F5E8E2;
+  --frya-on-surface-variant: #C4AFA6;
+  --frya-surface-container-lowest: #0E0A09;
+  --frya-surface-container-low: #1C1614;
+  --frya-surface-container: #261E1B;
+  --frya-surface-container-high: #352B27;
+  --frya-surface-container-highest: #413633;
+
+  /* ── Outline ── */
+  --frya-outline: #9A857B;
+  --frya-outline-variant: #4A3B35;
+
+  /* ── Semantic ── */
+  --frya-error: #FF8A80;
+  --frya-error-container: #8B0000;
+  --frya-success: #66E07A;
+  --frya-success-container: #004D1A;
+  --frya-warning: #FFD54F;
+  --frya-warning-container: #5C4800;
+  --frya-info: #82B6FF;
+  --frya-info-container: #003D6F;
+
+  /* ── Page ── */
+  --frya-page-bg: #080605;
+
+  /* ── Glow / accent helpers ── */
+  --frya-glow: rgba(240, 138, 58, 0.12);
+  --frya-glow-strong: rgba(240, 138, 58, 0.25);
+  --frya-card-shadow: 0 2px 12px rgba(0,0,0,0.5), 0 0 1px rgba(240,138,58,0.08);
 }
 
 [data-theme="light"] {
-  --frya-primary: #904B22;
+  --frya-primary: #D0601A;
   --frya-on-primary: #FFF;
-  --frya-primary-container: #FFDBC9;
-  --frya-on-primary-container: #331200;
-  --frya-secondary-container: #FFDBC9;
+  --frya-primary-container: #FFDCC8;
+  --frya-on-primary-container: #441800;
+  --frya-secondary-container: #FFD5BC;
   --frya-on-secondary-container: #2B1609;
   --frya-tertiary-container: #E3E6AD;
   --frya-on-tertiary-container: #5E6134;
-  --frya-surface: #FFF8F5;
-  --frya-on-surface: #201A17;
-  --frya-on-surface-variant: #52443D;
-  --frya-surface-container-lowest: #FAF0EB;
-  --frya-surface-container-low: #F4E6DF;
-  --frya-surface-container: #EEDFD8;
-  --frya-surface-container-high: #E8DAD3;
-  --frya-outline: #84746B;
-  --frya-outline-variant: #D7C2B9;
-  --frya-error: #BA1A1A;
+  --frya-surface: #FFF9F6;
+  --frya-on-surface: #1A1210;
+  --frya-on-surface-variant: #4A3B34;
+  --frya-surface-container-lowest: #FFF3EC;
+  --frya-surface-container-low: #FBE8DE;
+  --frya-surface-container: #F3DDD2;
+  --frya-surface-container-high: #EAD0C4;
+  --frya-surface-container-highest: #DFC3B6;
+  --frya-outline: #6E5E56;
+  --frya-outline-variant: #CFBAB0;
+  --frya-error: #C62828;
   --frya-error-container: #FFDAD6;
   --frya-success: #006D2E;
   --frya-success-container: #9AF6A3;
-  --frya-warning: #6D5E00;
+  --frya-warning: #7A6400;
   --frya-warning-container: #FCEA4A;
   --frya-info: #00639B;
   --frya-info-container: #CEE5FF;
-  --frya-page-bg: #e8e0d9;
+  --frya-page-bg: #E2D4CA;
+
+  --frya-glow: rgba(208, 96, 26, 0.08);
+  --frya-glow-strong: rgba(208, 96, 26, 0.15);
+  --frya-card-shadow: 0 1px 8px rgba(0,0,0,0.1);
 }

@@ -72,6 +72,31 @@ def _time_greeting(username: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+async def _get_display_name(username: str, tenant_id: uuid.UUID) -> str:
+    """Read display_name from frya_user_preferences, fallback to username."""
+    try:
+        from app.dependencies import get_settings
+        settings = get_settings()
+        db_url = settings.database_url
+        if db_url.startswith('memory://'):
+            return username
+        import asyncpg
+        conn = await asyncpg.connect(db_url)
+        try:
+            row = await conn.fetchrow(
+                "SELECT value FROM frya_user_preferences "
+                "WHERE user_id = $1 AND key = 'display_name' LIMIT 1",
+                username,
+            )
+            if row and row['value']:
+                return row['value']
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning('Failed to read display_name: %s', exc)
+    return username
+
+
 @router.get('/greeting')
 async def get_greeting(user: AuthUser = Depends(require_authenticated)) -> dict:
     """Personalised greeting with quick status summary for the start page."""
@@ -167,8 +192,11 @@ async def get_greeting(user: AuthUser = Depends(require_authenticated)) -> dict:
     else:
         suggestions = ['Inbox öffnen']
 
+    # Resolve display_name (from user preferences, fallback to username)
+    display_name = await _get_display_name(user.username, tenant_id)
+
     return {
-        'greeting': _time_greeting(user.username),
+        'greeting': _time_greeting(display_name),
         'status_summary': status_summary,
         'urgent': urgent,
         'suggestions': suggestions,

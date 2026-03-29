@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Icon, Button, Card } from '../components/m3'
 import { useTheme } from '../hooks/useTheme'
 import { useAuthStore } from '../stores/authStore'
@@ -65,6 +66,7 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
 export function SettingsPage() {
   const { theme, setTheme } = useTheme()
   const logout = useAuthStore((s) => s.logout)
+  const navigate = useNavigate()
   const [settings, setSettings] = useState<Settings>(defaultSettings)
   const [toast, setToast] = useState(false)
 
@@ -151,6 +153,25 @@ export function SettingsPage() {
             <ChoiceChip label="Telegram" active={settings.notification_channel === 'telegram'} onClick={() => handleNotif('telegram')} />
             <ChoiceChip label="E-Mail" active={settings.notification_channel === 'email'} onClick={() => handleNotif('email')} />
             <ChoiceChip label="Aus" active={settings.notification_channel === null} onClick={() => handleNotif(null)} />
+          </div>
+        </Card>
+
+        {/* Quick Links */}
+        <Card variant="filled" className="p-4">
+          <h3 className="text-sm font-semibold text-on-surface mb-3">Schnellzugriff</h3>
+          <div className="flex flex-col gap-2">
+            <Button variant="tonal" icon="upload" onClick={() => navigate('/upload')} className="w-full">
+              Wäschekorb
+            </Button>
+            <Button variant="tonal" icon="schedule" onClick={() => navigate('/deadlines')} className="w-full">
+              Fristen
+            </Button>
+            <Button variant="tonal" icon="person" onClick={() => navigate('/profile')} className="w-full">
+              Profil
+            </Button>
+            <Button variant="tonal" icon="group_add" onClick={() => navigate('/admin/users')} className="w-full">
+              Nutzer einladen
+            </Button>
           </div>
         </Card>
 

@@ -2,7 +2,45 @@
 @import "./styles/m3-tokens.css";
 @import "./styles/fonts.css";
 
-/* Base */
+@theme {
+  --color-primary: var(--frya-primary);
+  --color-on-primary: var(--frya-on-primary);
+  --color-primary-container: var(--frya-primary-container);
+  --color-on-primary-container: var(--frya-on-primary-container);
+  --color-secondary-container: var(--frya-secondary-container);
+  --color-on-secondary-container: var(--frya-on-secondary-container);
+  --color-tertiary-container: var(--frya-tertiary-container);
+  --color-on-tertiary-container: var(--frya-on-tertiary-container);
+  --color-surface: var(--frya-surface);
+  --color-on-surface: var(--frya-on-surface);
+  --color-on-surface-variant: var(--frya-on-surface-variant);
+  --color-surface-container: var(--frya-surface-container);
+  --color-surface-container-low: var(--frya-surface-container-low);
+  --color-surface-container-lowest: var(--frya-surface-container-lowest);
+  --color-surface-container-high: var(--frya-surface-container-high);
+  --color-surface-container-highest: var(--frya-surface-container-highest);
+  --color-outline: var(--frya-outline);
+  --color-outline-variant: var(--frya-outline-variant);
+  --color-error: var(--frya-error);
+  --color-error-container: var(--frya-error-container);
+  --color-success: var(--frya-success);
+  --color-success-container: var(--frya-success-container);
+  --color-warning: var(--frya-warning);
+  --color-warning-container: var(--frya-warning-container);
+  --color-info: var(--frya-info);
+  --color-info-container: var(--frya-info-container);
+  --color-page-bg: var(--frya-page-bg);
+
+  --font-display: 'Outfit', sans-serif;
+  --font-body: 'Plus Jakarta Sans', sans-serif;
+
+  --radius-m3-sm: 8px;
+  --radius-m3: 12px;
+  --radius-m3-lg: 16px;
+  --radius-m3-xl: 28px;
+}
+
+/* ── Base ── */
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -15,13 +53,14 @@ body {
   color: var(--frya-on-surface);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.4s ease, color 0.4s ease;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: 'Outfit', sans-serif;
 }
 
-/* Material Symbols Rounded */
+/* ── Material Symbols Rounded ── */
 .material-symbols-rounded {
   font-family: 'Material Symbols Rounded';
   font-weight: normal;
@@ -38,36 +77,141 @@ h1, h2, h3, h4, h5, h6 {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-/* Scrollbar */
+/* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--frya-surface); }
 ::-webkit-scrollbar-thumb { background: var(--frya-outline-variant); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--frya-outline); }
 
-/* Animation keyframes */
+/* ── Animation keyframes ── */
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 @keyframes pulse-dot {
-  0%, 100% { opacity: .35; }
+  0%, 100% { opacity: .3; }
   50% { opacity: 1; }
 }
 
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .animate-fade-up {
-  animation: fade-up 0.3s ease both;
+  animation: fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease both;
 }
 
 .animate-pulse-dot {
   animation: pulse-dot 1.4s ease-in-out infinite;
 }
 
-/* Safe area for mobile bottom nav */
+.animate-slide-up {
+  animation: slide-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes bug-modal-in {
+  from { opacity: 0; transform: translate(-50%, -46%); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+/* ── TopBar gradient strip (warm glow at top of inner pages) ── */
+.topbar-glow::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, var(--frya-primary) 30%, var(--frya-primary) 70%, transparent 100%);
+  opacity: 0.3;
+}
+
+/* ── Card hover lift ── */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--frya-card-shadow);
+}
+
+/* ── Glowing accent border ── */
+.glow-border {
+  box-shadow: 0 0 0 1px var(--frya-outline-variant), 0 0 12px var(--frya-glow);
+}
+
+/* ── Skeleton shimmer ── */
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--frya-surface-container) 0%,
+    var(--frya-surface-container-high) 40%,
+    var(--frya-surface-container) 80%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* ── Safe area for mobile bottom nav ── */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Smooth page transitions */
-body {
-  transition: background-color 0.4s ease, color 0.4s ease;
+/* ── FRYA chat animations ── */
+@keyframes frya-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── FRYA avatar animations ── */
+@keyframes frya-avatar-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.8; }
+}
+
+@keyframes frya-glow-breathe {
+  0%, 100% { box-shadow: 0 2px 12px rgba(240,138,58,0.3); }
+  50% { box-shadow: 0 0 28px rgba(240,138,58,0.65), 0 0 56px rgba(240,138,58,0.2); }
+}
+
+/* ── Sparkle animations (FRYA typing indicator) ── */
+@keyframes sparkle-spin {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(90deg) scale(1.15); }
+  50% { transform: rotate(180deg) scale(1); }
+  75% { transform: rotate(270deg) scale(1.1); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes sparkle-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* ── Staggered animation delays ── */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 AccountType = Literal['EXPENSE', 'REVENUE', 'ASSET', 'LIABILITY', 'EQUITY']
 ContactType = Literal['VENDOR', 'CUSTOMER', 'BOTH']
+ContactCategory = Literal['CUSTOMER', 'SUPPLIER', 'BOTH', 'AUTHORITY', 'OTHER']
 BookingType = Literal['INCOME', 'EXPENSE', 'TRANSFER', 'CORRECTION']
 BookingStatus = Literal['DRAFT', 'BOOKED', 'CANCELLED']
 OpenItemType = Literal['RECEIVABLE', 'PAYABLE']
@@ -45,7 +46,13 @@ class Contact(BaseModel):
     iban: str | None = None
     bic: str | None = None
     default_account: str | None = None
+    category: ContactCategory = 'OTHER'
     notes: str | None = None
+    default_payment_terms_days: int = 14
+    default_skonto_percent: Decimal | None = None
+    default_skonto_days: int | None = None
+    tags: list[str] = Field(default_factory=list)
+    paperless_correspondent_id: int | None = None
     is_active: bool = True
     created_at: datetime | None = None
     updated_at: datetime | None = None

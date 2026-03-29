@@ -15,6 +15,8 @@ interface AuthState {
   refreshToken: string | null
   expiresAt: number | null
   isAuthenticated: boolean
+  /** True once restore() has been called (prevents flash-redirect) */
+  isRestored: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   restore: () => void
@@ -72,6 +74,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     refreshToken: null,
     expiresAt: null,
     isAuthenticated: false,
+    isRestored: false,
 
     login: async (email, password) => {
       const data = await api.post<LoginResponse>('/auth/login', { email, password })
@@ -97,11 +100,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
       if (token && refresh) {
         api.setToken(token)
         api.setRefreshToken(refresh)
-        set({ token, refreshToken: refresh, expiresAt, isAuthenticated: true })
+        set({ token, refreshToken: refresh, expiresAt, isAuthenticated: true, isRestored: true })
 
         if (expiresAt) {
           scheduleRefresh(expiresAt)
         }
+      } else {
+        set({ isRestored: true })
       }
     },
 

@@ -1,6 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import type { ChatMessage } from '../../stores/chatStore'
-import { Icon } from '../m3'
+import { FryaAvatar } from './FryaAvatar'
 import { ApprovalCard } from './ApprovalCard'
 import { DuplicateCard } from './DuplicateCard'
 import { NotificationBubble } from './NotificationBubble'
@@ -34,12 +34,15 @@ export function ChatBubble({ message, onApprovalAction }: ChatBubbleProps) {
 
   const isUser = message.role === 'user'
 
+  // Don't render empty streaming assistant messages (prevents vertical line artifact)
+  if (!isUser && message.isStreaming && !message.text) {
+    return null
+  }
+
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-3`}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-2xl bg-primary-container flex items-center justify-center mr-2 shrink-0 self-end">
-          <Icon name="eco" size={16} filled className="text-on-primary-container" />
-        </div>
+        <FryaAvatar size={32} spinning={message.isStreaming} className="mr-2 self-end" />
       )}
       <div
         className={`max-w-[85%] ${

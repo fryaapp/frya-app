@@ -641,7 +641,33 @@ class TelegramCommunicatorService:
                         if base_url:
                             call_kwargs['api_base'] = base_url
 
-                        resp = await litellm.acompletion(**call_kwargs)
+                        try:
+                            resp = await litellm.acompletion(**call_kwargs)
+                        except (litellm.exceptions.APIError, litellm.exceptions.Timeout,
+                                litellm.exceptions.InternalServerError) as fallback_exc:
+                            # Anthropic overloaded / timeout → fallback to IONOS Mistral
+                            logger.warning(
+                                'Primary LLM (%s) failed: %s. Falling back to IONOS Mistral.',
+                                full_model, fallback_exc,
+                            )
+                            import os as _fb_os
+                            _fb_base = _fb_os.environ.get(
+                                'IONOS_API_BASE',
+                                'https://openai.inference.de-txl.ionos.com/v1',
+                            )
+                            _fb_key = _fb_os.environ.get('IONOS_API_KEY', '')
+                            if _fb_key:
+                                resp = await litellm.acompletion(
+                                    model='openai/Mistral-Small-24B-Instruct-2501',
+                                    messages=call_kwargs['messages'],
+                                    max_tokens=300,
+                                    timeout=_LLM_TIMEOUT,
+                                    api_key=_fb_key,
+                                    api_base=_fb_base,
+                                )
+                                logger.info('Fallback to IONOS Mistral succeeded.')
+                            else:
+                                raise  # No fallback key → re-raise original error
 
                         # Token tracking
                         try:

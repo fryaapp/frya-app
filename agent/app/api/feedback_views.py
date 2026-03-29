@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.auth.dependencies import require_operator, require_admin
+from app.auth.dependencies import require_authenticated, require_operator, require_admin
 from app.auth.models import AuthUser
 from app.config import get_settings
 from app.feedback.repository import FeedbackRepository
@@ -43,6 +43,8 @@ class FeedbackCreate(BaseModel):
     description: str | None = None
     current_page: str | None = None
     page: str | None = None
+    screenshot: str | None = None  # Base64 data URI
+    system_info: dict | None = None
 
     @property
     def resolved_description(self) -> str:
@@ -59,7 +61,7 @@ class FeedbackCreate(BaseModel):
 @router.post('', status_code=201)
 async def create_feedback(
     body: FeedbackCreate,
-    user: AuthUser = Depends(require_operator),
+    user: AuthUser = Depends(require_authenticated),
 ):
     tenant_id, user_id = await _get_user_ids(user)
     repo = _get_repo()
@@ -75,6 +77,8 @@ async def create_feedback(
         description=description,
         page=page,
         screenshot_path=screenshot_path,
+        screenshot_data=body.screenshot,
+        system_info=body.system_info,
     )
 
     # Telegram notification to Maze
@@ -110,6 +114,21 @@ class StatusUpdate(BaseModel):
     status: str
 
 
+@router.get('/{feedback_id}')
+async def get_feedback_detail(
+    feedback_id: str,
+    user: AuthUser = Depends(require_admin),
+):
+    repo = _get_repo()
+    item = await repo.get_by_id(feedback_id)
+    if not item:
+        raise HTTPException(status_code=404, detail='Feedback not found')
+    # Convert datetime for JSON
+    if item.get('created_at'):
+        item['created_at'] = item['created_at'].isoformat()
+    return item
+
+
 @router.patch('/{feedback_id}')
 async def update_feedback_status(
     feedback_id: str,
@@ -121,3 +140,82 @@ async def update_feedback_status(
     repo = _get_repo()
     await repo.update_status(feedback_id, body.status)
     return {'feedback_id': feedback_id, 'status': body.status}
+
+
+class ExportRequest(BaseModel):
+    feedback_ids: list[str]
+
+
+@router.post('/export')
+async def export_feedback(
+    body: ExportRequest,
+    user: AuthUser = Depends(require_admin),
+):
+    """Export selected feedback items as Claude-ready markdown."""
+    repo = _get_repo()
+    items = []
+    for fid in body.feedback_ids:
+        item = await repo.get_by_id(fid)
+        if item:
+            items.append(item)
+
+    if not items:
+        raise HTTPException(status_code=404, detail='No feedback items found')
+
+    # Build markdown report
+    md_lines = [
+        '# FRYA Bug-Report Export',
+        f'Exportiert: {__import__("datetime").datetime.now().strftime("%d.%m.%Y %H:%M")}',
+        f'Anzahl: {len(items)}',
+        '',
+        '---',
+        '',
+    ]
+
+    screenshots = {}
+    for i, item in enumerate(items, 1):
+        created = item.get('created_at')
+        if hasattr(created, 'strftime'):
+            created = created.strftime('%d.%m.%Y %H:%M')
+        else:
+            created = str(created)[:16] if created else 'unbekannt'
+
+        md_lines.append(f'## Bug #{i}: {item.get("description", "")[:80]}')
+        md_lines.append('')
+        md_lines.append(f'- **ID:** `{item["id"]}`')
+        md_lines.append(f'- **User:** {item.get("user_id", "?")}')
+        md_lines.append(f'- **Seite:** {item.get("page", "?")}')
+        md_lines.append(f'- **Status:** {item.get("status", "?")}')
+        md_lines.append(f'- **Datum:** {created}')
+        md_lines.append('')
+        md_lines.append('### Beschreibung')
+        md_lines.append(item.get('description', '(leer)'))
+        md_lines.append('')
+
+        # System info
+        si = item.get('system_info')
+        if si and isinstance(si, dict):
+            md_lines.append('### Systeminfos')
+            for k, v in si.items():
+                md_lines.append(f'- **{k}:** {v}')
+            md_lines.append('')
+
+        # Screenshot — embedded as Base64 data URI directly in Markdown
+        if item.get('screenshot_data'):
+            screenshots[f'screenshot_{i}'] = item['screenshot_data']
+            md_lines.append(f'### Screenshot')
+            md_lines.append(f'![Bug {i} Screenshot]({item["screenshot_data"]})')
+            md_lines.append('')
+
+        md_lines.append('---')
+        md_lines.append('')
+
+    # Mark as exported
+    await repo.mark_exported(body.feedback_ids)
+
+    return {
+        'markdown': '\n'.join(md_lines),
+        'screenshots': screenshots,
+        'count': len(items),
+        'exported_ids': body.feedback_ids,
+    }
