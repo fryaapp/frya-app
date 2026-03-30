@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { FryaAvatar } from './FryaAvatar'
 import { ContentBlock } from '../content/ContentBlock'
 
-function Timestamp({ ts }: { ts?: number }) {
+function Timestamp({ ts, visible }: { ts?: number; visible: boolean }) {
   if (!ts) return null
   const d = new Date(ts)
   const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
@@ -12,10 +12,12 @@ function Timestamp({ ts }: { ts?: number }) {
       style={{
         fontSize: 10,
         color: 'var(--frya-on-surface-variant)',
-        opacity: 0.6,
+        opacity: visible ? 0.5 : 0,
         fontFamily: "'Plus Jakarta Sans', sans-serif",
         marginTop: 2,
         userSelect: 'none',
+        transition: 'opacity 0.15s ease',
+        pointerEvents: 'none',
       }}
     >
       {time}
@@ -99,7 +101,7 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
         >
           {message.text}
         </div>
-        {hovered && <Timestamp ts={message.timestamp} />}
+        <Timestamp ts={message.timestamp} visible={hovered} />
       </div>
     )
   }
@@ -220,7 +222,7 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
         )}
 
         {/* Timestamp on hover */}
-        {hovered && <Timestamp ts={message.timestamp} />}
+        <Timestamp ts={message.timestamp} visible={hovered} />
 
         {/* Action buttons */}
         {message.actions && message.actions.length > 0 && (
