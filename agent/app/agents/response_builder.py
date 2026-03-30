@@ -33,8 +33,9 @@ class ResponseBuilder:
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
         ],
         "SHOW_CONTACT": [
-            {"label": "Rechnung schreiben", "chat_text": "Rechnung schreiben", "style": "primary"},
-            {"label": "Offene Posten", "chat_text": "Offene Posten zeigen", "style": "secondary"},
+            {"label": "Fall bearbeiten", "chat_text": "Fall bearbeiten", "style": "primary"},
+            {"label": "Rechnung schreiben", "chat_text": "Rechnung schreiben", "style": "secondary"},
+            {"label": "Naechster Fall", "chat_text": "Naechster Fall", "style": "text"},
         ],
         "SHOW_OPEN_ITEMS": [
             {"label": "Mahnen", "chat_text": "Ueberfaellige mahnen", "style": "primary"},
@@ -115,10 +116,12 @@ class ResponseBuilder:
         ]
         if remaining > 0:
             blocks.append({
-                "block_type": "alert",
+                "block_type": "action",
                 "data": {
-                    "severity": "info",
-                    "text": f"+ {remaining} weitere Belege. Sag 'alle zeigen' um die komplette Liste zu sehen.",
+                    "label": f"Weitere {remaining} anzeigen (von {len(items)})",
+                    "chat_text": "Alle Belege zeigen",
+                    "style": "secondary",
+                    "icon": "expand_more",
                 },
             })
         return blocks
@@ -219,7 +222,8 @@ class ResponseBuilder:
             stats = results.get("stats", {})
         if not isinstance(contact, dict):
             contact = {}
-        blocks: list[dict] = [{"block_type": "key_value", "data": {"title": contact.get("name", "Kontakt"), "items": [
+        contact_name = contact.get("name") or contact.get("vendor_name") or results.get("vendor_name") or results.get("vendor") or "Kontakt"
+        blocks: list[dict] = [{"block_type": "key_value", "data": {"title": contact_name, "items": [
             {"label": "Kategorie", "value": str(contact.get("category", "\u2014"))},
             {"label": "E-Mail", "value": str(contact.get("email", "\u2014"))},
             {"label": "Gesamtumsatz", "value": self._eur(stats.get("total_revenue", 0))},
