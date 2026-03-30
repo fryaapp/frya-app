@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 from app.auth.csrf import require_csrf
-from app.auth.dependencies import require_operator
+from app.auth.dependencies import require_authenticated, require_operator
 from app.auth.models import AuthUser
 from app.dependencies import (
     get_audit_service,
@@ -150,12 +150,11 @@ def _format_batch(batch: dict, items: list[dict] | None = None) -> dict:
 
 @router.post(
     '/bulk-upload',
-    dependencies=[Depends(require_csrf)],
     status_code=202,
 )
 async def bulk_upload(
     files: list[UploadFile],
-    current_user: AuthUser = Depends(require_operator),
+    current_user: AuthUser = Depends(require_authenticated),
 ) -> dict[str, Any]:
     """Upload multiple documents for bulk processing.
 
