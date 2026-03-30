@@ -30,18 +30,23 @@ export function ChatInputBar({ onSend, placeholder, disabled }: ChatInputBarProp
     inputRef.current?.focus()
   }
 
+  const addFryaMessage = useFryaStore((s) => s.addFryaMessage)
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files || files.length === 0) return
+    const fileArray = Array.from(files)
+    const label = `${fileArray.length} Beleg${fileArray.length > 1 ? 'e' : ''}`
     setUploading(true)
+    addUserMessage(`${label} hochgeladen`)
     try {
-      const fileArray = Array.from(files)
       const form = new FormData()
       fileArray.forEach((f) => form.append('files', f))
       await api.postFormData('/documents/bulk-upload', form)
-      addUserMessage(`\u{1F4CE} ${fileArray.length} Beleg${fileArray.length > 1 ? 'e' : ''} hochgeladen`)
-    } catch {
-      // Error handled by API client
+      addFryaMessage({ text: `Alles klar! ${label} empfangen. Ich analysiere das jetzt.` })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Upload fehlgeschlagen'
+      addFryaMessage({ text: `Upload fehlgeschlagen: ${msg}. Bitte versuche es erneut.` })
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
