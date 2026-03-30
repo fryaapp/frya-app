@@ -14,6 +14,56 @@ _CONF_TO_FLOAT = {
 
 
 class ResponseBuilder:
+    CONTEXT_SUGGESTIONS = {
+        "SHOW_INBOX": [
+            {"label": "Abarbeiten", "chat_text": "Inbox abarbeiten", "style": "primary"},
+            {"label": "Nur dringende", "chat_text": "Nur dringende Belege", "style": "secondary"},
+        ],
+        "APPROVE": [
+            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
+        ],
+        "SHOW_FINANCE": [
+            {"label": "EUeR als PDF", "chat_text": "EUeR als PDF", "style": "primary"},
+            {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
+            {"label": "Ausgaben Detail", "chat_text": "Was waren meine groessten Ausgaben?", "style": "text"},
+        ],
+        "SHOW_BOOKINGS": [
+            {"label": "Filtern", "chat_text": "Buchungen im Maerz", "style": "secondary"},
+            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
+        ],
+        "SHOW_CONTACT": [
+            {"label": "Rechnung schreiben", "chat_text": "Rechnung schreiben", "style": "primary"},
+            {"label": "Offene Posten", "chat_text": "Offene Posten zeigen", "style": "secondary"},
+        ],
+        "SHOW_OPEN_ITEMS": [
+            {"label": "Mahnen", "chat_text": "Ueberfaellige mahnen", "style": "primary"},
+            {"label": "Details", "chat_text": "Zeig mir den aeltesten offenen Posten", "style": "secondary"},
+        ],
+        "SHOW_DEADLINES": [
+            {"label": "Skonto nutzen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
+            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
+        ],
+        "CREATE_INVOICE": [
+            {"label": "Vorschau", "chat_text": "Zeig mir die Rechnung", "style": "primary"},
+        ],
+        "SHOW_EXPORT": [
+            {"label": "EUeR dazu", "chat_text": "EUeR als PDF", "style": "secondary"},
+        ],
+        "SETTINGS": [
+            {"label": "Dunkelmodus", "chat_text": "Dunkelmodus an", "style": "secondary"},
+            {"label": "Heller Modus", "chat_text": "Heller Modus", "style": "secondary"},
+        ],
+        "UPLOAD": [
+            {"label": "Inbox pruefen", "chat_text": "Was liegt in der Inbox?", "style": "primary"},
+        ],
+    }
+
+    FALLBACK_SUGGESTIONS = [
+        {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
+        {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+    ]
+
     def build(
         self,
         intent: str,
@@ -75,8 +125,14 @@ class ResponseBuilder:
 
     def _blocks_approve(self, results: dict) -> list[dict]:
         if results.get("next_item"):
-            return [{"block_type": "card", "data": self._card(results["next_item"])}]
-        return [{"block_type": "alert", "data": {"severity": "success", "text": "Freigabe erledigt."}}]
+            blocks = [{"block_type": "card", "data": self._card(results["next_item"])}]
+            # Only show "Freigabe erledigt" if the approval was actually executed
+            if results.get("approved"):
+                blocks.insert(0, {"block_type": "alert", "data": {"severity": "success", "text": "Freigabe erledigt."}})
+            return blocks
+        if results.get("approved"):
+            return [{"block_type": "alert", "data": {"severity": "success", "text": "Freigabe erledigt. Alle Belege bearbeitet!"}}]
+        return [{"block_type": "alert", "data": {"severity": "info", "text": "Kein Beleg zum Freigeben gefunden."}}]
 
     def _blocks_show_finance(self, results: dict) -> list[dict]:
         s = results.get("summary", results)
@@ -252,6 +308,35 @@ class ResponseBuilder:
     def _build_actions(
         self, intent: str, results: dict, state: dict | None = None
     ) -> list[dict]:
+        # APPROVE with confirmed approval (user clicked Freigeben button)
+        if intent == "APPROVE" and results.get("approved"):
+            # Approval was executed — show next item or success + context suggestions
+            if results.get("next_item"):
+                ni = results["next_item"]
+                cid = ni.get("case_id", "")
+                return [
+                    {
+                        "label": "Freigeben",
+                        "chat_text": f"{ni.get('vendor', '')} freigeben",
+                        "style": "primary",
+                        "quick_action": {
+                            "type": "approve",
+                            "params": {"case_id": cid},
+                        },
+                    },
+                    {
+                        "label": "\u00dcberspringen",
+                        "chat_text": "N\u00e4chster",
+                        "style": "text",
+                        "quick_action": {
+                            "type": "defer",
+                            "params": {"case_id": cid},
+                        },
+                    },
+                ]
+            return list(self.CONTEXT_SUGGESTIONS.get("APPROVE", self.FALLBACK_SUGGESTIONS))
+
+        # APPROVE without confirmed approval — show item for review with buttons
         if intent == "APPROVE" and results.get("next_item"):
             ni = results["next_item"]
             cid = ni.get("case_id", "")
@@ -266,6 +351,11 @@ class ResponseBuilder:
                     },
                 },
                 {
+                    "label": "Korrigieren",
+                    "chat_text": f"{ni.get('vendor', '')} korrigieren",
+                    "style": "secondary",
+                },
+                {
                     "label": "\u00dcberspringen",
                     "chat_text": "N\u00e4chster",
                     "style": "text",
@@ -275,6 +365,8 @@ class ResponseBuilder:
                     },
                 },
             ]
+
+        # SHOW_INBOX with items — Abarbeiten starts review, does NOT auto-approve
         if intent == "SHOW_INBOX" and results.get("items"):
             first = results["items"][0]
             return [
@@ -283,7 +375,7 @@ class ResponseBuilder:
                     "chat_text": "Inbox abarbeiten",
                     "style": "primary",
                     "quick_action": {
-                        "type": "approve",
+                        "type": "show_inbox",
                         "params": {"case_id": first.get("case_id", "")},
                     },
                 },
@@ -293,40 +385,14 @@ class ResponseBuilder:
                     "style": "secondary",
                 },
             ]
-        if intent == "SHOW_FINANCE":
-            return [
-                {"label": "E\u00dcR als PDF", "chat_text": "E\u00dcR als PDF", "style": "secondary"},
-                {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
-            ]
-        if intent == "SHOW_BOOKINGS":
-            return [
-                {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
-                {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
-            ]
-        if intent == "SHOW_OPEN_ITEMS":
-            return [
-                {"label": "Mahnungen", "chat_text": "Mahnungen erstellen", "style": "primary"},
-                {"label": "Details", "chat_text": "Details zum aeltesten Posten", "style": "secondary"},
-            ]
-        if intent == "SHOW_DEADLINES":
-            return [
-                {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
-                {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
-            ]
-        if intent == "SHOW_CONTACT":
-            return [
-                {"label": "Offene Posten", "chat_text": "Offene Posten dieses Kontakts", "style": "secondary"},
-                {"label": "Rechnungen", "chat_text": "Rechnungen dieses Kontakts", "style": "secondary"},
-            ]
-        if intent in ("SETTINGS", "SHOW_SETTINGS"):
-            return [
-                {"label": "Anrede aendern", "chat_text": "Anrede aendern", "style": "secondary"},
-                {"label": "Theme", "chat_text": "Theme wechseln", "style": "secondary"},
-            ]
-        return [
-            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
-            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
-        ]
+
+        # Use CONTEXT_SUGGESTIONS matrix for all other intents
+        # Also handle SHOW_SETTINGS alias
+        lookup_intent = intent if intent != "SHOW_SETTINGS" else "SETTINGS"
+        suggestions = self.CONTEXT_SUGGESTIONS.get(lookup_intent)
+        if suggestions:
+            return list(suggestions)
+        return list(self.FALLBACK_SUGGESTIONS)
 
     def _card(self, item: dict) -> dict:
         # A.2: Vendor "?" -> "Unbekannter Absender"

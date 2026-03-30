@@ -10,7 +10,7 @@ _LLM_TIMEOUT = 30
 
 class TieredOrchestrator:
     FAST_PATTERNS = {
-        r"(?i)(inbox|belege|was liegt an|was steht an)": "SHOW_INBOX",
+        r"(?i)(inbox|belege|was liegt an|was steht an|abarbeiten)": "SHOW_INBOX",
         r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell)": "SHOW_FINANCE",
         r"(?i)(frist|deadline|dringend|überfällig|was ist fällig)": "SHOW_DEADLINES",
         r"(?i)(rechnung.*erstell|schreib.*rechnung|rechnung an)": "CREATE_INVOICE",
