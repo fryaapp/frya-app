@@ -95,11 +95,12 @@ export function ChatView() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       style={{
-        height: '100vh',
+        height: '100dvh',
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--frya-surface)',
         position: 'relative',
+        overflow: 'hidden',
       }}
     >
       {/* Drag overlay */}
