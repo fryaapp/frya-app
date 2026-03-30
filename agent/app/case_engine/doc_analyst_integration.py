@@ -127,6 +127,9 @@ async def integrate_document_analysis(
     line_items: list[dict] | None = None,
     net_amount: Decimal | None = None,
     tax_amount: Decimal | None = None,
+    analysis_version: str | None = None,
+    is_business_relevant: bool | None = None,
+    private_info: str | None = None,
     repo: 'CaseRepository',
     audit_service: 'AuditService | None' = None,
 ) -> dict[str, Any]:
@@ -266,6 +269,8 @@ async def integrate_document_analysis(
     try:
         await repo.update_metadata(_case_uuid, {
             'document_analysis': {
+                'analysis_version': analysis_version,
+                'overall_confidence': overall_confidence,
                 'sender': vendor_name,
                 'document_number': ref_tuples[0][1] if ref_tuples else None,
                 'document_date': str(document_date) if document_date else None,
@@ -273,6 +278,8 @@ async def integrate_document_analysis(
                 'net_amount': float(net_amount) if net_amount is not None else None,
                 'tax_amount': float(tax_amount) if tax_amount is not None else None,
                 'document_type': document_type_value,
+                'is_business_relevant': is_business_relevant,
+                'private_info': private_info,
                 'line_items': line_items or [],
             }
         })
