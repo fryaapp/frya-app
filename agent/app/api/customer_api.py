@@ -237,7 +237,9 @@ async def get_inbox(
     for c in page:
         meta = c.metadata or {}
         bp = meta.get('booking_proposal')
-        conf = meta.get('overall_confidence')
+        doc_analysis = meta.get('document_analysis', {})
+        # overall_confidence lives inside document_analysis sub-dict
+        conf = doc_analysis.get('overall_confidence') or meta.get('overall_confidence')
         items.append(InboxItem(
             case_id=str(c.id), case_number=c.case_number, vendor_name=c.vendor_name,
             amount=float(c.total_amount) if c.total_amount else None,

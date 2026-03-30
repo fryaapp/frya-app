@@ -103,11 +103,13 @@ class _InboxService:
         items = []
         for c in pending[:20]:
             meta = c.metadata or {}
-            conf = meta.get('overall_confidence')
+            doc_analysis = meta.get('document_analysis', {})
+            # overall_confidence lives inside document_analysis sub-dict
+            conf = doc_analysis.get('overall_confidence') or meta.get('overall_confidence')
             items.append({
                 'case_id': str(c.id), 'vendor': c.vendor_name or '?',
                 'amount': float(c.total_amount) if c.total_amount else None,
-                'document_type': meta.get('document_analysis', {}).get('document_type', ''),
+                'document_type': doc_analysis.get('document_type', ''),
                 'confidence': conf,
                 'confidence_label': 'Sicher' if (conf or 0) >= 0.85 else 'Hoch' if (conf or 0) >= 0.65 else 'Mittel' if (conf or 0) >= 0.4 else 'Niedrig',
                 'status': c.status,
