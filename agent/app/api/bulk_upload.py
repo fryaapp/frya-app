@@ -35,7 +35,7 @@ from app.dependencies import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix='/api/documents', tags=['bulk-upload'])
+router = APIRouter(prefix='/api/v1/documents', tags=['bulk-upload'])
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
