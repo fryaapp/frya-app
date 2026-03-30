@@ -1,6 +1,27 @@
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { FryaAvatar } from './FryaAvatar'
 import { ContentBlock } from '../content/ContentBlock'
+
+function Timestamp({ ts }: { ts?: number }) {
+  if (!ts) return null
+  const d = new Date(ts)
+  const time = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        color: 'var(--frya-on-surface-variant)',
+        opacity: 0.6,
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        marginTop: 2,
+        userSelect: 'none',
+      }}
+    >
+      {time}
+    </span>
+  )
+}
 
 /**
  * Strip redundant markdown tables / pipe lines from text when content_blocks
@@ -47,12 +68,17 @@ interface ChatMessageProps {
 export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
   const isUser = message.role === 'user'
 
+  const [hovered, setHovered] = useState(false)
+
   if (isUser) {
     return (
       <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         style={{
           display: 'flex',
-          justifyContent: 'flex-end',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
           marginBottom: 12,
           animation: 'frya-fade-up 300ms ease both',
         }}
@@ -73,6 +99,7 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
         >
           {message.text}
         </div>
+        {hovered && <Timestamp ts={message.timestamp} />}
       </div>
     )
   }
@@ -80,6 +107,8 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
   // Frya (assistant) message
   return (
     <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         display: 'flex',
         alignItems: 'flex-start',
@@ -189,6 +218,9 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
             ))}
           </div>
         )}
+
+        {/* Timestamp on hover */}
+        {hovered && <Timestamp ts={message.timestamp} />}
 
         {/* Action buttons */}
         {message.actions && message.actions.length > 0 && (
