@@ -57,12 +57,16 @@ _REFRESH_MIN_INTERVAL = 5.0  # seconds
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_tenant_id(user: AuthUser) -> str:
+async def _get_tenant_id(user: AuthUser) -> str:
     """Extract tenant_id as a valid UUID string.
 
-    JWT customer tokens often carry tid='default' which is not a UUID.
-    We convert non-UUID values to a deterministic UUID so the DB layer
-    never sees an invalid string.
+    Strategy:
+      1. If the JWT carries a valid UUID tid, use it.
+      2. Otherwise resolve the active tenant from the DB (single-tenant mode).
+      3. Last resort: deterministic UUID from the tid string.
+
+    This ensures the upload batch uses the same tenant_id that the
+    Paperless webhook will assign to the resulting case.
     """
     tid = getattr(user, 'tenant_id', None) or ''
     if tid:
@@ -71,7 +75,15 @@ def _get_tenant_id(user: AuthUser) -> str:
             return str(tid)
         except ValueError:
             pass
-    # Fallback: deterministic UUID from tenant_id string or username
+    # Resolve from DB — same logic as webhooks.py and customer_api.py
+    try:
+        from app.case_engine.tenant_resolver import resolve_tenant_id
+        resolved = await resolve_tenant_id()
+        if resolved:
+            return resolved
+    except Exception:
+        pass
+    # Last resort: deterministic UUID from tenant_id string or username
     seed = str(tid) if tid else user.username
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
 
@@ -179,7 +191,7 @@ async def bulk_upload(
     if len(files) == 0:
         raise HTTPException(status_code=400, detail='Keine Dateien empfangen.')
 
-    tenant_id = _get_tenant_id(current_user)
+    tenant_id = await _get_tenant_id(current_user)
     bulk_repo = get_bulk_upload_repository()
     bulk_svc = get_bulk_upload_service()
     audit_svc = get_audit_service()
@@ -364,7 +376,7 @@ async def list_batches(
     if limit > 100:
         limit = 100
 
-    tenant_id = _get_tenant_id(current_user)
+    tenant_id = await _get_tenant_id(current_user)
     bulk_repo = get_bulk_upload_repository()
 
     batches = await bulk_repo.list_batches(tenant_id, limit=limit + 1, offset=offset)
@@ -392,7 +404,7 @@ async def get_batch(
     current_user: AuthUser = Depends(require_operator),
 ) -> dict[str, Any]:
     """Get batch detail with all items, enriched with case info."""
-    tenant_id = _get_tenant_id(current_user)
+    tenant_id = await _get_tenant_id(current_user)
     bulk_repo = get_bulk_upload_repository()
     case_repo = get_case_repository()
 
@@ -435,7 +447,7 @@ async def refresh_batch(
         )
     _last_refresh[batch_id] = now
 
-    tenant_id = _get_tenant_id(current_user)
+    tenant_id = await _get_tenant_id(current_user)
     bulk_repo = get_bulk_upload_repository()
     bulk_svc = get_bulk_upload_service()
     case_repo = get_case_repository()

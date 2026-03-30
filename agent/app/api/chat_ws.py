@@ -56,6 +56,53 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/v1/chat', tags=['chat'])
 
+
+# ---------------------------------------------------------------------------
+# Global WebSocket connection registry for push notifications
+# ---------------------------------------------------------------------------
+
+class _ChatConnectionRegistry:
+    """Track active chat WebSocket connections for server-push notifications.
+
+    Used by the Paperless webhook to notify clients when new documents
+    have been processed and appear in the inbox.
+    """
+
+    def __init__(self) -> None:
+        self._connections: dict[str, WebSocket] = {}
+
+    def register(self, user_id: str, ws: WebSocket) -> None:
+        self._connections[user_id] = ws
+
+    def unregister(self, user_id: str) -> None:
+        self._connections.pop(user_id, None)
+
+    async def broadcast(self, message: dict) -> None:
+        """Send a JSON message to all connected clients."""
+        dead: list[str] = []
+        for uid, ws in self._connections.items():
+            try:
+                if ws.client_state == WebSocketState.CONNECTED:
+                    await ws.send_json(message)
+                else:
+                    dead.append(uid)
+            except Exception:
+                dead.append(uid)
+        for uid in dead:
+            self._connections.pop(uid, None)
+
+    async def send_to_user(self, user_id: str, message: dict) -> None:
+        ws = self._connections.get(user_id)
+        if ws:
+            try:
+                if ws.client_state == WebSocketState.CONNECTED:
+                    await ws.send_json(message)
+            except Exception:
+                self._connections.pop(user_id, None)
+
+
+chat_registry = _ChatConnectionRegistry()
+
 # ---------------------------------------------------------------------------
 # New modules (Phase G/H/I integration)
 # ---------------------------------------------------------------------------
@@ -353,6 +400,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
     tenant_id: str = jwt_payload.get('tid', '')
 
     await websocket.accept()
+    chat_registry.register(user_id, websocket)
     logger.info('WS chat connected: user=%s tenant=%s', user_id, tenant_id)
 
     # Rate limiting state (per connection)
@@ -675,6 +723,8 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
         logger.exception('WS chat error: user=%s', user_id)
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close(code=1011, reason='internal_error')
+    finally:
+        chat_registry.unregister(user_id)
 
 
 # ---------------------------------------------------------------------------

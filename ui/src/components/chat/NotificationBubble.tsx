@@ -10,6 +10,7 @@ const typeConfig: Record<string, { icon: string; color: string }> = {
   success: { icon: 'check_circle', color: 'text-success' },
   warning: { icon: 'warning', color: 'text-warning' },
   error: { icon: 'error', color: 'text-error' },
+  document_processed: { icon: 'description', color: 'text-success' },
 }
 
 export function NotificationBubble({ text, notificationType }: NotificationBubbleProps) {
