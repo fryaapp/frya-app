@@ -618,6 +618,12 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         except Exception as exc:
                             logger.warning('Service data fetch failed: %s', exc)
 
+                    # Detect "show all" request for inbox
+                    if tier_intent == 'SHOW_INBOX':
+                        _text_lower = text.lower()
+                        if 'alle' in _text_lower and ('zeig' in _text_lower or 'beleg' in _text_lower):
+                            agent_results['show_all'] = True
+
                     # --- Phase 4: ResponseBuilder (content_blocks + actions) ---
                     content_blocks: list = []
                     actions: list = []
@@ -637,6 +643,20 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     # --- Strip "FRYA:" prefix from reply text ---
                     if reply_text:
                         reply_text = re.sub(r'^FRYA:\s*', '', reply_text)
+
+                    # --- Synchronize text with content_blocks for SHOW_INBOX ---
+                    # The communicator generates text BEFORE blocks exist,
+                    # causing "Inbox ist leer" even when blocks show items.
+                    if tier_intent == 'SHOW_INBOX' and content_blocks:
+                        _inbox_item_count = 0
+                        for _b in content_blocks:
+                            if _b.get('block_type') == 'card_list':
+                                _inbox_item_count = len(_b.get('data', {}).get('items', []))
+                        if _inbox_item_count > 0:
+                            _total = agent_results.get('count', _inbox_item_count)
+                            reply_text = f'{_total} Belege warten auf deine Freigabe.'
+                        elif not any(_b.get('block_type') == 'alert' for _b in content_blocks):
+                            reply_text = 'Deine Inbox ist leer — aktuell keine neuen Dokumente.'
 
                     # Build final response (backward-compatible + new fields)
                     suggestions = (

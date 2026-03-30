@@ -103,22 +103,30 @@ class ResponseBuilder:
         items = results.get("items", [])
         if not items:
             return [{"block_type": "alert", "data": {"severity": "success", "text": "Keine Belege in der Inbox. Alles erledigt!"}}]
-        preview = items[:3]
-        remaining = len(items) - len(preview)
+
+        # Show all items when user explicitly requested it, otherwise preview 3
+        _PREVIEW_SIZE = 3
+        show_all = results.get("show_all", False)
+        preview = items if show_all else items[:_PREVIEW_SIZE]
+        remaining = 0 if show_all else len(items) - len(preview)
+
+        title = f"{len(items)} Belege warten"
         blocks: list[dict] = [
             {
                 "block_type": "card_list",
                 "data": {
-                    "title": f"{len(items)} Belege warten",
+                    "title": title,
                     "items": [self._card(i) for i in preview],
                 },
             }
         ]
         if remaining > 0:
+            # Show "Weitere 3 anzeigen" (next batch), not all remaining
+            next_batch = min(_PREVIEW_SIZE, remaining)
             blocks.append({
                 "block_type": "action",
                 "data": {
-                    "label": f"Weitere {remaining} anzeigen (von {len(items)})",
+                    "label": f"Weitere {next_batch} anzeigen (von {len(items)})",
                     "chat_text": "Alle Belege zeigen",
                     "style": "secondary",
                     "icon": "expand_more",
