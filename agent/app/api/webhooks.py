@@ -804,6 +804,29 @@ async def paperless_document_webhook(
         except Exception:
             pass  # Notification failure never blocks the response
 
+    # ── Push notification to connected web clients ──────────────────────────
+    try:
+        from app.api.chat_ws import chat_registry
+        _doc_analysis = output.get('document_analysis', {})
+        await chat_registry.broadcast({
+            'type': 'notification',
+            'notification_type': 'document_processed',
+            'text': 'Neuer Beleg verarbeitet: %s' % (
+                _doc_analysis.get('sender', {}).get('value')
+                or payload.get('original_file_name')
+                or 'Dokument %s' % document_id
+            ),
+            'case_id': case_id,
+            'document_id': document_id,
+            'vendor': _doc_analysis.get('sender', {}).get('value'),
+            'amount': (
+                _doc_analysis.get('amounts', [{}])[0].get('amount')
+                if _doc_analysis.get('amounts') else None
+            ),
+        })
+    except Exception as _push_exc:
+        logger.debug('WS push notification failed (non-critical): %s', _push_exc)
+
     return {
         'status': 'accepted',
         'case_id': case_id,

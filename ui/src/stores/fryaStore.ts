@@ -264,9 +264,15 @@ export const useFryaStore = create<FryaStore>((set, get) => {
 
       case 'notification': {
         const id = `notif-${++msgCounter}`
-        set({
+        const updates: Partial<FryaStore> = {
           messages: [...state.messages, { id, role: 'system', text: msg.text || '', timestamp: Date.now(), notificationType: msg.notification_type }],
-        })
+        }
+        // Auto-switch to chat when a document_processed notification arrives
+        // so the user sees the new beleg immediately
+        if (msg.notification_type === 'document_processed' && state.showGreeting) {
+          updates.showGreeting = false
+        }
+        set(updates)
         break
       }
 
