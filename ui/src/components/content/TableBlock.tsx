@@ -38,7 +38,7 @@ export function TableBlock({ data }: { data: TableBlockData }) {
         >
           <thead>
             <tr>
-              {data.headers.map((header, i) => (
+              {(data?.headers || []).map((header, i) => (
                 <th
                   key={i}
                   style={{
@@ -57,7 +57,7 @@ export function TableBlock({ data }: { data: TableBlockData }) {
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((row, ri) => (
+            {(data?.rows || []).map((row, ri) => (
               <tr
                 key={ri}
                 style={{
@@ -67,7 +67,7 @@ export function TableBlock({ data }: { data: TableBlockData }) {
                       : 'transparent',
                 }}
               >
-                {row.map((cell, ci) => (
+                {(row || []).map((cell, ci) => (
                   <td
                     key={ci}
                     style={{

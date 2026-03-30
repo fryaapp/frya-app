@@ -21,7 +21,7 @@ export function ActionBar({ actions, onAction }: ActionBarProps) {
         gap: 5,
       }}
     >
-      {actions.map((action, i) => (
+      {(actions || []).map((action, i) => (
         <ActionButton key={i} action={action} onClick={() => onAction(action)} />
       ))}
     </div>

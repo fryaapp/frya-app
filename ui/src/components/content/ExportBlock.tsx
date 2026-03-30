@@ -43,7 +43,7 @@ export function ExportBlock({
           {data.title}
         </div>
       )}
-      {data.items.map((item, i) => (
+      {(data?.items || []).map((item, i) => (
         <ExportItemRow key={i} item={item} onAction={onAction} />
       ))}
     </div>

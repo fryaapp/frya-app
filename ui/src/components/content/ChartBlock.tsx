@@ -39,8 +39,8 @@ export function ChartBlock({ data }: { data: ChartBlockData }) {
           {data.title}
         </div>
       )}
-      {data.series.map((s, i) => {
-        const maxVal = Math.max(...data.series.map((x) => x.value))
+      {(data?.series || []).map((s, i) => {
+        const maxVal = Math.max(...(data?.series || []).map((x) => x.value))
         const pct = maxVal > 0 ? (s.value / maxVal) * 100 : 0
         return (
           <div key={i} style={{ marginBottom: 6 }}>
@@ -90,14 +90,14 @@ export function ChartBlock({ data }: { data: ChartBlockData }) {
 }
 
 function DonutChart({ data }: { data: ChartBlockData }) {
-  const total = data.series.reduce((sum, s) => sum + s.value, 0)
+  const total = (data?.series || []).reduce((sum, s) => sum + s.value, 0)
   const size = 120
   const strokeWidth = 18
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
 
   let accumulated = 0
-  const segments = data.series.map((s) => {
+  const segments = (data?.series || []).map((s) => {
     const pct = total > 0 ? s.value / total : 0
     const dashArray = `${pct * circumference} ${circumference}`
     const dashOffset = -accumulated * circumference
@@ -220,7 +220,7 @@ function DonutChart({ data }: { data: ChartBlockData }) {
           marginTop: 10,
         }}
       >
-        {data.series.map((s, i) => (
+        {(data?.series || []).map((s, i) => (
           <div
             key={i}
             style={{

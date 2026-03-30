@@ -20,6 +20,8 @@ interface ContentBlockProps {
 }
 
 export function ContentBlock({ block, onAction, onSubmit }: ContentBlockProps) {
+  if (!block || !block.data) return null
+
   switch (block.block_type) {
     case 'card':
       return <CardBlock data={block.data} />
