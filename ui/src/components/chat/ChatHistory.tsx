@@ -49,6 +49,7 @@ export function ChatHistory() {
       ref={scrollRef}
       style={{
         flex: 1,
+        minHeight: 0,
         overflowY: 'auto',
         padding: '16px 20px',
         maxWidth: 720,

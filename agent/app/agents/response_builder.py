@@ -2,6 +2,16 @@
 from __future__ import annotations
 from typing import Any
 
+from app.utils.translations import t_doc_type, t_confidence
+
+_CONF_TO_FLOAT = {
+    "CERTAIN": 0.95,
+    "HIGH": 0.85,
+    "MEDIUM": 0.65,
+    "LOW": 0.35,
+    "UNKNOWN": 0.0,
+}
+
 
 class ResponseBuilder:
     def build(
@@ -185,24 +195,48 @@ class ResponseBuilder:
         ]
 
     def _card(self, item: dict) -> dict:
+        # A.2: Vendor "?" -> "Unbekannter Absender"
+        vendor = item.get("vendor", item.get("name", ""))
+        if not vendor or vendor.strip() in ("?", "", "None", "null"):
+            vendor = "Unbekannter Absender"
+
+        # A.5: Confidence float/string normalization
+        conf = item.get("confidence", 0)
+        if isinstance(conf, str):
+            conf = _CONF_TO_FLOAT.get(conf.upper(), 0.5)
+
+        # A.5: Confidence label with German translation
+        if not item.get("confidence_label"):
+            if conf >= 0.85:
+                label = "Sicher"
+            elif conf >= 0.65:
+                label = "Hoch"
+            elif conf >= 0.40:
+                label = "Mittel"
+            else:
+                label = "Niedrig"
+        else:
+            label = t_confidence(item.get("confidence_label", "?"))
+
         return {
-            "title": item.get("vendor", item.get("name", "?")),
-            "subtitle": item.get("document_type", ""),
+            "title": vendor,
+            "subtitle": t_doc_type(item.get("document_type", "")),
             "amount": self._eur(item.get("amount")) if item.get("amount") else None,
             "badge": {
-                "label": item.get("confidence_label", "?"),
-                "color": self._conf_color(item.get("confidence", 0)),
+                "label": label,
+                "color": self._conf_color(conf),
             },
             "ai_label": "KI-Vorschlag \u00b7 bitte pr\u00fcfen",
         }
 
     def _deadline_card(self, dl: dict) -> dict:
         days = dl.get("days_remaining", 0)
+        overdue = " \u00fcberf\u00e4llig" if days < 0 else ""
         return {
             "title": dl.get("title", "?"),
             "subtitle": dl.get("subtitle", ""),
             "badge": {
-                "label": f"{abs(days)}d {'\u00fcberf\u00e4llig' if days < 0 else ''}",
+                "label": f"{abs(days)}d{overdue}",
                 "color": (
                     "error"
                     if days < 0
