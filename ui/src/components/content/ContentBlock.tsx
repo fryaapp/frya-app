@@ -9,6 +9,7 @@ import { ProgressBlock } from './ProgressBlock'
 import { AlertBlock } from './AlertBlock'
 import { ExportBlock } from './ExportBlock'
 import { StatusBlock } from './StatusBlock'
+import { useFryaStore } from '../../stores/fryaStore'
 
 interface ContentBlockProps {
   block: {
@@ -45,7 +46,56 @@ export function ContentBlock({ block, onAction, onSubmit }: ContentBlockProps) {
       return <ExportBlock data={block.data} onAction={onAction} />
     case 'status':
       return <StatusBlock data={block.data} />
+    case 'action':
+      return <ActionButton data={block.data} />
     default:
       return null
   }
+}
+
+function ActionButton({ data }: { data: { label: string; chat_text: string; style?: string; icon?: string } }) {
+  const send = useFryaStore((s) => s.send)
+  const addUserMessage = useFryaStore((s) => s.addUserMessage)
+
+  return (
+    <button
+      onClick={() => {
+        const msg = data.chat_text || data.label
+        addUserMessage(msg)
+        send({ text: msg })
+      }}
+      style={{
+        width: '100%',
+        padding: '10px 16px',
+        fontSize: 12,
+        fontWeight: 600,
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        borderRadius: 10,
+        border: '1px solid var(--frya-outline-variant)',
+        background: 'var(--frya-surface-container-low)',
+        color: 'var(--frya-primary)',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        transition: 'background 0.15s, border-color 0.15s',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--frya-surface-container-high)'
+        e.currentTarget.style.borderColor = 'var(--frya-primary)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'var(--frya-surface-container-low)'
+        e.currentTarget.style.borderColor = 'var(--frya-outline-variant)'
+      }}
+    >
+      {data.icon && (
+        <span className="material-symbols-rounded" style={{ fontSize: 16, fontVariationSettings: "'FILL' 0, 'wght' 400" }}>
+          {data.icon}
+        </span>
+      )}
+      {data.label}
+    </button>
+  )
 }
