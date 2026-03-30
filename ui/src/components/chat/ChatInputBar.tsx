@@ -39,6 +39,8 @@ export function ChatInputBar({ onSend, placeholder, disabled }: ChatInputBarProp
     const label = `${fileArray.length} Beleg${fileArray.length > 1 ? 'e' : ''}`
     setUploading(true)
     addUserMessage(`${label} hochgeladen`)
+    // Switch to chat view immediately so user sees the upload feedback
+    useFryaStore.getState().startChat()
     try {
       const form = new FormData()
       fileArray.forEach((f) => form.append('files', f))
