@@ -31,98 +31,223 @@ class ResponseBuilder:
             "suggestions": [a["chat_text"] for a in actions[:3]],
         }
 
+    # ------------------------------------------------------------------ #
+    #  Content-Block dispatch (covers ALL intents)                        #
+    # ------------------------------------------------------------------ #
+
     def _build_content_blocks(self, intent: str, results: dict) -> list[dict]:
-        if intent == "SHOW_INBOX" and results.get("items"):
-            all_items = results["items"]
-            preview = all_items[:3]  # Max 3 Cards anzeigen
-            remaining = len(all_items) - len(preview)
-            title = f"{len(all_items)} Belege warten"
-            blocks: list[dict] = [
-                {
-                    "block_type": "card_list",
-                    "data": {
-                        "title": title,
-                        "items": [self._card(i) for i in preview],
-                    },
-                }
-            ]
-            if remaining > 0:
-                blocks.append({
-                    "block_type": "alert",
-                    "data": {
-                        "severity": "info",
-                        "text": f"+ {remaining} weitere Belege. Sag 'alle zeigen' um die komplette Liste zu sehen.",
-                    },
-                })
-            return blocks
-        if intent == "APPROVE" and results.get("next_item"):
-            return [{"block_type": "card", "data": self._card(results["next_item"])}]
-        if intent == "SHOW_FINANCE" and (results.get("summary") or results.get("total_income") is not None):
-            s = results.get("summary") or results
-            blocks: list[dict] = [
-                {
-                    "block_type": "key_value",
-                    "data": {
-                        "items": [
-                            {
-                                "label": "Einnahmen",
-                                "value": self._eur(s.get("total_income", s.get("income", 0))),
-                            },
-                            {
-                                "label": "Ausgaben",
-                                "value": self._eur(s.get("total_expenses", s.get("expenses", 0))),
-                            },
-                            {
-                                "label": "Ergebnis",
-                                "value": self._eur(s.get("profit", (s.get("total_income", 0) or 0) - (s.get("total_expenses", 0) or 0))),
-                            },
-                        ]
-                    },
-                }
-            ]
-            return blocks
-        if intent == "SHOW_DEADLINES" and results.get("deadlines"):
-            return [
-                {
-                    "block_type": "card_list",
-                    "data": {
-                        "items": [
-                            self._deadline_card(d) for d in results["deadlines"]
-                        ],
-                    },
-                }
-            ]
-        if intent == "SHOW_CONTACT" and results.get("dossier"):
-            d = results["dossier"]
-            return [
-                {
-                    "block_type": "key_value",
-                    "data": {
-                        "title": d["contact"]["name"],
-                        "items": [
-                            {
-                                "label": "Kategorie",
-                                "value": d["contact"].get("category", "\u2014"),
-                            },
-                            {
-                                "label": "E-Mail",
-                                "value": d["contact"].get("email", "\u2014"),
-                            },
-                            {
-                                "label": "Gesamtumsatz",
-                                "value": self._eur(d["stats"]["total_revenue"]),
-                            },
-                            {
-                                "label": "Offener Betrag",
-                                "value": self._eur(d["stats"]["open_amount"]),
-                            },
-                        ],
-                    },
-                }
-            ]
-        if intent == "CREATE_INVOICE" and results.get("form"):
-            return [{"block_type": "form", "data": results["form"]}]
+        """Dispatch to intent-specific builder via naming convention."""
+        builder = getattr(self, f"_blocks_{intent.lower()}", None)
+        if builder:
+            try:
+                return builder(results)
+            except Exception:
+                pass
+        # Fallback: Communicator text is always shown; no extra blocks.
         return []
+
+    # --- per-intent block builders ------------------------------------ #
+
+    def _blocks_show_inbox(self, results: dict) -> list[dict]:
+        items = results.get("items", [])
+        if not items:
+            return [{"block_type": "alert", "data": {"severity": "success", "text": "Keine Belege in der Inbox. Alles erledigt!"}}]
+        preview = items[:3]
+        remaining = len(items) - len(preview)
+        blocks: list[dict] = [
+            {
+                "block_type": "card_list",
+                "data": {
+                    "title": f"{len(items)} Belege warten",
+                    "items": [self._card(i) for i in preview],
+                },
+            }
+        ]
+        if remaining > 0:
+            blocks.append({
+                "block_type": "alert",
+                "data": {
+                    "severity": "info",
+                    "text": f"+ {remaining} weitere Belege. Sag 'alle zeigen' um die komplette Liste zu sehen.",
+                },
+            })
+        return blocks
+
+    def _blocks_approve(self, results: dict) -> list[dict]:
+        if results.get("next_item"):
+            return [{"block_type": "card", "data": self._card(results["next_item"])}]
+        return [{"block_type": "alert", "data": {"severity": "success", "text": "Freigabe erledigt."}}]
+
+    def _blocks_show_finance(self, results: dict) -> list[dict]:
+        s = results.get("summary", results)
+        income = s.get("total_income", s.get("income", 0)) or 0
+        expenses = s.get("total_expenses", s.get("expenses", 0)) or 0
+        profit = s.get("profit", None)
+        if profit is None:
+            profit = (float(income) if income else 0) - (float(expenses) if expenses else 0)
+        return [{"block_type": "key_value", "data": {"items": [
+            {"label": "Einnahmen", "value": self._eur(income)},
+            {"label": "Ausgaben", "value": self._eur(expenses)},
+            {"label": "Ergebnis", "value": self._eur(profit)},
+        ]}}]
+
+    def _blocks_show_eur(self, results: dict) -> list[dict]:
+        return self._blocks_show_finance(results)
+
+    def _blocks_show_bookings(self, results: dict) -> list[dict]:
+        bookings = results if isinstance(results, list) else results.get("bookings", results.get("items", []))
+        if not isinstance(bookings, list):
+            bookings = []
+        rows = []
+        for b in bookings[:30]:
+            if not isinstance(b, dict):
+                continue
+            rows.append({
+                "Nr": str(b.get("booking_number", "")),
+                "Datum": str(b.get("booking_date", "")),
+                "Beschreibung": str(b.get("description", ""))[:50],
+                "Betrag": self._eur(b.get("amount", b.get("gross_amount", 0))),
+                "Konto": str(b.get("debit_account", b.get("skr03_soll", ""))),
+            })
+        if not rows:
+            return [{"block_type": "alert", "data": {"severity": "info", "text": "Noch keine Buchungen vorhanden."}}]
+        return [{"block_type": "table", "data": {"columns": ["Nr", "Datum", "Beschreibung", "Betrag", "Konto"], "rows": rows}}]
+
+    def _blocks_show_open_items(self, results: dict) -> list[dict]:
+        items = results if isinstance(results, list) else results.get("items", results.get("open_items", []))
+        if not isinstance(items, list):
+            items = []
+        if not items:
+            return [{"block_type": "alert", "data": {"severity": "success", "text": "Keine offenen Posten."}}]
+        cards = []
+        for op in items[:10]:
+            if not isinstance(op, dict):
+                continue
+            days = op.get("days_overdue", 0)
+            overdue = days > 0 if isinstance(days, (int, float)) else False
+            cards.append({
+                "title": str(op.get("contact_name", op.get("vendor", op.get("description", "?")))),
+                "subtitle": str(op.get("due_date", "")),
+                "amount": self._eur(op.get("remaining_amount", op.get("amount", op.get("original_amount", 0)))),
+                "badge": {"label": f"{days}d ueberfaellig" if overdue else "Offen", "color": "error" if overdue else "warning"},
+            })
+        return [{"block_type": "card_list", "data": {"title": f"{len(items)} offene Posten", "items": cards}}]
+
+    def _blocks_show_deadlines(self, results: dict) -> list[dict]:
+        items = results if isinstance(results, list) else results.get("deadlines", results.get("items", []))
+        if not isinstance(items, list):
+            items = []
+        if not items:
+            return [{"block_type": "alert", "data": {"severity": "success", "text": "Keine anstehenden Fristen."}}]
+        cards = []
+        for d in items:
+            if not isinstance(d, dict):
+                continue
+            days = d.get("days_remaining", d.get("days", 99))
+            color = "error" if days < 0 else "warning" if days <= 7 else "info" if days <= 30 else "success"
+            label_text = "Ueberfaellig" if days < 0 else f"{days} Tage"
+            cards.append({
+                "title": str(d.get("vendor", d.get("name", d.get("description", d.get("title", "?"))))),
+                "subtitle": str(d.get("due_date", "")),
+                "badge": {"label": label_text, "color": color},
+            })
+        return [{"block_type": "card_list", "data": {"items": cards}}]
+
+    def _blocks_show_contact(self, results: dict) -> list[dict]:
+        if results.get("dossier"):
+            d = results["dossier"]
+            contact = d.get("contact", {})
+            stats = d.get("stats", {})
+        else:
+            contact = results.get("contact", results)
+            stats = results.get("stats", {})
+        if not isinstance(contact, dict):
+            contact = {}
+        blocks: list[dict] = [{"block_type": "key_value", "data": {"title": contact.get("name", "Kontakt"), "items": [
+            {"label": "Kategorie", "value": str(contact.get("category", "\u2014"))},
+            {"label": "E-Mail", "value": str(contact.get("email", "\u2014"))},
+            {"label": "Gesamtumsatz", "value": self._eur(stats.get("total_revenue", 0))},
+            {"label": "Offener Betrag", "value": self._eur(stats.get("open_amount", 0))},
+        ]}}]
+        dossier = results.get("dossier", {})
+        open_items = results.get("open_items", dossier.get("open_items", []) if isinstance(dossier, dict) else [])
+        if open_items and isinstance(open_items, list):
+            cards = [
+                {
+                    "title": str(op.get("description", "OP")),
+                    "subtitle": str(op.get("due_date", "")),
+                    "amount": self._eur(op.get("amount", 0)),
+                    "badge": {"label": "Ueberfaellig" if op.get("overdue") else "Offen", "color": "error" if op.get("overdue") else "warning"},
+                }
+                for op in open_items if isinstance(op, dict)
+            ]
+            if cards:
+                blocks.append({"block_type": "card_list", "data": {"items": cards}})
+        return blocks
+
+    def _blocks_create_invoice(self, results: dict) -> list[dict]:
+        if results.get("form"):
+            return [{"block_type": "form", "data": results["form"]}]
+        return [{"block_type": "alert", "data": {"severity": "info", "text": "Rechnungsformular wird geladen..."}}]
+
+    def _blocks_show_export(self, results: dict) -> list[dict]:
+        return [{"block_type": "export", "data": {"items": [
+            {"label": "DATEV Export", "url": results.get("datev_url", "/api/v1/export/datev"), "format": "EXTF"},
+            {"label": "E\u00dcR als PDF", "url": results.get("eur_url", "/api/v1/reports/euer?format=pdf"), "format": "PDF"},
+        ]}}]
+
+    def _blocks_export_datev(self, results: dict) -> list[dict]:
+        return self._blocks_show_export(results)
+
+    def _blocks_export_eur(self, results: dict) -> list[dict]:
+        return self._blocks_show_export(results)
+
+    def _blocks_settings(self, results: dict) -> list[dict]:
+        return [{"block_type": "key_value", "data": {"items": [
+            {"label": "Name", "value": str(results.get("display_name", "\u2014"))},
+            {"label": "Theme", "value": str(results.get("theme", "system"))},
+            {"label": "Anrede", "value": "Sie" if results.get("formal_address") else "Du"},
+        ]}}]
+
+    def _blocks_show_settings(self, results: dict) -> list[dict]:
+        return self._blocks_settings(results)
+
+    def _blocks_show_case(self, results: dict) -> list[dict]:
+        case = results.get("case", results)
+        if not isinstance(case, dict):
+            return []
+        return [{"block_type": "key_value", "data": {"items": [
+            {"label": "Vorgang", "value": str(case.get("case_number", case.get("id", "?")))},
+            {"label": "Typ", "value": t_doc_type(str(case.get("case_type", "")))},
+            {"label": "Vendor", "value": str(case.get("vendor_name", "\u2014"))},
+            {"label": "Betrag", "value": self._eur(case.get("total_amount", 0))},
+            {"label": "Status", "value": str(case.get("status", "\u2014"))},
+        ]}}]
+
+    def _blocks_show_invoices(self, results: dict) -> list[dict]:
+        items = results if isinstance(results, list) else results.get("invoices", results.get("items", []))
+        if not isinstance(items, list):
+            items = []
+        if not items:
+            return [{"block_type": "alert", "data": {"severity": "info", "text": "Keine Rechnungen gefunden."}}]
+        cards = [self._card(i) for i in items[:10]]
+        return [{"block_type": "card_list", "data": {"items": cards}}]
+
+    def _blocks_upload(self, results: dict) -> list[dict]:
+        return [{"block_type": "alert", "data": {"severity": "info", "text": "Nutze das Bueroklammer-Symbol unten links oder ziehe Dateien in den Chat."}}]
+
+    def _blocks_status_overview(self, results: dict) -> list[dict]:
+        return self._blocks_show_finance(results)
+
+    def _blocks_small_talk(self, results: dict) -> list[dict]:
+        return []
+
+    def _blocks_unknown(self, results: dict) -> list[dict]:
+        return []
+
+    # ------------------------------------------------------------------ #
+    #  Actions                                                            #
+    # ------------------------------------------------------------------ #
 
     def _build_actions(
         self, intent: str, results: dict, state: dict | None = None
@@ -170,28 +295,37 @@ class ResponseBuilder:
             ]
         if intent == "SHOW_FINANCE":
             return [
-                {
-                    "label": "E\u00dcR als PDF",
-                    "chat_text": "E\u00dcR als PDF",
-                    "style": "secondary",
-                },
-                {
-                    "label": "DATEV Export",
-                    "chat_text": "DATEV Export",
-                    "style": "secondary",
-                },
+                {"label": "E\u00dcR als PDF", "chat_text": "E\u00dcR als PDF", "style": "secondary"},
+                {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
+            ]
+        if intent == "SHOW_BOOKINGS":
+            return [
+                {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
+                {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+            ]
+        if intent == "SHOW_OPEN_ITEMS":
+            return [
+                {"label": "Mahnungen", "chat_text": "Mahnungen erstellen", "style": "primary"},
+                {"label": "Details", "chat_text": "Details zum aeltesten Posten", "style": "secondary"},
+            ]
+        if intent == "SHOW_DEADLINES":
+            return [
+                {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
+                {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+            ]
+        if intent == "SHOW_CONTACT":
+            return [
+                {"label": "Offene Posten", "chat_text": "Offene Posten dieses Kontakts", "style": "secondary"},
+                {"label": "Rechnungen", "chat_text": "Rechnungen dieses Kontakts", "style": "secondary"},
+            ]
+        if intent in ("SETTINGS", "SHOW_SETTINGS"):
+            return [
+                {"label": "Anrede aendern", "chat_text": "Anrede aendern", "style": "secondary"},
+                {"label": "Theme", "chat_text": "Theme wechseln", "style": "secondary"},
             ]
         return [
-            {
-                "label": "Inbox",
-                "chat_text": "Was liegt in der Inbox?",
-                "style": "secondary",
-            },
-            {
-                "label": "Finanzen",
-                "chat_text": "Wie stehen die Finanzen?",
-                "style": "secondary",
-            },
+            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
+            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
         ]
 
     def _card(self, item: dict) -> dict:

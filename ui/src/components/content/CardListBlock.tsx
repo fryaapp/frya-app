@@ -28,7 +28,7 @@ export function CardListBlock({ data }: { data: CardListBlockData }) {
           {data.title}
         </div>
       )}
-      {data.items.map((item, i) => (
+      {(data?.items || []).map((item, i) => (
         <CardBlock key={i} data={item} />
       ))}
     </div>

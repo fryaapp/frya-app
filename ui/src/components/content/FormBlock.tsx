@@ -58,7 +58,7 @@ export function FormBlock({
 }) {
   const [values, setValues] = React.useState<Record<string, any>>(() => {
     const init: Record<string, any> = {}
-    data.fields.forEach((f) => {
+    ;(data?.fields || []).forEach((f) => {
       if (f.type === 'line_items') {
         init[f.name] = [{ beschreibung: '', menge: 1, einzelpreis: 0, mwst: 19 }]
       } else {
@@ -103,7 +103,7 @@ export function FormBlock({
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {data.fields.map((field) => (
+        {(data?.fields || []).map((field) => (
           <div key={field.name}>
             {field.type === 'line_items' ? (
               <LineItemsField
@@ -290,25 +290,27 @@ function LineItemsField({
   items: LineItem[]
   onChange: (items: LineItem[]) => void
 }) {
+  const safeItems = items || []
+
   const updateItem = (index: number, key: keyof LineItem, value: any) => {
-    const updated = [...items]
+    const updated = [...safeItems]
     updated[index] = { ...updated[index], [key]: value }
     onChange(updated)
   }
 
   const addRow = () => {
-    onChange([...items, { beschreibung: '', menge: 1, einzelpreis: 0, mwst: 19 }])
+    onChange([...safeItems, { beschreibung: '', menge: 1, einzelpreis: 0, mwst: 19 }])
   }
 
   const removeRow = (index: number) => {
-    if (items.length > 1) {
-      onChange(items.filter((_, i) => i !== index))
+    if (safeItems.length > 1) {
+      onChange(safeItems.filter((_, i) => i !== index))
     }
   }
 
   // Calculate totals
-  const netto = items.reduce((sum, item) => sum + item.menge * item.einzelpreis, 0)
-  const mwstTotal = items.reduce(
+  const netto = safeItems.reduce((sum, item) => sum + item.menge * item.einzelpreis, 0)
+  const mwstTotal = safeItems.reduce(
     (sum, item) => sum + item.menge * item.einzelpreis * (item.mwst / 100),
     0,
   )
@@ -350,7 +352,7 @@ function LineItemsField({
       </div>
 
       {/* Rows */}
-      {items.map((item, i) => (
+      {safeItems.map((item, i) => (
         <div
           key={i}
           style={{
@@ -397,12 +399,12 @@ function LineItemsField({
               background: 'transparent',
               border: 'none',
               color: 'var(--frya-error)',
-              cursor: items.length > 1 ? 'pointer' : 'default',
+              cursor: safeItems.length > 1 ? 'pointer' : 'default',
               fontSize: 14,
               padding: 0,
-              opacity: items.length > 1 ? 1 : 0.3,
+              opacity: safeItems.length > 1 ? 1 : 0.3,
             }}
-            disabled={items.length <= 1}
+            disabled={safeItems.length <= 1}
           >
             &#x2715;
           </button>

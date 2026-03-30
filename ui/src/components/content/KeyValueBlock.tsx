@@ -43,7 +43,7 @@ export function KeyValueBlock({ data }: { data: KeyValueBlockData }) {
         </div>
       )}
 
-      {data.rows.map((row, i) => (
+      {(data?.rows || []).map((row, i) => (
         <div
           key={i}
           style={{
@@ -54,7 +54,7 @@ export function KeyValueBlock({ data }: { data: KeyValueBlockData }) {
             fontSize: 12,
             fontFamily: 'Plus Jakarta Sans, sans-serif',
             borderBottom:
-              i < data.rows.length - 1
+              i < (data?.rows || []).length - 1
                 ? '1px solid var(--frya-outline-variant)'
                 : 'none',
           }}
