@@ -172,6 +172,42 @@ async def _persist_display_name(user_id: str, tenant_id: str, new_name: str) -> 
     except Exception as exc:
         logger.warning('Failed to persist display_name: %s', exc)
 
+
+async def _persist_preference(user_id: str, tenant_id: str, key: str, value: str) -> None:
+    """Write an arbitrary preference to frya_user_preferences (upsert)."""
+    try:
+        from app.dependencies import get_settings
+        settings = get_settings()
+        db_url = settings.database_url
+        if db_url.startswith('memory://'):
+            return
+        import asyncpg
+        conn = await asyncpg.connect(db_url)
+        try:
+            await conn.execute('''
+                INSERT INTO frya_user_preferences (tenant_id, user_id, key, value, updated_at)
+                VALUES ($1, $2, $3, $4, NOW())
+                ON CONFLICT (tenant_id, user_id, key) DO UPDATE
+                  SET value = EXCLUDED.value, updated_at = NOW()
+            ''', tenant_id, user_id, key, value)
+            logger.info('Persisted preference %s=%s for user=%s', key, value, user_id)
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning('Failed to persist preference %s: %s', key, exc)
+
+
+# ---------------------------------------------------------------------------
+# Theme keyword map for SETTINGS intent
+# ---------------------------------------------------------------------------
+
+_THEME_MAP: dict[str, str] = {
+    'dunkelmodus': 'dark', 'dark mode': 'dark', 'dunkel': 'dark',
+    'nachtmodus': 'dark', 'dunkler modus': 'dark',
+    'heller modus': 'light', 'light mode': 'light', 'hell': 'light',
+    'hellmodus': 'light', 'tagmodus': 'light', 'helles design': 'light',
+}
+
 # ---------------------------------------------------------------------------
 # Typing hints (intent -> user-facing status text)
 # ---------------------------------------------------------------------------
@@ -417,6 +453,55 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             logger.info('TieredOrchestrator: intent=%s routing=%s', tier_intent, tier_routing)
                         except Exception as exc:
                             logger.warning('TieredOrchestrator failed, falling back: %s', exc)
+
+                    # --- Phase 1b: Short-circuit intents that must NOT hit communicator ---
+                    _shortcircuit_reply: str | None = None
+                    _theme_changed: str | None = None
+
+                    if tier_intent == 'UPLOAD':
+                        # BUG-002: User typed "upload" but has no attachment —
+                        # skip communicator to avoid hallucinated "received" reply.
+                        _shortcircuit_reply = (
+                            'Zum Hochladen nutze das Bueroklammer-Symbol unten '
+                            'oder ziehe Dateien direkt in den Chat.'
+                        )
+
+                    elif tier_intent == 'SETTINGS':
+                        # BUG-006: Handle theme change requests directly
+                        text_lower = text.lower()
+                        for trigger, theme in _THEME_MAP.items():
+                            if trigger in text_lower:
+                                await _persist_preference(user_id, tenant_id, 'theme', theme)
+                                _theme_changed = theme
+                                _label = 'Dunkel' if theme == 'dark' else 'Hell'
+                                _shortcircuit_reply = f'Design auf "{_label}" umgestellt.'
+                                break
+
+                    if _shortcircuit_reply is not None:
+                        # Determine context_type from orchestrator
+                        context_type = _TIER_INTENT_TO_CONTEXT.get(tier_intent, 'none')
+                        if context_type != 'none':
+                            await websocket.send_json({
+                                'type': 'ui_hint',
+                                'action': 'open_context',
+                                'context_type': context_type,
+                            })
+
+                        response_payload: dict[str, Any] = {
+                            'type': 'message_complete',
+                            'text': _shortcircuit_reply,
+                            'case_ref': None,
+                            'context_type': context_type,
+                            'suggestions': _DEFAULT_SUGGESTIONS,
+                            'content_blocks': [],
+                            'actions': [],
+                            'routing': tier_routing,
+                        }
+                        if _theme_changed:
+                            response_payload['settings_changed'] = {'theme': _theme_changed}
+
+                        await websocket.send_json(response_payload)
+                        continue
 
                     # --- Phase 2: Communicator (always, for natural-language reply) ---
                     result = await _get_communicator_reply(text, user_id, tenant_id)
