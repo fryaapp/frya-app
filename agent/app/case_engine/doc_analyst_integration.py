@@ -286,6 +286,47 @@ async def integrate_document_analysis(
     except Exception as exc:
         logger.warning('integrate_document_analysis: metadata update failed: %s', exc)
 
+    # Write FRYA analysis text back to Paperless "content" field
+    if document_ref and document_ref.isdigit() and event_source in ('paperless_webhook', 'paperless'):
+        try:
+            from app.dependencies import get_paperless_connector
+            pc = get_paperless_connector()
+            # Build a human-readable analysis summary for Paperless
+            analysis_lines = []
+            if vendor_name:
+                analysis_lines.append(f'Absender: {vendor_name}')
+            if document_type_value:
+                analysis_lines.append(f'Dokumenttyp: {document_type_value}')
+            if total_amount is not None:
+                analysis_lines.append(f'Betrag: {total_amount} {currency or "EUR"}')
+            if net_amount is not None:
+                analysis_lines.append(f'Netto: {net_amount} {currency or "EUR"}')
+            if tax_amount is not None:
+                analysis_lines.append(f'MwSt: {tax_amount} {currency or "EUR"}')
+            if document_date:
+                analysis_lines.append(f'Datum: {document_date}')
+            if due_date:
+                analysis_lines.append(f'Faellig: {due_date}')
+            for ref_type, ref_value in ref_tuples:
+                analysis_lines.append(f'{ref_type}: {ref_value}')
+            if line_items:
+                for li in line_items[:10]:
+                    desc = li.get('description', '')
+                    price = li.get('total_price', li.get('unit_price', ''))
+                    if desc:
+                        analysis_lines.append(f'  - {desc} {price}')
+            if private_info:
+                analysis_lines.append(f'Privat-Info: {private_info}')
+            if is_business_relevant is False:
+                analysis_lines.append('Geschaeftsrelevanz: Nein (privates Dokument)')
+
+            content_text = '\n'.join(analysis_lines)
+            if content_text:
+                await pc.update_document_metadata(int(document_ref), {'content': content_text})
+                logger.info('Wrote FRYA analysis back to Paperless doc %s (%d chars)', document_ref, len(content_text))
+        except Exception as exc:
+            logger.warning('Paperless content writeback failed for doc %s: %s', document_ref, exc)
+
     if audit_service is not None:
         await audit_service.log_event({
             'event_id': str(uuid.uuid4()),
