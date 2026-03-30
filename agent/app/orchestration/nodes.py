@@ -453,6 +453,16 @@ async def run_document_analyst(state: AgentState) -> AgentState:
                         state.get('case_id'), _ocr_exc,
                     )
 
+        # Fallback: use Paperless Tesseract content when LightOnOCR is unavailable
+        if not state.get('ocr_text'):
+            _paperless_content = (metadata.get('content') or '').strip()
+            if _paperless_content:
+                state['ocr_text'] = _paperless_content
+                _logger.info(
+                    'Using Paperless Tesseract content as OCR fallback: %d chars for case %s',
+                    len(_paperless_content), state.get('case_id'),
+                )
+
     case_context = await _build_document_context(state.get('case_id', 'uncategorized'))
     if fetch_warning:
         case_context['fetch_warning'] = fetch_warning
@@ -934,6 +944,9 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                 ] if hasattr(result, 'line_items') else [],
                 net_amount=_net,
                 tax_amount=_tax,
+                analysis_version=result.analysis_version,
+                is_business_relevant=getattr(result, 'is_business_relevant', None),
+                private_info=getattr(result, 'private_info', None),
                 repo=get_case_repository(),
                 audit_service=get_audit_service(),
             )
