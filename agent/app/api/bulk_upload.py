@@ -58,12 +58,22 @@ _REFRESH_MIN_INTERVAL = 5.0  # seconds
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _get_tenant_id(user: AuthUser) -> str:
-    """Extract tenant_id from operator session. Falls back to username as key."""
-    tid = getattr(user, 'tenant_id', None)
+    """Extract tenant_id as a valid UUID string.
+
+    JWT customer tokens often carry tid='default' which is not a UUID.
+    We convert non-UUID values to a deterministic UUID so the DB layer
+    never sees an invalid string.
+    """
+    tid = getattr(user, 'tenant_id', None) or ''
     if tid:
-        return str(tid)
-    # Fallback: use username-based UUID (deterministic per user)
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, user.username))
+        try:
+            uuid.UUID(str(tid))  # Validate it's a real UUID
+            return str(tid)
+        except ValueError:
+            pass
+    # Fallback: deterministic UUID from tenant_id string or username
+    seed = str(tid) if tid else user.username
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, seed))
 
 
 async def _read_file_chunked(file: UploadFile) -> tuple[bytes, str, int]:
