@@ -33,6 +33,64 @@ from app.telegram.models import TelegramNormalizedIngressMessage
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Aufgabe 1: Trust Boundary — provider-based context filter
+# ---------------------------------------------------------------------------
+
+import re as _re_filter
+import json as _json_mod
+
+_IBAN_RE = _re_filter.compile(r'\b[A-Z]{2}\d{2}[\s]?[\dA-Z]{4}[\s]?[\dA-Z]{4}[\s]?[\dA-Z]{4}[\s]?[\dA-Z]{4}[\s]?[\dA-Z]{0,4}\b')
+_STEUER_RE = _re_filter.compile(r'(?:Steuer(?:nummer|nr|id)|USt-?ID(?:Nr)?|Tax[ -]?ID)[:\s]*[\w/\-\.]+', _re_filter.IGNORECASE)
+
+
+def _filter_sensitive_context(context: str) -> str:
+    """Remove IBANs and Steuernummern from context for non-EU providers.
+
+    Applied when provider != 'bedrock' (data goes outside EU).
+    """
+    filtered = _IBAN_RE.sub('[IBAN entfernt — Bedrock EU nötig]', context)
+    filtered = _STEUER_RE.sub('[Steuernummer entfernt — Bedrock EU nötig]', filtered)
+    return filtered
+
+
+# ---------------------------------------------------------------------------
+# Aufgabe 3: Parse LLM-generated suggestions from response
+# ---------------------------------------------------------------------------
+
+_SUGGESTIONS_RE = _re_filter.compile(
+    r'SUGGESTIONS_JSON:\s*(\[.*?\])\s*$',
+    _re_filter.MULTILINE | _re_filter.DOTALL,
+)
+
+
+def _parse_llm_suggestions(raw_text: str) -> tuple[str, list[dict]]:
+    """Extract SUGGESTIONS_JSON from LLM response text.
+
+    Returns (cleaned_text, suggestions_list).
+    """
+    match = _SUGGESTIONS_RE.search(raw_text)
+    if not match:
+        return raw_text, []
+    try:
+        suggestions = _json_mod.loads(match.group(1))
+        if not isinstance(suggestions, list):
+            return raw_text, []
+        # Validate each suggestion has required fields
+        valid = []
+        for s in suggestions:
+            if isinstance(s, dict) and s.get('label') and s.get('chat_text'):
+                valid.append({
+                    'label': str(s['label'])[:30],
+                    'chat_text': str(s['chat_text'])[:80],
+                    'style': str(s.get('style', 'secondary')),
+                })
+        cleaned = raw_text[:match.start()].rstrip()
+        return cleaned, valid
+    except (_json_mod.JSONDecodeError, TypeError):
+        return raw_text, []
+
 _CONTEXT_INTENTS = frozenset({
     'STATUS_OVERVIEW',
     'NEEDS_FROM_USER',
@@ -453,6 +511,7 @@ class TelegramCommunicatorService:
         # ── Step 8: response (guardrail / LLM / template / fallback) ─────────
         llm_called = False
         model_used: str | None = None
+        _llm_suggestions: list[dict] = []
 
         if not guardrail_passed:
             # Hard guardrail: template response, no LLM call ever
@@ -592,13 +651,25 @@ class TelegramCommunicatorService:
                     _ctx_for_payload = effective_ctx
                     if _ctx_for_payload is None and core_ctx and core_ctx.resolution_status == 'FOUND':
                         _ctx_for_payload = core_ctx
+                    # Aufgabe 1: Provider-based context filtering
+                    _ctx_for_llm = sys_ctx
+                    if _ctx_for_llm and provider not in ('bedrock',):
+                        _ctx_for_llm = _filter_sensitive_context(_ctx_for_llm)
+                        logger.info(
+                            'Trust-Boundary: provider=%s — sensible Felder gefiltert '
+                            '(IBAN, Steuernummern). Für vollen Kontext: Bedrock EU nutzen.',
+                            provider,
+                        )
+                    elif _ctx_for_llm and provider == 'bedrock':
+                        logger.info('Trust-Boundary: provider=bedrock — voller Kontext, keine Filterung.')
+
                     payload = build_llm_context_payload(
                         intent=intent,
                         context_resolution=_ctx_for_payload,
                         truth_annotation=truth_annotation,
                         conversation_memory=conv_memory,
                         user_message=normalized.text or '',
-                        system_context=sys_ctx,
+                        system_context=_ctx_for_llm,
                         provider=provider,
                         chat_history=chat_history,
                     )
@@ -633,13 +704,16 @@ class TelegramCommunicatorService:
                         call_kwargs: dict = {
                             'model': full_model,
                             'messages': payload['messages'],
-                            'max_tokens': 300,
+                            'max_tokens': 450,
                             'timeout': _LLM_TIMEOUT,
                         }
-                        if api_key:
-                            call_kwargs['api_key'] = api_key
-                        if base_url:
-                            call_kwargs['api_base'] = base_url
+                        # Bedrock uses AWS env vars (AWS_ACCESS_KEY_ID etc.)
+                        # — don't pass api_key/api_base which would override
+                        if provider != 'bedrock':
+                            if api_key:
+                                call_kwargs['api_key'] = api_key
+                            if base_url:
+                                call_kwargs['api_base'] = base_url
 
                         try:
                             resp = await litellm.acompletion(**call_kwargs)
@@ -686,6 +760,9 @@ class TelegramCommunicatorService:
                             logger.debug('Token usage logging failed: %s', exc)
 
                         raw_text = (resp.choices[0].message.content or '').strip()
+
+                        # Aufgabe 3: Parse LLM-generated suggestions
+                        raw_text, _llm_suggestions = _parse_llm_suggestions(raw_text)
 
                         # Ensure FRYA: prefix
                         if not raw_text.startswith('FRYA:'):
@@ -840,4 +917,5 @@ class TelegramCommunicatorService:
             routing_status=routing_status,
             turn=turn,
             reply_text=reply_text,
+            llm_suggestions=_llm_suggestions,
         )

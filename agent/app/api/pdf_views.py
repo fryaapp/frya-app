@@ -181,6 +181,126 @@ async def get_invoice_pdf(
     )
 
 
+@router.post('/invoices/{invoice_id}/send')
+async def send_invoice_email(
+    invoice_id: str,
+    body: dict,
+    user: AuthUser = Depends(require_authenticated),
+) -> dict:
+    """Aufgabe 7: Generate invoice PDF and send via email."""
+    import base64
+    tenant_id = await _resolve_tenant()
+    repo = _get_repo()
+    pdf_service = _get_pdf_service()
+
+    recipient_email = body.get('recipient_email', '')
+    if not recipient_email or '@' not in recipient_email:
+        raise HTTPException(status_code=400, detail='recipient_email required')
+
+    try:
+        inv_uuid = uuid.UUID(invoice_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail='invalid_invoice_id') from exc
+
+    invoice = await repo.get_invoice_by_id(tenant_id, inv_uuid)
+    if not invoice:
+        raise HTTPException(status_code=404, detail='invoice_not_found')
+
+    # Load contact
+    contact = await repo.get_contact_by_id(tenant_id, uuid.UUID(invoice.contact_id))
+    contact_dict = _contact_to_dict(contact) if contact else {'name': 'Unbekannt', 'street': '', 'zip': '', 'city': ''}
+
+    from app.config import get_settings
+    settings = get_settings()
+    tenant_dict = _build_tenant_dict(settings)
+
+    tax_rate = 19.0
+    if invoice.net_total and invoice.net_total > 0:
+        tax_rate = float(round(invoice.tax_total / invoice.net_total * 100, 2))
+
+    invoice_dict = {
+        'invoice_number': invoice.invoice_number,
+        'invoice_date': invoice.invoice_date.strftime('%d.%m.%Y') if invoice.invoice_date else '',
+        'due_date': invoice.due_date.strftime('%d.%m.%Y') if invoice.due_date else '',
+        'net_amount': float(invoice.net_total),
+        'tax_amount': float(invoice.tax_total),
+        'gross_amount': float(invoice.gross_total),
+        'tax_rate': tax_rate,
+        'payment_days': 14,
+    }
+    items_list = [
+        {
+            'description': f'Rechnung {invoice.invoice_number}',
+            'quantity': 1,
+            'unit': 'Stk',
+            'unit_price': float(invoice.net_total),
+            'tax_rate': tax_rate,
+            'total_price': float(invoice.gross_total),
+        },
+    ]
+
+    pdf_bytes = await pdf_service.generate_invoice_pdf(
+        invoice=invoice_dict, items=items_list,
+        contact=contact_dict, tenant=tenant_dict,
+    )
+
+    # ZUGFeRD embedding (non-fatal)
+    try:
+        from app.e_invoice.generator import embed_zugferd
+        zugferd_data = {
+            'invoice_number': invoice.invoice_number,
+            'invoice_date': invoice.invoice_date,
+            'due_date': invoice.due_date,
+            'net_amount': float(invoice.net_total),
+            'tax_amount': float(invoice.tax_total),
+            'gross_amount': float(invoice.gross_total),
+            'currency': 'EUR',
+            'seller_name': tenant_dict.get('company_name', ''),
+            'seller_tax_id': tenant_dict.get('tax_id', ''),
+            'buyer_name': contact_dict.get('name', ''),
+            'iban': tenant_dict.get('iban', ''),
+            'bic': tenant_dict.get('bic', ''),
+            'items': items_list,
+        }
+        pdf_bytes = embed_zugferd(pdf_bytes, zugferd_data)
+    except Exception as exc:
+        logger.warning('ZUGFeRD embedding failed for send: %s', exc)
+
+    # Send via mail service
+    from app.dependencies import get_mail_service
+    mail_svc = get_mail_service()
+    filename = f'Rechnung_{invoice.invoice_number}.pdf'
+    contact_name = contact_dict.get('name', 'Kunde')
+
+    await mail_svc.send_mail(
+        to=recipient_email,
+        subject=f'Rechnung {invoice.invoice_number} von {tenant_dict.get("company_name", "FRYA")}',
+        body_html=(
+            f'<p>Sehr geehrte(r) {contact_name},</p>'
+            f'<p>anbei erhalten Sie Rechnung <strong>{invoice.invoice_number}</strong> '
+            f'über <strong>{float(invoice.gross_total):.2f} EUR</strong>.</p>'
+            f'<p>Zahlbar bis: {invoice_dict["due_date"]}</p>'
+            f'<p>Mit freundlichen Gr&uuml;&szlig;en</p>'
+        ),
+        body_text=(
+            f'Rechnung {invoice.invoice_number} - {float(invoice.gross_total):.2f} EUR\n'
+            f'Zahlbar bis: {invoice_dict["due_date"]}\n'
+        ),
+        attachments=[{
+            'name': filename,
+            'content': base64.b64encode(pdf_bytes).decode('ascii'),
+        }],
+    )
+
+    logger.info('Invoice %s sent to %s (%d bytes PDF)', invoice.invoice_number, recipient_email, len(pdf_bytes))
+    return {
+        'status': 'sent',
+        'invoice_number': invoice.invoice_number,
+        'recipient': recipient_email,
+        'pdf_size_bytes': len(pdf_bytes),
+    }
+
+
 @router.post('/dunning/{contact_id}/generate')
 async def generate_dunning_pdf(
     contact_id: str,

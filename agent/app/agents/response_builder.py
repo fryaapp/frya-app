@@ -71,9 +71,18 @@ class ResponseBuilder:
         agent_results: dict,
         communicator_text: str,
         state: dict | None = None,
+        llm_suggestions: list[dict] | None = None,
     ) -> dict:
         blocks = self._build_content_blocks(intent, agent_results)
-        actions = self._build_actions(intent, agent_results, state)
+
+        # Aufgabe 5: Filter empty blocks
+        blocks = [b for b in blocks if self._block_has_data(b)]
+
+        # Aufgabe 3: LLM suggestions > static matrix (except APPROVE which has quick_actions)
+        if llm_suggestions and intent not in ('APPROVE',):
+            actions = llm_suggestions
+        else:
+            actions = self._build_actions(intent, agent_results, state)
         return {
             "type": "message_complete",
             "text": communicator_text,
@@ -81,6 +90,23 @@ class ResponseBuilder:
             "actions": actions,
             "suggestions": [a["chat_text"] for a in actions[:3]],
         }
+
+    @staticmethod
+    def _block_has_data(block: dict) -> bool:
+        """Aufgabe 5: Return False for empty/useless blocks."""
+        if not block or not block.get("data"):
+            return False
+        data = block["data"]
+        bt = block.get("block_type", "")
+        if bt == "key_value":
+            items = data.get("items", [])
+            filled = [i for i in items if i.get("value") and str(i["value"]).strip() not in ("", "\u2014", "None", "?", "0,00 \u20ac")]
+            return len(filled) > 0
+        if bt == "card_list":
+            return bool(data.get("items"))
+        if bt == "table":
+            return bool(data.get("rows"))
+        return True
 
     # ------------------------------------------------------------------ #
     #  Content-Block dispatch (covers ALL intents)                        #
@@ -104,34 +130,18 @@ class ResponseBuilder:
         if not items:
             return [{"block_type": "alert", "data": {"severity": "success", "text": "Keine Belege in der Inbox. Alles erledigt!"}}]
 
-        # Show all items when user explicitly requested it, otherwise preview 3
-        _PREVIEW_SIZE = 3
-        show_all = results.get("show_all", False)
-        preview = items if show_all else items[:_PREVIEW_SIZE]
-        remaining = 0 if show_all else len(items) - len(preview)
-
+        # Aufgabe 4: Send ALL items — frontend handles expand/collapse
         title = f"{len(items)} Belege warten"
         blocks: list[dict] = [
             {
                 "block_type": "card_list",
                 "data": {
                     "title": title,
-                    "items": [self._card(i) for i in preview],
+                    "items": [self._card(i) for i in items],
+                    "initial_count": 5,  # Frontend shows 5 initially, rest expandable
                 },
             }
         ]
-        if remaining > 0:
-            # Show "Weitere 3 anzeigen" (next batch), not all remaining
-            next_batch = min(_PREVIEW_SIZE, remaining)
-            blocks.append({
-                "block_type": "action",
-                "data": {
-                    "label": f"Weitere {next_batch} anzeigen (von {len(items)})",
-                    "chat_text": "Alle Belege zeigen",
-                    "style": "secondary",
-                    "icon": "expand_more",
-                },
-            })
         return blocks
 
     def _blocks_approve(self, results: dict) -> list[dict]:
