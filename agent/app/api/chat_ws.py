@@ -554,8 +554,11 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     # --- Phase 2: Communicator (always, for natural-language reply) ---
                     result = await _get_communicator_reply(text, user_id, tenant_id)
 
+                    # Aufgabe 3: Extract LLM-generated suggestions from communicator
+                    _llm_suggestions: list[dict] = []
                     if result and result.handled:
                         reply_text = result.reply_text
+                        _llm_suggestions = getattr(result, 'llm_suggestions', []) or []
                         case_ref = (
                             result.turn.context_resolution.resolved_case_ref
                             if result.turn.context_resolution
@@ -634,6 +637,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 intent=tier_intent,
                                 agent_results=agent_results,
                                 communicator_text=reply_text,
+                                llm_suggestions=_llm_suggestions,
                             )
                             content_blocks = enhanced.get('content_blocks', [])
                             actions = enhanced.get('actions', [])

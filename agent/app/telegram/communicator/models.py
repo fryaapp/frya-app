@@ -56,3 +56,4 @@ class CommunicatorResult(BaseModel):
     routing_status: str  # COMMUNICATOR_HANDLED, COMMUNICATOR_GUARDRAIL_TRIGGERED
     turn: CommunicatorTurn
     reply_text: str
+    llm_suggestions: list[dict] = Field(default_factory=list)

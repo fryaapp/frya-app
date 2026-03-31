@@ -155,7 +155,12 @@ async def send_chat_message(
 
             rb = _get_response_builder()
             if rb and tier_intent:
-                enhanced = rb.build(intent=tier_intent, agent_results=agent_results, communicator_text=result.reply_text)
+                _rest_llm_sugg = getattr(result, 'llm_suggestions', []) or []
+                enhanced = rb.build(
+                    intent=tier_intent, agent_results=agent_results,
+                    communicator_text=result.reply_text,
+                    llm_suggestions=_rest_llm_sugg,
+                )
                 content_blocks = enhanced.get('content_blocks', [])
                 actions = enhanced.get('actions', [])
                 if actions:

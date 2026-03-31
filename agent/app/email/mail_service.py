@@ -67,6 +67,7 @@ class MailService:
         body_html: str,
         body_text: str,
         tenant_id: str | None = None,
+        attachments: list[dict] | None = None,
     ) -> None:
         mail_config: dict[str, Any] | None = None
         if tenant_id:
@@ -78,7 +79,7 @@ class MailService:
             elif mail_config and mail_config.get('provider') == 'mailgun':
                 await self._send_mailgun(to, subject, body_html, body_text, mail_config)
             elif self.mail_provider == 'brevo':
-                await self._send_brevo(to, subject, body_html, body_text)
+                await self._send_brevo(to, subject, body_html, body_text, attachments=attachments)
             else:
                 await self._send_frya_mailgun(to, subject, body_html, body_text)
         except Exception as exc:
@@ -217,18 +218,26 @@ class MailService:
         subject: str,
         body_html: str,
         body_text: str,
+        attachments: list[dict] | None = None,
     ) -> None:
         if not self.brevo_api_key:
             # No Brevo API key configured (dev/test mode): silently skip
             return
         url = 'https://api.brevo.com/v3/smtp/email'
-        payload = {
+        payload: dict = {
             'sender': {'name': 'FRYA', 'email': self.mailgun_from},
             'to': [{'email': to}],
             'subject': subject,
             'htmlContent': body_html,
             'textContent': body_text,
         }
+        # Aufgabe 7: Support file attachments (e.g. invoice PDFs)
+        # Each attachment: {'name': 'rechnung.pdf', 'content': base64_str}
+        if attachments:
+            payload['attachment'] = [
+                {'name': a['name'], 'content': a['content']}
+                for a in attachments if a.get('name') and a.get('content')
+            ]
         headers = {
             'api-key': self.brevo_api_key,
             'Content-Type': 'application/json',
