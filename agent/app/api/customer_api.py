@@ -105,11 +105,14 @@ async def send_chat_message(
     result.reply_text = reply_raw
 
     # --- Name-update side-effect (same as WS handler) ---
-    from app.api.chat_ws import _extract_name_intent, _persist_display_name
+    from app.api.chat_ws import _extract_name_intent, _persist_display_name, _extract_and_persist_business_info
     extracted_name = _extract_name_intent(body.message)
+    tenant_id = getattr(user, 'tenant_id', '') or ''
     if extracted_name:
-        tenant_id = getattr(user, 'tenant_id', '') or ''
         await _persist_display_name(user.username, tenant_id, extracted_name)
+
+    # --- Business info extraction (hourly rate, company, tax) ---
+    await _extract_and_persist_business_info(body.message, user.username, tenant_id)
 
     conv_store = get_communicator_conversation_store()
     conv_mem = await conv_store.load(chat_id)
@@ -168,6 +171,24 @@ async def send_chat_message(
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning('REST chat integration failed: %s', exc)
+
+    # --- Invoice Pipeline: INVOICE_DATA from communicator ---
+    # If communicator returned structured INVOICE_DATA, create draft + preview.
+    # NO auto_send — every invoice MUST show preview + require user approval.
+    _invoice_data = getattr(result, 'invoice_data', None)
+    if _invoice_data and isinstance(_invoice_data, dict):
+        try:
+            from app.services.invoice_pipeline import handle_create_invoice
+            pipeline_result = await handle_create_invoice(_invoice_data, user.username)
+            result.reply_text = pipeline_result.get('text', result.reply_text)
+            content_blocks = pipeline_result.get('content_blocks', [])
+            actions = pipeline_result.get('actions', [])
+            if actions:
+                suggestions = [a['chat_text'] for a in actions[:3]]
+            logger.info('Invoice pipeline: draft created from INVOICE_DATA (REST)')
+        except Exception as exc:
+            logger.error('Invoice pipeline failed (REST): %s', exc)
+            result.reply_text = f'Rechnung konnte nicht erstellt werden: {exc}'
 
     return ChatResponse(
         reply=result.reply_text, case_ref=case_ref, suggestions=suggestions,
@@ -915,6 +936,13 @@ async def update_user_settings(
         try:
             for key, value in data.items():
                 if key in allowed:
+                    # P-06: Validate display_name before saving
+                    if key == 'display_name':
+                        from app.api.chat_ws import is_plausible_name
+                        is_name, conf = is_plausible_name(str(value))
+                        if not is_name or conf < 0.6:
+                            continue  # Skip invalid name
+                        value = str(value).strip().title()
                     await conn.execute(
                         """INSERT INTO frya_user_preferences (tenant_id, user_id, key, value, updated_at)
                         VALUES ('default', $1, $2, $3, NOW())

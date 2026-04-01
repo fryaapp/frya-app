@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { margin: 0; }
+body {
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 10.5pt;
+  color: #1a1a1a;
+  margin: 0;
+  padding: 0;
+  line-height: 1.5;
+}
+.header-block {
+  background: #2d3748;
+  color: #ffffff;
+  padding: 30px 60px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.header-block .logo-area { max-width: 180px; }
+.header-block .logo-area img { max-width: 180px; max-height: 70px; }
+.header-block .company-right { text-align: right; }
+.header-block .company-name { font-size: 16pt; font-weight: 700; letter-spacing: 0.5px; }
+.header-block .company-details { font-size: 8.5pt; opacity: 0.85; margin-top: 4px; }
+.content { padding: 30px 60px 40px 60px; }
+/* DIN 5008 Fenster-Position */
+.sender-line { font-size: 7pt; color: #888; text-decoration: underline; margin-bottom: 3px; margin-top: 10px; }
+.din-window { margin-bottom: 30px; min-height: 80px; }
+.recipient { font-size: 10.5pt; line-height: 1.6; }
+.invoice-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
+.invoice-title { font-size: 20pt; font-weight: 700; color: #2d3748; }
+.invoice-meta-block { text-align: right; font-size: 9pt; color: #555; }
+.invoice-meta-block .label { font-weight: 600; }
+table.items { width: 100%; border-collapse: collapse; margin: 15px 0; }
+table.items th {
+  text-align: left; padding: 10px 10px; font-size: 9pt; font-weight: 600;
+  color: #fff; background: #2d3748; text-transform: uppercase; letter-spacing: 0.3px;
+}
+table.items tr:nth-child(even) td { background: #f7f8fa; }
+table.items td { padding: 10px 10px; border-bottom: 1px solid #e2e8f0; font-size: 10pt; }
+table.items .amount { text-align: right; }
+table.items th.amount { text-align: right; }
+.totals-wrapper { display: flex; justify-content: flex-end; margin-top: 15px; }
+table.totals { width: 260px; }
+table.totals td { padding: 6px 10px; font-size: 10pt; }
+table.totals td.amount { text-align: right; }
+table.totals .subtotal td { color: #666; }
+table.totals .total td { font-weight: 700; font-size: 13pt; color: #2d3748; border-top: 3px solid #2d3748; padding-top: 10px; }
+{% if kleinunternehmer %}
+.kleinunternehmer-note { font-size: 8.5pt; color: #888; margin-top: 8px; }
+{% endif %}
+.payment-box {
+  margin-top: 30px; padding: 15px 20px;
+  background: #f7f8fa; border-left: 4px solid #2d3748;
+  font-size: 9.5pt; color: #555;
+}
+.payment-box strong { color: #1a1a1a; }
+.notes { margin-top: 15px; font-size: 9pt; color: #666; font-style: italic; }
+.footer {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: #2d3748; color: #fff;
+  padding: 10px 60px;
+  font-size: 7.5pt;
+  display: flex; justify-content: space-between;
+  opacity: 0.95;
+}
+.footer .col { flex: 1; }
+.footer .col:last-child { text-align: right; }
+</style>
+</head>
+<body>
+
+<div class="header-block">
+  <div class="logo-area">
+    {% if logo_url %}<img src="{{ logo_url }}" alt="Logo">{% else %}<div class="company-name">{{ tenant.company_name }}</div>{% endif %}
+  </div>
+  <div class="company-right">
+    {% if logo_url %}<div class="company-name">{{ tenant.company_name }}</div>{% endif %}
+    <div class="company-details">
+      {{ tenant.street }} · {{ tenant.zip }} {{ tenant.city }}<br>
+      {% if tenant.tax_id %}USt-IdNr.: {{ tenant.tax_id }}{% endif %}
+      {% if tenant.phone %} · Tel: {{ tenant.phone }}{% endif %}
+      {% if tenant.email %} · {{ tenant.email }}{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="content">
+  <!-- DIN 5008 Fenster -->
+  <div class="din-window">
+    <div class="sender-line">{{ tenant.company_name }} · {{ tenant.street }} · {{ tenant.zip }} {{ tenant.city }}</div>
+    <div class="recipient">
+      <strong>{{ contact.name }}</strong><br>
+      {% if contact.street %}{{ contact.street }}<br>{% endif %}
+      {% if contact.zip %}{{ contact.zip }} {{ contact.city }}{% endif %}
+    </div>
+  </div>
+
+  <div class="invoice-header">
+    <div class="invoice-title">RECHNUNG</div>
+    <div class="invoice-meta-block">
+      <span class="label">Rechnungsnr.:</span> {{ invoice.invoice_number }}<br>
+      <span class="label">Datum:</span> {{ invoice.invoice_date }}<br>
+      {% if invoice.due_date %}<span class="label">Fällig:</span> {{ invoice.due_date }}{% endif %}
+    </div>
+  </div>
+
+  <table class="items">
+    <thead>
+      <tr>
+        <th>Pos</th>
+        <th>Beschreibung</th>
+        <th>Menge</th>
+        <th class="amount">Einzelpreis</th>
+        {% if not kleinunternehmer %}<th class="amount">MwSt</th>{% endif %}
+        <th class="amount">Gesamt</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ item.description }}</td>
+        <td>{{ item.quantity }} {{ item.unit or 'Stk' }}</td>
+        <td class="amount">{{ "%.2f"|format(item.unit_price) }} &euro;</td>
+        {% if not kleinunternehmer %}<td class="amount">{{ item.tax_rate }}%</td>{% endif %}
+        <td class="amount">{{ "%.2f"|format(item.total_price) }} &euro;</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="totals-wrapper">
+    <table class="totals">
+      <tr class="subtotal"><td>Netto</td><td class="amount">{{ "%.2f"|format(invoice.net_amount) }} &euro;</td></tr>
+      {% if not kleinunternehmer %}
+      <tr class="subtotal"><td>USt {{ invoice.tax_rate }}%</td><td class="amount">{{ "%.2f"|format(invoice.tax_amount) }} &euro;</td></tr>
+      {% endif %}
+      <tr class="total"><td>Gesamtbetrag</td><td class="amount">{{ "%.2f"|format(invoice.gross_amount) }} &euro;</td></tr>
+    </table>
+  </div>
+
+  {% if kleinunternehmer %}
+  <div class="kleinunternehmer-note">
+    Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.
+  </div>
+  {% endif %}
+
+  {% if notes %}
+  <div class="notes">{{ notes }}</div>
+  {% endif %}
+
+  <div class="payment-box">
+    Bitte überweisen Sie den Betrag bis zum <strong>{{ invoice.due_date }}</strong>.<br>
+    {% if tenant.iban %}<strong>IBAN:</strong> {{ tenant.iban }}{% endif %}
+    {% if tenant.bic %} · <strong>BIC:</strong> {{ tenant.bic }}{% endif %}
+    {% if tenant.bank %} · {{ tenant.bank }}{% endif %}
+    {% if skonto_percent and skonto_days %}<br>
+    Bei Zahlung innerhalb von {{ skonto_days }} Tagen: {{ skonto_percent }}% Skonto.{% endif %}
+  </div>
+</div>
+
+<div class="footer">
+  <div class="col">{{ tenant.company_name }}{% if tenant.legal_form %} {{ tenant.legal_form }}{% endif %}</div>
+  <div class="col">{% if tenant.iban %}IBAN: {{ tenant.iban }}{% endif %}{% if tenant.bic %} · BIC: {{ tenant.bic }}{% endif %}</div>
+  <div class="col">{% if tenant.tax_id %}USt-IdNr.: {{ tenant.tax_id }}{% endif %}{% if tenant.tax_number %} · Steuernr.: {{ tenant.tax_number }}{% endif %}</div>
+</div>
+
+</body>
+</html>

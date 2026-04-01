@@ -10,11 +10,17 @@ _LLM_TIMEOUT = 30
 
 class TieredOrchestrator:
     FAST_PATTERNS = {
+        # Specific patterns FIRST (before generic ones that might over-match)
+        r"(?i)(zeig.*rechnung\s*RE-|rechnung\s*RE-\d+.*(?:aufrufen|anzeig|detail|öffn))": "SHOW_INVOICE",
+        r"(?i)(rechnung.*(?:RE-\d+).*send|RE-\d+.*(?:send|freigeb|verschick))": "SEND_INVOICE",
+        r"(?i)(rechnung.*erstell|schreib.*rechnung|rechnung an\s)": "CREATE_INVOICE",
+        r"(?i)(rechnungs?.?(?:layout|vorlage|template|design)|template.*(?:wechsel|änder|wähl))": "CHOOSE_TEMPLATE",
+        r"(?i)(clean|professional|minimal).?(?:template|vorlage)?\s*(?:wähl|nehm|bitte)": "SET_TEMPLATE",
+        r"(?i)(logo.*(?:hochlad|upload|änder)|mein\s+logo)": "UPLOAD_LOGO",
+        r"(?i)(wer schuldet|offene posten|offene rechnung|offene forderung)": "SHOW_OPEN_ITEMS",
         r"(?i)(inbox|belege|was liegt an|was steht an|abarbeiten)": "SHOW_INBOX",
         r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell)": "SHOW_FINANCE",
         r"(?i)(frist|deadline|dringend|überfällig|was ist fällig)": "SHOW_DEADLINES",
-        r"(?i)(rechnung.*erstell|schreib.*rechnung|rechnung an)": "CREATE_INVOICE",
-        r"(?i)(wer schuldet|offene posten|offene rechnung)": "SHOW_OPEN_ITEMS",
         r"(?i)(zeig.*kontakt|alles über|kundenakte)": "SHOW_CONTACT",
         r"(?i)(buchungsjournal|buchungen zeig|journal)": "SHOW_BOOKINGS",
         r"(?i)(einstellung|dark.?mode|hell|dunkel|theme|anrede)": "SETTINGS",
@@ -35,6 +41,8 @@ class TieredOrchestrator:
         "SHOW_OPEN_ITEMS", "SHOW_CONTACT", "SHOW_EXPORT", "CREATE_INVOICE",
         "CREATE_CONTACT", "CREATE_REMINDER", "APPROVE", "SETTINGS", "UPLOAD",
         "STATUS_OVERVIEW", "SMALL_TALK", "UNKNOWN",
+        "SEND_INVOICE", "VOID_INVOICE", "EDIT_INVOICE", "SHOW_INVOICE",
+        "CHOOSE_TEMPLATE", "SET_TEMPLATE", "UPLOAD_LOGO",
     }
 
     def __init__(self, action_router=None):

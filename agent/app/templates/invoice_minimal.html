@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<style>
+@page { margin: 0; }
+body {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 11pt;
+  color: #333;
+  margin: 0;
+  padding: 60px 70px 50px 70px;
+  line-height: 1.7;
+}
+.logo-area { margin-bottom: 20px; }
+.logo-area img { max-width: 120px; max-height: 50px; }
+.sender-block { font-size: 10pt; margin-bottom: 30px; }
+.sender-block .name { font-weight: 600; }
+.sender-line-small { font-size: 7.5pt; color: #999; text-decoration: underline; margin-bottom: 3px; }
+.recipient { font-size: 11pt; margin-bottom: 40px; line-height: 1.6; }
+.invoice-title { font-size: 11pt; font-weight: 600; margin-bottom: 5px; }
+.invoice-meta { font-size: 10pt; color: #666; margin-bottom: 30px; }
+.items-list { margin: 20px 0; }
+.item-row { display: flex; justify-content: space-between; padding: 6px 0; }
+.item-row.header { font-weight: 600; font-size: 9.5pt; color: #666; border-bottom: 1px solid #ccc; margin-bottom: 5px; padding-bottom: 8px; }
+.item-desc { flex: 3; }
+.item-qty { flex: 0.7; text-align: center; }
+.item-price { flex: 1; text-align: right; }
+.item-total { flex: 1; text-align: right; }
+.separator { border-top: 1px solid #ccc; margin: 15px 0; }
+.totals { text-align: right; margin-top: 10px; }
+.totals .line { font-size: 10pt; color: #666; margin-bottom: 3px; }
+.totals .grand-total { font-size: 13pt; font-weight: 600; color: #333; margin-top: 8px; }
+{% if kleinunternehmer %}
+.kleinunternehmer-note { font-size: 9pt; color: #999; margin-top: 5px; text-align: right; }
+{% endif %}
+.payment-info { margin-top: 40px; font-size: 10pt; color: #555; }
+.notes { margin-top: 15px; font-size: 9.5pt; color: #888; }
+.footer {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  padding: 10px 70px;
+  font-size: 7.5pt; color: #aaa;
+  border-top: 1px solid #ddd;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+{% if logo_url %}
+<div class="logo-area"><img src="{{ logo_url }}" alt="Logo"></div>
+{% endif %}
+
+<div class="sender-block">
+  <div class="name">{{ tenant.company_name }}</div>
+  {{ tenant.street }}, {{ tenant.zip }} {{ tenant.city }}
+</div>
+
+<div class="sender-line-small">{{ tenant.company_name }} · {{ tenant.street }} · {{ tenant.zip }} {{ tenant.city }}</div>
+<div class="recipient">
+  {{ contact.name }}<br>
+  {% if contact.street %}{{ contact.street }}<br>{% endif %}
+  {% if contact.zip %}{{ contact.zip }} {{ contact.city }}{% endif %}
+</div>
+
+<div class="invoice-title">Rechnung {{ invoice.invoice_number }}</div>
+<div class="invoice-meta">
+  {{ invoice.invoice_date }}{% if invoice.due_date %} — fällig am {{ invoice.due_date }}{% endif %}
+</div>
+
+<div class="items-list">
+  <div class="item-row header">
+    <div class="item-desc">Beschreibung</div>
+    <div class="item-qty">Menge</div>
+    <div class="item-price">Preis</div>
+    <div class="item-total">Gesamt</div>
+  </div>
+  {% for item in items %}
+  <div class="item-row">
+    <div class="item-desc">{{ item.description }}</div>
+    <div class="item-qty">{{ item.quantity }}</div>
+    <div class="item-price">{{ "%.2f"|format(item.unit_price) }} &euro;</div>
+    <div class="item-total">{{ "%.2f"|format(item.total_price) }} &euro;</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="separator"></div>
+
+<div class="totals">
+  <div class="line">Netto: {{ "%.2f"|format(invoice.net_amount) }} &euro;</div>
+  {% if not kleinunternehmer %}
+  <div class="line">USt {{ invoice.tax_rate }}%: {{ "%.2f"|format(invoice.tax_amount) }} &euro;</div>
+  {% endif %}
+  <div class="grand-total">{{ "%.2f"|format(invoice.gross_amount) }} &euro;</div>
+</div>
+
+{% if kleinunternehmer %}
+<div class="kleinunternehmer-note">
+  Kein Umsatzsteuerausweis gem. § 19 UStG.
+</div>
+{% endif %}
+
+{% if notes %}
+<div class="notes">{{ notes }}</div>
+{% endif %}
+
+<div class="payment-info">
+  Zahlbar bis zum {{ invoice.due_date }}.
+  {% if tenant.iban %}<br>IBAN: {{ tenant.iban }}{% endif %}
+  {% if tenant.bic %} · BIC: {{ tenant.bic }}{% endif %}
+  {% if tenant.bank %} · {{ tenant.bank }}{% endif %}
+  {% if skonto_percent and skonto_days %}
+  <br>{{ skonto_percent }}% Skonto bei Zahlung innerhalb von {{ skonto_days }} Tagen.
+  {% endif %}
+</div>
+
+<div class="footer">
+  {{ tenant.company_name }}{% if tenant.legal_form %} {{ tenant.legal_form }}{% endif %}
+  · {{ tenant.street }} · {{ tenant.zip }} {{ tenant.city }}
+  {% if tenant.iban %} · IBAN: {{ tenant.iban }}{% endif %}
+  {% if tenant.tax_id %} · USt-IdNr.: {{ tenant.tax_id }}{% endif %}
+</div>
+
+</body>
+</html>

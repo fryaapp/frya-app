@@ -50,7 +50,24 @@ class InvoiceService:
             'footer_text': footer_text,
         })
 
-        logger.info('Invoice %s created: %s EUR', invoice_number, net_total + tax_total)
+        # Save line items to frya_invoice_items
+        for pos, item in enumerate(items, 1):
+            try:
+                await self._repo.create_invoice_item(invoice.id, {
+                    'position': pos,
+                    'description': item.get('description', ''),
+                    'quantity': item.get('quantity', 1),
+                    'unit': item.get('unit', 'Stk'),
+                    'unit_price': item['unit_price'],
+                    'tax_rate': item.get('tax_rate', 19),
+                    'net_amount': item['net_amount'],
+                    'tax_amount': item['tax_amount'],
+                    'gross_amount': item['gross_amount'],
+                })
+            except Exception as exc:
+                logger.warning('Failed to save invoice item %d: %s', pos, exc)
+
+        logger.info('Invoice %s created: %s EUR (%d items)', invoice_number, net_total + tax_total, len(items))
         return invoice
 
     async def list_invoices(self, tenant_id: uuid.UUID) -> list[Invoice]:

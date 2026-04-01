@@ -1,3 +1,4 @@
+import React from 'react'
 import { CardBlock } from './CardBlock'
 import { CardListBlock } from './CardListBlock'
 import { TableBlock } from './TableBlock'
@@ -20,9 +21,32 @@ interface ContentBlockProps {
   onSubmit?: (formType: string, formData: Record<string, any>) => void
 }
 
+/** Safety wrapper — if a single block crashes, show nothing instead of crashing the whole chat. */
+class BlockErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  componentDidCatch(err: Error) {
+    console.warn('[ContentBlock] render error:', err.message)
+  }
+  render() {
+    return this.state.hasError ? null : this.props.children
+  }
+}
+
 export function ContentBlock({ block, onAction, onSubmit }: ContentBlockProps) {
   if (!block || !block.data) return null
 
+  return (
+    <BlockErrorBoundary>
+      <ContentBlockInner block={block} onAction={onAction} onSubmit={onSubmit} />
+    </BlockErrorBoundary>
+  )
+}
+
+function ContentBlockInner({ block, onAction, onSubmit }: ContentBlockProps) {
   switch (block.block_type) {
     case 'card':
       return <CardBlock data={block.data} />

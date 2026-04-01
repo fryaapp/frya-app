@@ -52,11 +52,27 @@ class ResponseBuilder:
             {"label": "EUeR dazu", "chat_text": "EUeR als PDF", "style": "secondary"},
         ],
         "SETTINGS": [
+            {"label": "Profil bearbeiten", "chat_text": "Firmendaten aendern", "style": "primary"},
             {"label": "Dunkelmodus", "chat_text": "Dunkelmodus an", "style": "secondary"},
             {"label": "Heller Modus", "chat_text": "Heller Modus", "style": "secondary"},
         ],
         "UPLOAD": [
             {"label": "Inbox pruefen", "chat_text": "Was liegt in der Inbox?", "style": "primary"},
+        ],
+        "CHOOSE_TEMPLATE": [
+            {"label": "Clean", "chat_text": "Clean-Template waehlen", "style": "primary",
+             "quick_action": {"type": "set_template", "params": {"template": "clean"}}},
+            {"label": "Professional", "chat_text": "Professional-Template waehlen", "style": "secondary",
+             "quick_action": {"type": "set_template", "params": {"template": "professional"}}},
+            {"label": "Minimal", "chat_text": "Minimal-Template waehlen", "style": "text",
+             "quick_action": {"type": "set_template", "params": {"template": "minimal"}}},
+        ],
+        "SET_TEMPLATE": [
+            {"label": "Rechnung erstellen", "chat_text": "Rechnung erstellen", "style": "primary"},
+            {"label": "Vorschau ansehen", "chat_text": "Rechnungs-Vorschau zeigen", "style": "secondary"},
+        ],
+        "UPLOAD_LOGO": [
+            {"label": "Logo hochladen", "chat_text": "Logo hochladen", "style": "primary"},
         ],
     }
 
@@ -264,9 +280,64 @@ class ResponseBuilder:
         return blocks
 
     def _blocks_create_invoice(self, results: dict) -> list[dict]:
+        # Pipeline returns content_blocks directly
+        if results.get('content_blocks'):
+            return results['content_blocks']
         if results.get("form"):
             return [{"block_type": "form", "data": results["form"]}]
         return [{"block_type": "alert", "data": {"severity": "info", "text": "Rechnungsformular wird geladen..."}}]
+
+    def _blocks_send_invoice(self, results: dict) -> list[dict]:
+        """Blocks after Freigeben & Senden."""
+        if results.get('content_blocks'):
+            return results['content_blocks']
+        return [{"block_type": "alert", "data": {"severity": "success", "text": results.get("text", "Rechnung versendet.")}}]
+
+    def _blocks_void_invoice(self, results: dict) -> list[dict]:
+        """Blocks after Verwerfen."""
+        if results.get('content_blocks'):
+            return results['content_blocks']
+        return []
+
+    def _blocks_edit_invoice(self, results: dict) -> list[dict]:
+        """Blocks for edit — return form."""
+        return [{"block_type": "alert", "data": {"severity": "info", "text": "Bearbeitungsmodus wird geladen..."}}]
+
+    def _blocks_choose_template(self, results: dict) -> list[dict]:
+        """Show the 3 template options as card_list."""
+        return [{
+            "block_type": "card_list",
+            "data": {"items": [
+                {
+                    "title": "Clean",
+                    "subtitle": "Modern und aufgeraeumt — der Standard",
+                    "badge": {"label": "Empfohlen", "color": "primary"},
+                    "thumbnail_url": "/api/v1/invoice-templates/clean/preview",
+                },
+                {
+                    "title": "Professional",
+                    "subtitle": "Klassisch mit Header — fuer Geschaeftskunden",
+                    "thumbnail_url": "/api/v1/invoice-templates/professional/preview",
+                },
+                {
+                    "title": "Minimal",
+                    "subtitle": "Nur das Noetigste — fuer Freelancer",
+                    "thumbnail_url": "/api/v1/invoice-templates/minimal/preview",
+                },
+            ]}
+        }]
+
+    def _blocks_set_template(self, results: dict) -> list[dict]:
+        """Confirmation after template selection."""
+        if results.get('content_blocks'):
+            return results['content_blocks']
+        return [{"block_type": "alert", "data": {"severity": "success", "text": results.get("text", "Template geaendert.")}}]
+
+    def _blocks_upload_logo(self, results: dict) -> list[dict]:
+        """Blocks for logo upload flow."""
+        if results.get('content_blocks'):
+            return results['content_blocks']
+        return [{"block_type": "alert", "data": {"severity": "info", "text": "Schick mir einfach dein Logo als Bild (PNG, JPG oder SVG)."}}]
 
     def _blocks_show_export(self, results: dict) -> list[dict]:
         return [{"block_type": "export", "data": {"items": [
@@ -281,11 +352,37 @@ class ResponseBuilder:
         return self._blocks_show_export(results)
 
     def _blocks_settings(self, results: dict) -> list[dict]:
-        return [{"block_type": "key_value", "data": {"items": [
+        blocks: list[dict] = []
+        # User settings
+        blocks.append({"block_type": "key_value", "data": {"title": "Benutzer", "items": [
             {"label": "Name", "value": str(results.get("display_name", "\u2014"))},
             {"label": "Theme", "value": str(results.get("theme", "system"))},
             {"label": "Anrede", "value": "Sie" if results.get("formal_address") else "Du"},
-        ]}}]
+        ]}})
+        # Business profile (from compliance_gate / frya_business_profile)
+        bp = results.get("business_profile")
+        if bp and isinstance(bp, dict):
+            biz_items = [
+                {"label": "Firma", "value": str(bp.get("company_name") or "\u2014")},
+                {"label": "Rechtsform", "value": str(bp.get("company_legal_form") or "\u2014")},
+                {"label": "Strasse", "value": str(bp.get("company_street") or "\u2014")},
+                {"label": "PLZ/Ort", "value": f'{bp.get("company_zip", "")} {bp.get("company_city", "")}'.strip() or "\u2014"},
+                {"label": "Steuernummer", "value": str(bp.get("tax_number") or "\u2014")},
+                {"label": "USt-IdNr.", "value": str(bp.get("ust_id") or "\u2014")},
+                {"label": "IBAN", "value": str(bp.get("company_iban") or "\u2014")},
+                {"label": "E-Mail", "value": str(bp.get("company_email") or "\u2014")},
+                {"label": "Telefon", "value": str(bp.get("company_phone") or "\u2014")},
+                {"label": "Kleinunternehmer", "value": "Ja (\u00a719 UStG)" if bp.get("is_kleinunternehmer") else "Nein"},
+            ]
+            blocks.append({"block_type": "key_value", "data": {"title": "Geschaeftsprofil", "items": biz_items}})
+            # Completeness hint
+            completeness = bp.get("profile_completeness")
+            if completeness is not None and completeness < 100:
+                blocks.append({"block_type": "alert", "data": {
+                    "severity": "warning",
+                    "text": f"Profil zu {completeness}% vollstaendig. Fehlende Angaben werden bei der naechsten Rechnung abgefragt.",
+                }})
+        return blocks
 
     def _blocks_show_settings(self, results: dict) -> list[dict]:
         return self._blocks_settings(results)

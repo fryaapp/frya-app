@@ -32,11 +32,11 @@ AGENT_CATALOG: dict[str, dict] = {
     },
     'communicator': {
         'label': 'Kommunikator (Mund)',
-        'provider': 'anthropic',
-        'target_model': 'claude-sonnet-4-6',
+        'provider': 'bedrock',
+        'target_model': 'eu.anthropic.claude-sonnet-4-6',
         'base_url': None,
         'agent_status': 'active',
-        'note': 'Anthropic — Claude Sonnet 4.6 (direkter Anthropic-Key via FRYA_ANTHROPIC_API_KEY)',
+        'note': 'Bedrock EU Frankfurt — Claude Sonnet 4.6 (AWS IAM, DSGVO-konform)',
     },
     'document_analyst': {
         'label': 'Document Analyst (Auge)',
@@ -452,11 +452,14 @@ class LLMConfigRepository:
         }
 
     def decrypt_key_for_call(self, config: dict) -> str | None:
+        # Bedrock uses AWS env vars (IAM), never an API key
+        provider = (config.get('provider') or '').strip().lower()
+        if provider == 'bedrock':
+            return None
         key = decrypt_api_key(config.get('api_key_encrypted'), self.encryption_key)
         if key:
             return key
         # Env-var fallback based on provider
-        provider = (config.get('provider') or '').strip().lower()
         if provider == 'anthropic':
             return os.environ.get('FRYA_ANTHROPIC_API_KEY') or None
         if provider == 'ionos':

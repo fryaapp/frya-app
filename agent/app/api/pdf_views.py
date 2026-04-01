@@ -109,43 +109,125 @@ async def get_invoice_pdf(
 
     # Build invoice data dict for template
     from app.config import get_settings
-    tenant_dict = _build_tenant_dict(get_settings())
+    settings = get_settings()
 
-    # Determine dominant tax rate from invoice totals
+    # Load company data from business_profile (P-04/P-05 fix)
+    try:
+        from app.pdf.template_registry import (
+            get_company_data_for_template, get_company_logo_b64,
+            render_invoice_pdf as _render_tpl_pdf, get_template_name,
+        )
+        tenant_dict = await get_company_data_for_template('', str(tenant_id))
+        logo_b64 = await get_company_logo_b64('', str(tenant_id))
+    except Exception as exc:
+        logger.warning('Template-aware tenant load failed: %s', exc)
+        tenant_dict = _build_tenant_dict(settings)
+        logo_b64 = None
+
+    # Load user preferences for template + kleinunternehmer
+    kleinunternehmer = False
+    template_key = 'clean'
+    skonto_pct = None
+    skonto_days = None
+    try:
+        import asyncpg as _apg_prefs
+        _prefs_conn = await _apg_prefs.connect(settings.database_url)
+        try:
+            _pref_rows = await _prefs_conn.fetch(
+                "SELECT key, value FROM frya_user_preferences "
+                "WHERE tenant_id IN ($1, 'default', '') "
+                "AND key IN ('invoice_template', 'kleinunternehmer', "
+                "'default_skonto_percent', 'default_skonto_days') "
+                "ORDER BY CASE WHEN tenant_id = $1 THEN 0 ELSE 1 END",
+                str(tenant_id),
+            )
+            _pdict: dict[str, str] = {}
+            for r in reversed(_pref_rows):
+                _pdict[r['key']] = r['value']
+            template_key = get_template_name(_pdict.get('invoice_template'))
+            kleinunternehmer = _pdict.get('kleinunternehmer') == 'true'
+            skonto_pct = float(_pdict['default_skonto_percent']) if _pdict.get('default_skonto_percent') else None
+            skonto_days = int(_pdict['default_skonto_days']) if _pdict.get('default_skonto_days') else None
+        finally:
+            await _prefs_conn.close()
+    except Exception as exc:
+        logger.warning('Prefs load for PDF failed: %s', exc)
+
+    # Load line items from frya_invoice_items (fallback to summary)
+    items_list = []
+    try:
+        import asyncpg as _apg_items
+        _items_conn = await _apg_items.connect(settings.database_url)
+        try:
+            item_rows = await _items_conn.fetch(
+                "SELECT description, quantity, unit, unit_price, tax_rate, "
+                "net_amount, tax_amount, gross_amount "
+                "FROM frya_invoice_items WHERE invoice_id = $1 ORDER BY position",
+                inv_uuid,
+            )
+            for ir in item_rows:
+                qty = float(ir['quantity'] or 1)
+                # P-04 3a: whole numbers without decimal
+                if qty == int(qty):
+                    qty = int(qty)
+                items_list.append({
+                    'description': ir['description'] or '',
+                    'quantity': qty,
+                    'unit': ir['unit'] or 'Stk',
+                    'unit_price': float(ir['unit_price'] or 0),
+                    'tax_rate': float(ir['tax_rate'] or 19),
+                    'total_price': float(ir['gross_amount'] or 0),
+                })
+        finally:
+            await _items_conn.close()
+    except Exception as exc:
+        logger.warning('Failed to load invoice items for PDF: %s', exc)
+
+    # P-05: FIXED tax_rate from items, not division
     tax_rate = 19.0
-    if invoice.net_total and invoice.net_total > 0:
-        tax_rate = float(round(invoice.tax_total / invoice.net_total * 100, 2))
+    if kleinunternehmer:
+        tax_rate = 0.0
+    elif items_list:
+        tax_rate = float(items_list[0].get('tax_rate', 19))
 
     invoice_dict = {
         'invoice_number': invoice.invoice_number,
         'invoice_date': invoice.invoice_date.strftime('%d.%m.%Y') if invoice.invoice_date else '',
         'due_date': invoice.due_date.strftime('%d.%m.%Y') if invoice.due_date else '',
         'net_amount': float(invoice.net_total),
-        'tax_amount': float(invoice.tax_total),
-        'gross_amount': float(invoice.gross_total),
+        'tax_amount': 0.0 if kleinunternehmer else float(invoice.tax_total),
+        'gross_amount': float(invoice.net_total) if kleinunternehmer else float(invoice.gross_total),
         'tax_rate': tax_rate,
         'payment_days': 14,
     }
 
-    # For now provide a single summary line item (invoice_items table
-    # integration can be added when that data is populated).
-    items_list = [
-        {
-            'description': f'Rechnung {invoice.invoice_number}',
-            'quantity': 1,
-            'unit': 'Stk',
-            'unit_price': float(invoice.net_total),
-            'tax_rate': tax_rate,
-            'total_price': float(invoice.gross_total),
-        },
-    ]
+    if not items_list:
+        items_list = [
+            {
+                'description': f'Rechnung {invoice.invoice_number}',
+                'quantity': 1, 'unit': 'Stk',
+                'unit_price': float(invoice.net_total),
+                'tax_rate': tax_rate,
+                'total_price': float(invoice.gross_total),
+            },
+        ]
 
-    pdf_bytes = await pdf_service.generate_invoice_pdf(
-        invoice=invoice_dict,
-        items=items_list,
-        contact=contact_dict,
-        tenant=tenant_dict,
-    )
+    # Use template system (P-04 fix)
+    try:
+        pdf_bytes = await _render_tpl_pdf(
+            template_key, invoice_dict, items_list,
+            contact_dict, tenant_dict,
+            logo_b64=logo_b64,
+            kleinunternehmer=kleinunternehmer,
+            skonto_percent=skonto_pct,
+            skonto_days=skonto_days,
+        )
+    except Exception as exc:
+        logger.warning('Template PDF failed, using legacy: %s', exc)
+        pdf_bytes = await pdf_service.generate_invoice_pdf(
+            invoice=invoice_dict, items=items_list,
+            contact=contact_dict, tenant=tenant_dict,
+        )
 
     # ── ZUGFeRD / Factur-X embedding (EN 16931 BASIC) ────────────────────
     # Embed structured CII XML into the generated PDF so recipients can
