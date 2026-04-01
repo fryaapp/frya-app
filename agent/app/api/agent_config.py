@@ -30,6 +30,9 @@ MODEL_CATALOG: list[dict] = [
     {'id': 'ionos/openai/gpt-oss-120b', 'label': 'IONOS \u2014 GPT-OSS 120B', 'provider': 'ionos', 'model': 'openai/gpt-oss-120b', 'base_url': IONOS_BASE_URL},
     {'id': 'ionos/lightonai/LightOnOCR-2-1B', 'label': 'IONOS \u2014 LightOn OCR-2 1B', 'provider': 'ionos', 'model': 'lightonai/LightOnOCR-2-1B', 'base_url': IONOS_BASE_URL},
     {'id': 'anthropic/claude-sonnet-4-6', 'label': 'Anthropic \u2014 Claude Sonnet 4.6', 'provider': 'anthropic', 'model': 'claude-sonnet-4-6', 'base_url': ''},
+    {'id': 'bedrock/eu.anthropic.claude-sonnet-4-6', 'label': 'Bedrock EU \u2014 Claude Sonnet 4.6', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-6', 'base_url': ''},
+    {'id': 'bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0', 'label': 'Bedrock EU \u2014 Claude Haiku 4.5', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-haiku-4-5-20251001-v1:0', 'base_url': ''},
+    {'id': 'bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0', 'label': 'Bedrock EU \u2014 Claude Sonnet 4.5', 'provider': 'bedrock', 'model': 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0', 'base_url': ''},
     {'id': 'custom', 'label': 'Eigenes Modell eingeben...', 'provider': '', 'model': '', 'base_url': ''},
 ]
 
@@ -218,10 +221,12 @@ async def health_check(
         'max_tokens': 10,
         'timeout': 20.0,
     }
-    if api_key:
-        kwargs['api_key'] = api_key
-    if base_url:
-        kwargs['api_base'] = base_url
+    # Bedrock uses AWS env vars (AWS_ACCESS_KEY_ID etc.) — don't pass api_key/api_base
+    if provider != 'bedrock':
+        if api_key:
+            kwargs['api_key'] = api_key
+        if base_url:
+            kwargs['api_base'] = base_url
 
     actual_model = ''
     elapsed_ms = 0

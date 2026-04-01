@@ -64,6 +64,67 @@ _SUGGESTIONS_RE = _re_filter.compile(
     _re_filter.MULTILINE | _re_filter.DOTALL,
 )
 
+# ---------------------------------------------------------------------------
+# Aufgabe: Parse INVOICE_DATA from communicator response
+# ---------------------------------------------------------------------------
+
+def _parse_invoice_data(raw_text: str) -> tuple[str, dict | None]:
+    """Extract INVOICE_DATA JSON from LLM response text.
+
+    Uses brace-counting to find the complete JSON object even with nested arrays.
+    Returns (cleaned_text, invoice_data_dict_or_None).
+    """
+    marker = 'INVOICE_DATA:'
+    idx = raw_text.find(marker)
+    if idx == -1:
+        return raw_text, None
+    # Find the opening brace
+    brace_start = raw_text.find('{', idx + len(marker))
+    if brace_start == -1:
+        return raw_text, None
+    # Count braces to find matching close
+    depth = 0
+    brace_end = -1
+    for i in range(brace_start, len(raw_text)):
+        if raw_text[i] == '{':
+            depth += 1
+        elif raw_text[i] == '}':
+            depth -= 1
+            if depth == 0:
+                brace_end = i
+                break
+    if brace_end == -1:
+        return raw_text, None
+    json_str = raw_text[brace_start:brace_end + 1]
+    # Remove the INVOICE_DATA block from the text
+    cleaned = (raw_text[:idx].rstrip() + '\n' + raw_text[brace_end + 1:].lstrip()).strip()
+    try:
+        data = _json_mod.loads(json_str)
+        if not isinstance(data, dict):
+            return raw_text, None
+        # Validate required fields
+        if not data.get('contact_name') or not data.get('items'):
+            return raw_text, None
+        # Validate items structure
+        items = data['items']
+        if not isinstance(items, list) or not items:
+            return raw_text, None
+        valid_items = []
+        for item in items:
+            if isinstance(item, dict) and item.get('description') and item.get('unit_price'):
+                valid_items.append({
+                    'description': str(item['description'])[:200],
+                    'quantity': float(item.get('quantity', 1)),
+                    'unit_price': float(item['unit_price']),
+                    'tax_rate': float(item.get('tax_rate', 19)),
+                })
+        if not valid_items:
+            return raw_text, None
+        data['items'] = valid_items
+        return cleaned, data
+    except (_json_mod.JSONDecodeError, TypeError, ValueError):
+        return raw_text, None
+
 
 def _parse_llm_suggestions(raw_text: str) -> tuple[str, list[dict]]:
     """Extract SUGGESTIONS_JSON from LLM response text.
@@ -512,6 +573,7 @@ class TelegramCommunicatorService:
         llm_called = False
         model_used: str | None = None
         _llm_suggestions: list[dict] = []
+        _invoice_data: dict | None = None
 
         if not guardrail_passed:
             # Hard guardrail: template response, no LLM call ever
@@ -761,6 +823,9 @@ class TelegramCommunicatorService:
 
                         raw_text = (resp.choices[0].message.content or '').strip()
 
+                        # Parse INVOICE_DATA from communicator response
+                        raw_text, _invoice_data = _parse_invoice_data(raw_text)
+
                         # Aufgabe 3: Parse LLM-generated suggestions
                         raw_text, _llm_suggestions = _parse_llm_suggestions(raw_text)
 
@@ -808,15 +873,20 @@ class TelegramCommunicatorService:
                                 logger.debug('reminder save failed: %s', _re)
 
                 except Exception as exc:
-                    if intent == 'GENERAL_CONVERSATION':
+                    if intent == 'CREATE_INVOICE':
+                        reply_text = (
+                            'FRYA: Die Rechnung konnte gerade nicht erstellt werden. '
+                            'Bitte versuche es nochmal.'
+                        )
+                    elif intent == 'GENERAL_CONVERSATION':
                         reply_text = (
                             'FRYA: Ich konnte deine Nachricht gerade nicht verarbeiten. '
                             'Versuch es in ein paar Sekunden nochmal.'
                         )
                     else:
                         reply_text = (
-                            'FRYA: Ich bin gerade nicht erreichbar. '
-                            'Bitte versuche es in einem Moment erneut.'
+                            'FRYA: Da ist etwas schiefgelaufen. '
+                            'Bitte versuche es nochmal.'
                         )
                     response_type = 'COMMUNICATOR_REPLY_FALLBACK'
                     response_source = 'FALLBACK'
@@ -918,4 +988,5 @@ class TelegramCommunicatorService:
             turn=turn,
             reply_text=reply_text,
             llm_suggestions=_llm_suggestions,
+            invoice_data=_invoice_data,
         )

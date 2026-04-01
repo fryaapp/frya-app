@@ -247,12 +247,25 @@ class _SettingsService:
                     user_id or 'testkunde',
                 )
                 prefs = {r['key']: r['value'] for r in rows}
-                return {
+                result = {
                     'display_name': prefs.get('display_name', ''),
                     'theme': prefs.get('theme', 'system'),
                     'formal_address': prefs.get('formal_address', 'false') == 'true',
                     'notification_channel': prefs.get('notification_channel', 'in_app'),
                 }
+                # Load business profile from frya_business_profile
+                try:
+                    bp_row = await conn.fetchrow(
+                        "SELECT * FROM frya_business_profile "
+                        "WHERE user_id = $1 "
+                        "ORDER BY updated_at DESC NULLS LAST LIMIT 1",
+                        user_id or 'testkunde',
+                    )
+                    if bp_row:
+                        result['business_profile'] = dict(bp_row)
+                except Exception as bp_exc:
+                    logger.warning('Business profile load in settings failed: %s', bp_exc)
+                return result
             finally:
                 await conn.close()
         except Exception as exc:
@@ -268,6 +281,13 @@ class _SettingsService:
         allowed = {'display_name', 'theme', 'formal_address', 'notification_channel', 'emoji_enabled'}
         if key not in allowed:
             return {'status': 'rejected', 'reason': f'Key {key} nicht erlaubt'}
+        # P-06: Validate display_name before saving
+        if key == 'display_name':
+            from app.api.chat_ws import is_plausible_name
+            is_name, conf = is_plausible_name(str(value))
+            if not is_name or conf < 0.6:
+                return {'status': 'rejected', 'reason': 'Kein plausibler Name'}
+            value = str(value).strip().title()
         try:
             conn = await asyncpg.connect(settings.database_url)
             try:

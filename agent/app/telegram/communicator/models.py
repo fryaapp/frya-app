@@ -57,3 +57,4 @@ class CommunicatorResult(BaseModel):
     turn: CommunicatorTurn
     reply_text: str
     llm_suggestions: list[dict] = Field(default_factory=list)
+    invoice_data: dict | None = None  # Structured INVOICE_DATA from communicator

@@ -148,6 +148,13 @@ _TIER_INTENT_TO_CONTEXT: dict[str, str] = {
     'SHOW_CONTACT': 'contact_card',
     'SHOW_EXPORT': 'finance',
     'CREATE_INVOICE': 'invoice_draft',
+    'SHOW_INVOICE': 'invoice_draft',
+    'SEND_INVOICE': 'none',
+    'VOID_INVOICE': 'none',
+    'EDIT_INVOICE': 'invoice_draft',
+    'CHOOSE_TEMPLATE': 'none',
+    'SET_TEMPLATE': 'none',
+    'UPLOAD_LOGO': 'none',
     'CREATE_CONTACT': 'contact_card',
     'CREATE_REMINDER': 'deadlines',
     'SETTINGS': 'settings',
@@ -159,10 +166,239 @@ _TIER_INTENT_TO_CONTEXT: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Name-update detection — detects "Ich heiße X" etc. and persists it
+# Business info extraction — detects hourly rates, company data, etc.
 # ---------------------------------------------------------------------------
 
 import re
+
+# Patterns for extractable business preferences
+_RATE_PATTERNS = [
+    re.compile(r'(?:mein\s+)?stundensatz\s+(?:ist|betr[aä]gt|liegt\s+bei)\s+(\d+(?:[.,]\d+)?)\s*(?:€|euro|eur)', re.IGNORECASE),
+    re.compile(r'(\d+(?:[.,]\d+)?)\s*(?:€|euro|eur)\s+(?:pro\s+stunde|die\s+stunde|\/\s*h|\/stunde)', re.IGNORECASE),
+    re.compile(r'(?:ich\s+(?:berechne|nehme|verlange))\s+(\d+(?:[.,]\d+)?)\s*(?:€|euro|eur)', re.IGNORECASE),
+]
+
+_COMPANY_NAME_PATTERNS = [
+    re.compile(r'(?:mein(?:e)?\s+(?:firma|unternehmen|company)\s+(?:hei(?:ß|ss)t|ist|lautet)\s+)(.+?)(?:\.|,|$)', re.IGNORECASE),
+    re.compile(r'(?:firma|unternehmen):\s*(.+?)(?:\.|,|$)', re.IGNORECASE),
+]
+
+_TAX_NUMBER_PATTERNS = [
+    re.compile(r'(?:steuer(?:nummer|nr)[.:]?\s*)(\d{2,3}[/\s]\d{3,4}[/\s]\d{4,5})', re.IGNORECASE),
+    re.compile(r'(?:ust[.-]?id(?:nr)?[.:]?\s*)(DE\d{9})', re.IGNORECASE),
+]
+
+_ADDRESS_PATTERNS = [
+    re.compile(r'(?:adresse|anschrift)[.:]?\s*(.+?\d{5}\s+\w+)', re.IGNORECASE),
+]
+
+_KLEINUNTERNEHMER_PATTERNS = [
+    re.compile(r'(?:ich\s+bin\s+)?kleinunternehmer', re.IGNORECASE),
+    re.compile(r'§\s*19\s*ustg', re.IGNORECASE),
+    re.compile(r'umsatzsteuerbefreit', re.IGNORECASE),
+]
+
+_IBAN_PATTERNS = [
+    re.compile(r'(?:iban[.:]?\s*)?([A-Z]{2}\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{2,4})', re.IGNORECASE),
+]
+
+_BIC_PATTERNS = [
+    re.compile(r'(?:bic|swift)[.:]?\s*([A-Z]{6}[A-Z0-9]{2,5})', re.IGNORECASE),
+]
+
+_COMPANY_EMAIL_PATTERNS = [
+    re.compile(r'(?:geschäftlich|business|firma|unternehmens?)?[\s-]*e-?mail[.:]?\s*([\w.+-]+@[\w.-]+\.\w+)', re.IGNORECASE),
+    re.compile(r'(?:mail|e-?mail)\s+(?:ist|lautet)\s+([\w.+-]+@[\w.-]+\.\w+)', re.IGNORECASE),
+]
+
+_STREET_PATTERNS = [
+    re.compile(r'(?:straße|strasse|str\.?)[.:]?\s*(.+?\d+\s*[a-zA-Z]?)\s*(?:,|$)', re.IGNORECASE),
+]
+
+_ZIP_CITY_PATTERNS = [
+    re.compile(r'(\d{5})\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[a-zäöüß]+)*)', re.IGNORECASE),
+]
+
+_NEIN_KLEINUNTERNEHMER_PATTERNS = [
+    re.compile(r'(?:nein|nicht|kein).*kleinunternehmer', re.IGNORECASE),
+    re.compile(r'(?:nein|nicht).*§\s*19', re.IGNORECASE),
+    re.compile(r'ganz\s+normal\s+mit\s+mwst', re.IGNORECASE),
+]
+
+
+async def _extract_and_persist_business_info(
+    user_text: str, user_id: str, tenant_id: str,
+) -> None:
+    """Extract business info from user message and persist to preferences + user.md."""
+    facts_to_learn: list[str] = []
+    prefs_to_save: list[tuple[str, str]] = []
+
+    # Hourly rate
+    for pat in _RATE_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            rate = m.group(1).replace(',', '.')
+            prefs_to_save.append(('default_hourly_rate', rate))
+            facts_to_learn.append(f'- Standard-Stundensatz: {rate} EUR')
+            break
+
+    # Company name
+    for pat in _COMPANY_NAME_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            name = m.group(1).strip().rstrip('.!?,;')
+            if len(name) >= 3:
+                prefs_to_save.append(('company_name', name))
+                facts_to_learn.append(f'- Firmenname: {name}')
+            break
+
+    # Tax number
+    for pat in _TAX_NUMBER_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            tax_nr = m.group(1).strip()
+            prefs_to_save.append(('tax_number', tax_nr))
+            facts_to_learn.append(f'- Steuernummer/USt-IdNr: {tax_nr}')
+            break
+
+    # Address
+    for pat in _ADDRESS_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            addr = m.group(1).strip()
+            prefs_to_save.append(('company_address', addr))
+            facts_to_learn.append(f'- Geschaeftsadresse: {addr}')
+            break
+
+    # Kleinunternehmer (check "nein" first)
+    _is_nein_klein = any(p.search(user_text) for p in _NEIN_KLEINUNTERNEHMER_PATTERNS)
+    if _is_nein_klein:
+        prefs_to_save.append(('kleinunternehmer', 'false'))
+        facts_to_learn.append('- Kein Kleinunternehmer (normale MwSt)')
+    else:
+        for pat in _KLEINUNTERNEHMER_PATTERNS:
+            if pat.search(user_text):
+                prefs_to_save.append(('kleinunternehmer', 'true'))
+                facts_to_learn.append('- Kleinunternehmer nach §19 UStG')
+                break
+
+    # IBAN
+    for pat in _IBAN_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            iban = m.group(1).strip().replace(' ', '')
+            prefs_to_save.append(('company_iban', iban))
+            # Mask IBAN in facts (privacy)
+            masked = iban[:4] + '****' + iban[-4:]
+            facts_to_learn.append(f'- IBAN: {masked}')
+            break
+
+    # BIC
+    for pat in _BIC_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            bic = m.group(1).strip()
+            prefs_to_save.append(('company_bic', bic))
+            facts_to_learn.append(f'- BIC: {bic}')
+            break
+
+    # Company email
+    for pat in _COMPANY_EMAIL_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            email = m.group(1).strip()
+            prefs_to_save.append(('company_email', email))
+            facts_to_learn.append(f'- Geschaeftliche E-Mail: {email}')
+            break
+
+    # Street (split address)
+    for pat in _STREET_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            street = m.group(1).strip().rstrip(',.')
+            if len(street) >= 5:
+                prefs_to_save.append(('company_street', street))
+                facts_to_learn.append(f'- Strasse: {street}')
+            break
+
+    # PLZ + Ort (split address)
+    for pat in _ZIP_CITY_PATTERNS:
+        m = pat.search(user_text)
+        if m:
+            zip_city = f'{m.group(1)} {m.group(2)}'.strip()
+            prefs_to_save.append(('company_zip_city', zip_city))
+            facts_to_learn.append(f'- PLZ/Ort: {zip_city}')
+            break
+
+    if not prefs_to_save:
+        return
+
+    # Save to frya_user_preferences (legacy)
+    for key, value in prefs_to_save:
+        await _persist_preference(user_id, tenant_id, key, value)
+
+    # ALSO save to frya_business_profile (new compliance source)
+    try:
+        from app.services.business_profile_service import BusinessProfileService
+        _bp_svc = BusinessProfileService()
+        _bp_map: dict[str, str] = {
+            'company_name': 'company_name',
+            'company_street': 'company_street',
+            'company_zip_city': 'company_zip',  # split below
+            'tax_number': 'tax_number',
+            'kleinunternehmer': 'is_kleinunternehmer',
+            'company_iban': 'company_iban',
+            'company_bic': 'company_bic',
+            'company_email': 'company_email',
+            'company_phone': 'company_phone',
+            'default_hourly_rate': 'default_hourly_rate',
+        }
+        for key, value in prefs_to_save:
+            bp_field = _bp_map.get(key)
+            if bp_field:
+                if key == 'company_zip_city' and ' ' in str(value):
+                    # Split "12345 Berlin" into zip + city
+                    parts = str(value).split(' ', 1)
+                    await _bp_svc.upsert_field(user_id, tenant_id, 'company_zip', parts[0])
+                    await _bp_svc.upsert_field(user_id, tenant_id, 'company_city', parts[1])
+                elif key == 'tax_number' and str(value).startswith('DE'):
+                    # DE prefix means USt-IdNr, not Steuernummer
+                    await _bp_svc.upsert_field(user_id, tenant_id, 'ust_id', value)
+                else:
+                    await _bp_svc.upsert_field(user_id, tenant_id, bp_field, value)
+    except Exception as exc:
+        logger.warning('BusinessProfile sync failed: %s', exc)
+
+    # Save to user.md via Memory Curator
+    if facts_to_learn:
+        try:
+            from app.memory_curator.service import build_memory_curator_service
+            from app.config import get_settings as _get_settings
+            from app.dependencies import get_accounting_repository
+            import uuid as _uuid
+            _settings = _get_settings()
+            _curator = build_memory_curator_service(
+                data_dir=_settings.data_dir,
+                llm_config_repository=None,
+                case_repository=None,
+                audit_service=None,
+                accounting_repository=get_accounting_repository(),
+            )
+            _tid = _uuid.UUID(tenant_id) if tenant_id else None
+            if not _tid:
+                from app.case_engine.tenant_resolver import resolve_tenant_id
+                _tid_str = await resolve_tenant_id()
+                _tid = _uuid.UUID(_tid_str) if _tid_str else None
+            if _tid:
+                for fact in facts_to_learn:
+                    await _curator.learn_user_fact(_tid, fact)
+        except Exception as exc:
+            logger.warning('Failed to write to user.md: %s', exc)
+
+
+# ---------------------------------------------------------------------------
+# Name-update detection — detects "Ich heiße X" etc. and persists it
+# ---------------------------------------------------------------------------
 
 _NAME_PATTERNS = [
     re.compile(r'(?:ich\s+hei(?:ß|ss)e|mein\s+name\s+ist|nenn\s+mich|ich\s+bin(?:\s+die|\s+der)?)\s+(\w[\w\s-]{0,30})', re.IGNORECASE),
@@ -170,7 +406,10 @@ _NAME_PATTERNS = [
 
 
 def _extract_name_intent(user_text: str) -> str | None:
-    """Extract a display-name from the user message, or return None."""
+    """Extract a display-name from the user message, or return None.
+
+    P-06: Also validates via is_plausible_name() before returning.
+    """
     text = user_text.strip()
     for pat in _NAME_PATTERNS:
         m = pat.search(text)
@@ -178,7 +417,10 @@ def _extract_name_intent(user_text: str) -> str | None:
             name = m.group(1).strip().rstrip('.!?,;')
             # Sanity: at least 2 chars, not a common filler
             if len(name) >= 2 and name.lower() not in ('da', 'ja', 'so', 'es', 'ok'):
-                return name
+                # P-06: Validate name plausibility before accepting
+                is_name, _conf = is_plausible_name(name)
+                if is_name:
+                    return name
     return None
 
 
@@ -192,11 +434,101 @@ def _sanitize_display_name(name: str) -> str:
     return name[:50].strip()
 
 
+# ---------------------------------------------------------------------------
+# P-06: Name plausibility check — pure Python, no LLM
+# ---------------------------------------------------------------------------
+
+_NON_NAME_WORDS = frozenset({
+    'kleinunternehmer', 'rechnung', 'firma', 'unternehmen', 'gmbh', 'ug',
+    'steuer', 'ust', 'mwst', 'prozent', 'euro', 'konto', 'iban', 'bic',
+    'adresse', 'strasse', 'plz', 'stadt', 'mail', 'telefon', 'fax',
+    'ja', 'nein', 'hallo', 'danke', 'bitte', 'okay', 'test',
+    'invoice', 'tax', 'company', 'business', 'address', 'email',
+    'stundensatz', 'coaching', 'beratung', 'freelancer', 'selbstaendig',
+    'selbststaendig', 'inhaber', 'geschaeftsfuehrer', 'buchhaltung',
+    'operator', 'admin', 'user', 'login', 'password',
+})
+
+_NAME_CHAR_RE = re.compile(r'^[a-zA-ZäöüÄÖÜßéèêàáâîïôùûçñ\s.\-]+$')
+
+
+def is_plausible_name(value: str) -> tuple[bool, float]:
+    """Check if a string is a plausible person name.
+
+    Returns (is_name, confidence) — confidence between 0.0 and 1.0.
+    Pure Python, no LLM calls.
+    """
+    if not value or not value.strip():
+        return False, 0.0
+
+    name = value.strip()
+
+    # Hard-Fail: contains digits
+    if any(c.isdigit() for c in name):
+        return False, 0.0
+
+    # Hard-Fail: only allowed characters (letters, spaces, hyphens, dots)
+    if not _NAME_CHAR_RE.match(name):
+        return False, 0.0
+
+    # Hard-Fail: too long
+    if len(name) > 40:
+        return False, 0.0
+
+    # Hard-Fail: too short (single char)
+    if len(name) < 2:
+        return False, 0.0
+
+    # Hard-Fail: contains non-name words
+    lower = name.lower()
+    for word in _NON_NAME_WORDS:
+        if word in lower:
+            return False, 0.0
+
+    # Confidence calculation
+    confidence = 0.5
+
+    word_count = len(name.split())
+    if word_count == 1:
+        confidence += 0.2
+    elif word_count == 2:
+        confidence += 0.3
+    elif word_count == 3:
+        confidence += 0.1  # e.g. "Dr. Max Mueller"
+    else:
+        confidence -= 0.3  # 4+ words unlikely a name
+
+    # First letter uppercase
+    if name[0].isupper():
+        confidence += 0.2
+
+    return True, min(confidence, 1.0)
+
+
+DISPLAY_NAME_CONFIDENCE_THRESHOLD = 0.6
+
+
 async def _persist_display_name(user_id: str, tenant_id: str, new_name: str) -> None:
-    """Write display_name to frya_user_preferences (upsert)."""
+    """Write display_name to frya_user_preferences (upsert).
+
+    P-06: Only stores if is_plausible_name() passes with sufficient confidence.
+    """
     new_name = _sanitize_display_name(new_name)
     if not new_name:
         return
+
+    # P-06: Plausibility gate — reject non-names
+    is_name, confidence = is_plausible_name(new_name)
+    if not is_name:
+        logger.info('Rejected display_name=%r (not a name)', new_name)
+        return
+    if confidence < DISPLAY_NAME_CONFIDENCE_THRESHOLD:
+        logger.info('Rejected display_name=%r (confidence=%.2f < %.2f)',
+                     new_name, confidence, DISPLAY_NAME_CONFIDENCE_THRESHOLD)
+        return
+
+    # Title-case the name for consistency
+    new_name = new_name.strip().title()
     try:
         from app.dependencies import get_settings
         settings = get_settings()
@@ -313,6 +645,98 @@ def _detect_context_type(user_text: str) -> str:
     if any(w in text for w in ('kontakt', 'lieferant', 'kunde')):
         return 'contact_card'
     return 'none'
+
+
+async def _dispatch_invoice_send(
+    reply_text: str,
+    user_text: str,
+    user_id: str,
+    tenant_id: str,
+    chat_history: list | None = None,
+) -> dict | None:
+    """Parse communicator reply for invoice-send intent and execute.
+
+    Extracts: contact name, email, items (description, qty, price), payment terms
+    from the reply text and recent chat history.
+    Returns result dict or None if data insufficient.
+    """
+    import re as _re
+
+    # 1. Extract email from reply
+    _emails = _re.findall(r'[\w.+-]+@[\w.-]+\.\w+', reply_text)
+    if not _emails:
+        return None
+    email = _emails[0]
+
+    # 2. Gather all text context (reply + recent user messages + conversation store)
+    _all_text = reply_text + '\n' + user_text
+    try:
+        _conv_store = get_communicator_conversation_store()
+        _recent = await _conv_store.get_recent(user_id, limit=10)
+        for msg in (_recent or []):
+            _content = msg.get('content', '') if isinstance(msg, dict) else str(msg)
+            _all_text += '\n' + _content
+    except Exception:
+        pass  # Best-effort
+    if chat_history:
+        for msg in chat_history[-10:]:
+            _content = msg.get('content', '') if isinstance(msg, dict) else str(msg)
+            _all_text += '\n' + _content
+
+    # 3. Extract contact name — look for "Empfänger: X" or "Kunde ist X"
+    _name_match = (
+        _re.search(r'Empf[aä]nger:\s*([^\n,]+)', _all_text)
+        or _re.search(r'Kunde\s+(?:ist\s+)?([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)+)', _all_text)
+    )
+    contact_name = _name_match.group(1).strip() if _name_match else 'Unbekannt'
+
+    # 4. Extract items — look for patterns like "2 Stunden Coaching à 90"
+    items = []
+    # Pattern: quantity + description + price (various formats)
+    _item_patterns = [
+        # "2 Stunden Coaching à 90,00 EUR"
+        _re.compile(r'(\d+)\s+(Stunden?|Std\.?|Stk\.?|x)\s+(.+?)\s*[àa@]\s*(\d+[.,]?\d*)', _re.IGNORECASE),
+        # "Position: 2 Stunden Coaching à 90,00 EUR"
+        _re.compile(r'Position:\s*(\d+)\s+(Stunden?|Std\.?|Stk\.?)\s+(.+?)\s*[àa@]\s*(\d+[.,]?\d*)', _re.IGNORECASE),
+    ]
+    for _pat in _item_patterns:
+        for _m in _pat.finditer(_all_text):
+            _qty = int(_m.group(1))
+            _desc = _m.group(3).strip().rstrip(' =—–-')
+            _price = float(_m.group(4).replace(',', '.'))
+            items.append({
+                'description': _desc,
+                'quantity': _qty,
+                'unit_price': _price,
+                'tax_rate': 19,
+            })
+    if not items:
+        # Fallback: try to extract from "X EUR" total
+        _total_match = _re.search(r'(\d+[.,]?\d*)\s*EUR', _all_text)
+        if _total_match:
+            _total = float(_total_match.group(1).replace(',', '.'))
+            # Assume gross, calculate net (19% MwSt)
+            _net = round(_total / 1.19, 2)
+            items = [{'description': 'Leistung', 'quantity': 1, 'unit_price': _net, 'tax_rate': 19}]
+
+    if not items:
+        logger.warning('Invoice dispatch: no items found in text')
+        return None
+
+    # 5. Extract payment terms
+    _terms_match = _re.search(r'(\d+)\s*Tage', _all_text)
+    payment_terms_days = int(_terms_match.group(1)) if _terms_match else 14
+
+    # 6. Execute
+    from app.services.form_handlers import handle_invoice_send
+    result = await handle_invoice_send({
+        'contact_name': contact_name,
+        'email': email,
+        'items': items,
+        'payment_terms_days': payment_terms_days,
+    }, user_id)
+
+    return result
 
 
 def _validate_jwt(token: str) -> dict:
@@ -488,8 +912,16 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                 try:
                     # --- Phase 1: TieredOrchestrator intent routing ---
                     quick_action = data.get('quick_action')
+                    # Inject user_id + tenant_id so ActionRouter can use them
+                    if quick_action and isinstance(quick_action, dict):
+                        qa_params = quick_action.get('params', {})
+                        qa_params['user_id'] = user_id
+                        qa_params['tenant_id'] = tenant_id
+                        quick_action['params'] = qa_params
+
                     tier_intent = None
                     tier_routing = None
+                    routing_result: dict = {}
                     orchestrator = _get_tiered_orchestrator()
                     if orchestrator:
                         try:
@@ -501,6 +933,32 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             logger.info('TieredOrchestrator: intent=%s routing=%s', tier_intent, tier_routing)
                         except Exception as exc:
                             logger.warning('TieredOrchestrator failed, falling back: %s', exc)
+
+                    # --- Phase 1a: ActionRouter short-circuit ---
+                    # When ActionRouter handled a quick_action (send_invoice, void_invoice etc.),
+                    # the result is already complete — skip communicator entirely.
+                    if tier_routing == 'action_router' and isinstance(routing_result.get('result'), dict):
+                        _ar_result = routing_result['result']
+                        _ar_text = _ar_result.get('text', '')
+                        _ar_blocks = _ar_result.get('content_blocks', [])
+                        _ar_actions = _ar_result.get('actions', [])
+                        _ar_ctx = _ar_result.get('context_type', 'none')
+                        _ar_suggestions = (
+                            [a['chat_text'] for a in _ar_actions[:3]]
+                            if _ar_actions
+                            else _DEFAULT_SUGGESTIONS
+                        )
+                        await websocket.send_json({
+                            'type': 'message_complete',
+                            'text': _ar_text,
+                            'case_ref': None,
+                            'context_type': _ar_ctx,
+                            'suggestions': _ar_suggestions,
+                            'content_blocks': _ar_blocks,
+                            'actions': _ar_actions,
+                            'routing': 'action_router',
+                        })
+                        continue
 
                     # --- Phase 1b: Short-circuit intents that must NOT hit communicator ---
                     _shortcircuit_reply: str | None = None
@@ -514,6 +972,31 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             'oder ziehe Dateien direkt in den Chat.'
                         )
 
+                    elif tier_intent == 'CHOOSE_TEMPLATE':
+                        # Template selection — show 3 template cards
+                        _shortcircuit_reply = (
+                            'Wie sollen deine Rechnungen aussehen? '
+                            'Hier sind drei Vorlagen:'
+                        )
+
+                    elif tier_intent == 'SET_TEMPLATE':
+                        # Parse which template from text
+                        _tpl_text = text.lower()
+                        _chosen_tpl = 'clean'
+                        if 'professional' in _tpl_text:
+                            _chosen_tpl = 'professional'
+                        elif 'minimal' in _tpl_text:
+                            _chosen_tpl = 'minimal'
+                        await _persist_preference(user_id, tenant_id, 'invoice_template', _chosen_tpl)
+                        _tpl_titles = {'clean': 'Clean', 'professional': 'Professional', 'minimal': 'Minimal'}
+                        _shortcircuit_reply = f'Rechnungs-Template auf "{_tpl_titles[_chosen_tpl]}" geaendert.'
+
+                    elif tier_intent == 'UPLOAD_LOGO':
+                        _shortcircuit_reply = (
+                            'Schick mir einfach dein Logo als Bild (PNG, JPG oder SVG). '
+                            'Nutze das Bueroklammer-Symbol unten links.'
+                        )
+
                     elif tier_intent == 'SETTINGS':
                         # BUG-006: Handle theme change requests directly
                         text_lower = text.lower()
@@ -524,6 +1007,69 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 _label = 'Dunkel' if theme == 'dark' else 'Hell'
                                 _shortcircuit_reply = f'Design auf "{_label}" umgestellt.'
                                 break
+
+                    # --- SHOW_INVOICE: Load and display specific invoice ---
+                    if tier_intent == 'SHOW_INVOICE':
+                        import re as _re_inv
+                        _inv_match = _re_inv.search(r'RE-\d+-\d+', text)
+                        if _inv_match:
+                            _inv_nr = _inv_match.group(0)
+                            try:
+                                import asyncpg as _apg_inv
+                                from app.dependencies import get_settings as _gs_inv
+                                _inv_conn = await _apg_inv.connect(_gs_inv().database_url)
+                                try:
+                                    _inv_row = await _inv_conn.fetchrow(
+                                        "SELECT i.*, c.name as contact_name FROM frya_invoices i "
+                                        "LEFT JOIN frya_contacts c ON c.id = i.contact_id "
+                                        "WHERE i.invoice_number = $1", _inv_nr,
+                                    )
+                                finally:
+                                    await _inv_conn.close()
+
+                                if _inv_row:
+                                    from app.services.invoice_pipeline import _eur
+                                    _inv_status_map = {'DRAFT': 'Entwurf', 'SENT': 'Versendet', 'PAID': 'Bezahlt', 'VOID': 'Storniert'}
+                                    _inv_blocks = [{
+                                        'block_type': 'key_value',
+                                        'data': {'items': [
+                                            {'label': 'Rechnungsnr.', 'value': _inv_row['invoice_number']},
+                                            {'label': 'Empfaenger', 'value': _inv_row['contact_name'] or ''},
+                                            {'label': 'Status', 'value': _inv_status_map.get(_inv_row['status'], _inv_row['status'])},
+                                            {'label': 'Netto', 'value': _eur(float(_inv_row['net_total'] or 0))},
+                                            {'label': 'Brutto', 'value': _eur(float(_inv_row['gross_total'] or 0))},
+                                            {'label': 'Datum', 'value': _inv_row['invoice_date'].strftime('%d.%m.%Y') if _inv_row['invoice_date'] else ''},
+                                            {'label': 'Faellig', 'value': _inv_row['due_date'].strftime('%d.%m.%Y') if _inv_row['due_date'] else ''},
+                                        ]},
+                                    }]
+                                    _inv_pdf_url = f"/api/v1/invoices/{_inv_row['id']}/pdf"
+                                    _inv_blocks.append({
+                                        'block_type': 'document',
+                                        'data': {'title': f'Rechnung {_inv_nr}', 'url': _inv_pdf_url, 'format': 'PDF'},
+                                    })
+                                    _inv_actions = []
+                                    if _inv_row['status'] == 'DRAFT':
+                                        _inv_actions = [
+                                            {'label': 'Freigeben & Senden', 'chat_text': f'Rechnung {_inv_nr} senden', 'style': 'primary',
+                                             'quick_action': {'type': 'send_invoice', 'params': {'invoice_id': str(_inv_row['id'])}}},
+                                            {'label': 'Verwerfen', 'chat_text': f'Rechnung {_inv_nr} verwerfen', 'style': 'text',
+                                             'quick_action': {'type': 'void_invoice', 'params': {'invoice_id': str(_inv_row['id'])}}},
+                                        ]
+                                    await websocket.send_json({
+                                        'type': 'message_complete',
+                                        'text': f'Rechnung {_inv_nr} — {_inv_status_map.get(_inv_row["status"], _inv_row["status"])}',
+                                        'case_ref': None,
+                                        'context_type': 'invoice_draft',
+                                        'suggestions': [a['chat_text'] for a in _inv_actions[:3]] if _inv_actions else _DEFAULT_SUGGESTIONS,
+                                        'content_blocks': _inv_blocks,
+                                        'actions': _inv_actions,
+                                        'routing': 'regex',
+                                    })
+                                    continue
+                                else:
+                                    _shortcircuit_reply = f'Rechnung {_inv_nr} nicht gefunden.'
+                            except Exception as _inv_exc:
+                                logger.warning('SHOW_INVOICE failed: %s', _inv_exc)
 
                     if _shortcircuit_reply is not None:
                         # Determine context_type from orchestrator
@@ -575,6 +1121,9 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     extracted_name = _extract_name_intent(text)
                     if extracted_name:
                         await _persist_display_name(user_id, tenant_id, extracted_name)
+
+                    # --- Business info extraction (hourly rate, company, tax) ---
+                    await _extract_and_persist_business_info(text, user_id, tenant_id)
 
                     # --- Determine context_type ---
                     # Prefer TieredOrchestrator intent, then communicator, then keywords
@@ -648,6 +1197,35 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     if reply_text:
                         reply_text = re.sub(r'^FRYA:\s*', '', reply_text)
 
+                    # --- Phase 2b: Invoice Pipeline (Ausgangsrechnungs-Pipeline) ---
+                    # If communicator returned INVOICE_DATA, create draft + show preview.
+                    # NO auto_send — every invoice MUST show preview + require user approval.
+                    _invoice_data = getattr(result, 'invoice_data', None) if result else None
+                    if _invoice_data and isinstance(_invoice_data, dict):
+                        try:
+                            from app.services.invoice_pipeline import handle_create_invoice
+                            pipeline_result = await handle_create_invoice(_invoice_data, user_id)
+                            # Override response with pipeline result
+                            reply_text = pipeline_result.get('text', reply_text)
+                            content_blocks = pipeline_result.get('content_blocks', [])
+                            actions = pipeline_result.get('actions', [])
+                            context_type = pipeline_result.get('context_type', 'invoice_draft')
+                            logger.info('Invoice pipeline: draft created from INVOICE_DATA')
+                        except Exception as exc:
+                            logger.error('Invoice pipeline failed: %s', exc)
+                            reply_text = f'Rechnung konnte nicht erstellt werden: {exc}'
+
+                    # --- Phase 2c: ActionRouter pipeline results with content_blocks ---
+                    # When ActionRouter handles send_invoice/void_invoice, result contains
+                    # content_blocks + actions directly from invoice_pipeline.
+                    if tier_routing == 'action_router' and isinstance(agent_results, dict):
+                        _pipeline_result = agent_results.get('result', {})
+                        if isinstance(_pipeline_result, dict) and _pipeline_result.get('content_blocks'):
+                            content_blocks = _pipeline_result['content_blocks']
+                            actions = _pipeline_result.get('actions', [])
+                            reply_text = _pipeline_result.get('text', reply_text)
+                            context_type = _pipeline_result.get('context_type', context_type)
+
                     # --- Synchronize text with content_blocks for SHOW_INBOX ---
                     # The communicator generates text BEFORE blocks exist,
                     # causing "Inbox ist leer" even when blocks show items.
@@ -683,8 +1261,15 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                 except Exception:
                     logger.exception('Communicator error for user=%s', user_id)
                     await websocket.send_json({
-                        'type': 'error',
-                        'message': 'Interner Fehler — bitte versuche es erneut.',
+                        'type': 'message_complete',
+                        'text': 'Da ist etwas schiefgelaufen. Bitte versuche es nochmal.',
+                        'case_ref': None,
+                        'context_type': 'none',
+                        'suggestions': [text] if text else _DEFAULT_SUGGESTIONS,
+                        'content_blocks': [],
+                        'actions': [
+                            {'label': 'Nochmal versuchen', 'chat_text': text, 'style': 'primary'},
+                        ] if text else [],
                     })
 
                 finally:
@@ -701,12 +1286,19 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                 logger.info('Form submit: type=%s user=%s', form_type, user_id)
                 try:
                     from app.services.form_handlers import (
-                        handle_invoice_form, handle_contact_form, handle_settings_form,
+                        handle_invoice_form, handle_invoice_send,
+                        handle_contact_form, handle_settings_form,
                     )
                     rb = _get_response_builder()
                     if form_type == 'invoice':
                         result = await handle_invoice_form(form_data, user_id)
                         text = f'FRYA: Rechnung {result.get("invoice_number","?")} erstellt ({result.get("gross_total","?")}€, Entwurf).'
+                    elif form_type == 'invoice_send':
+                        result = await handle_invoice_send(form_data, user_id)
+                        if result.get('status') == 'sent':
+                            text = f'Rechnung {result.get("invoice_number","?")} wurde erstellt und an {result.get("email","?")} gesendet ({result.get("gross_total","?")}€).'
+                        else:
+                            text = f'Rechnung {result.get("invoice_number","?")} erstellt ({result.get("gross_total","?")}€). {result.get("message","")}'
                     elif form_type == 'contact':
                         result = await handle_contact_form(form_data, user_id)
                         text = f'FRYA: Kontakt {form_data.get("name","?")} gespeichert.'

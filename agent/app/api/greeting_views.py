@@ -72,30 +72,33 @@ def _time_greeting(username: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _get_display_name(username: str, tenant_id: uuid.UUID) -> str:
-    """Read display_name from frya_user_preferences, fallback to username."""
+async def _get_user_preferences(username: str, tenant_id: uuid.UUID) -> dict[str, str]:
+    """Read all user preferences from frya_user_preferences."""
     try:
         from app.dependencies import get_settings
         settings = get_settings()
         db_url = settings.database_url
         if db_url.startswith('memory://'):
-            return username
+            return {}
         import asyncpg
-        # TODO(P-53): Replace with connection pool from app lifespan
         conn = await asyncpg.connect(db_url)
         try:
-            row = await conn.fetchrow(
-                "SELECT value FROM frya_user_preferences "
-                "WHERE user_id = $1 AND key = 'display_name' LIMIT 1",
+            rows = await conn.fetch(
+                "SELECT key, value FROM frya_user_preferences WHERE user_id = $1",
                 username,
             )
-            if row and row['value']:
-                return row['value']
+            return {r['key']: r['value'] for r in rows}
         finally:
             await conn.close()
     except Exception as exc:
-        logger.warning('Failed to read display_name: %s', exc)
-    return username
+        logger.warning('Failed to read user preferences: %s', exc)
+    return {}
+
+
+async def _get_display_name(username: str, tenant_id: uuid.UUID) -> str:
+    """Read display_name from frya_user_preferences, fallback to username."""
+    prefs = await _get_user_preferences(username, tenant_id)
+    return prefs.get('display_name') or username
 
 
 @router.get('/greeting')
@@ -193,12 +196,25 @@ async def get_greeting(user: AuthUser = Depends(require_authenticated)) -> dict:
     else:
         suggestions = ['Inbox öffnen']
 
-    # Resolve display_name (from user preferences, fallback to username)
-    display_name = await _get_display_name(user.username, tenant_id)
+    # Resolve user preferences for display_name + onboarding detection
+    prefs = await _get_user_preferences(user.username, tenant_id)
+    display_name = prefs.get('display_name') or user.username
+
+    # Onboarding detection: if display_name not set, user is new
+    if not prefs.get('display_name'):
+        return {
+            'greeting': 'Willkommen bei Frya!',
+            'status_summary': 'Ich bin deine KI-Buchhaltungsassistentin.',
+            'onboarding': True,
+            'onboarding_step': 'name',
+            'urgent': None,
+            'suggestions': [],
+        }
 
     return {
         'greeting': _time_greeting(display_name),
         'status_summary': status_summary,
         'urgent': urgent,
         'suggestions': suggestions,
+        'onboarding': False,
     }

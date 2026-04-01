@@ -677,6 +677,34 @@ class AccountingRepository:
         finally:
             await conn.close()
 
+    async def create_invoice_item(self, invoice_id: str, data: dict) -> None:
+        """Insert a single line item into frya_invoice_items."""
+        if self._is_memory:
+            return
+        import asyncpg
+        from decimal import Decimal as D
+        conn = await asyncpg.connect(self._url)
+        try:
+            await conn.execute("""
+                INSERT INTO frya_invoice_items (
+                    invoice_id, position, description, quantity, unit,
+                    unit_price, tax_rate, net_amount, tax_amount, gross_amount
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            """,
+                uuid.UUID(str(invoice_id)),
+                int(data.get('position', 1)),
+                str(data.get('description', '')),
+                D(str(data.get('quantity', 1))),
+                str(data.get('unit', 'Stk')),
+                D(str(data.get('unit_price', 0))),
+                D(str(data.get('tax_rate', 19))),
+                D(str(data.get('net_amount', 0))),
+                D(str(data.get('tax_amount', 0))),
+                D(str(data.get('gross_amount', 0))),
+            )
+        finally:
+            await conn.close()
+
     async def list_invoices(self, tenant_id: uuid.UUID) -> list[Invoice]:
         if self._is_memory:
             return [i for i in self._invoices.values() if i.tenant_id == str(tenant_id)]

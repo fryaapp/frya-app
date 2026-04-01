@@ -1,11 +1,13 @@
 interface KeyValueRow {
-  key: string
+  key?: string
+  label?: string
   value: string | number
 }
 
 interface KeyValueBlockData {
   title?: string
-  rows: KeyValueRow[]
+  rows?: KeyValueRow[]
+  items?: KeyValueRow[]
 }
 
 function getValueColor(value: string | number): string | undefined {
@@ -21,6 +23,9 @@ function getValueColor(value: string | number): string | undefined {
 }
 
 export function KeyValueBlock({ data }: { data: KeyValueBlockData }) {
+  // Support both 'rows' and 'items' (backend compat)
+  const rows = data?.rows || data?.items || []
+
   return (
     <div
       style={{
@@ -43,7 +48,7 @@ export function KeyValueBlock({ data }: { data: KeyValueBlockData }) {
         </div>
       )}
 
-      {(data?.rows || []).map((row, i) => (
+      {rows.map((row, i) => (
         <div
           key={i}
           style={{
@@ -54,12 +59,12 @@ export function KeyValueBlock({ data }: { data: KeyValueBlockData }) {
             fontSize: 12,
             fontFamily: 'Plus Jakarta Sans, sans-serif',
             borderBottom:
-              i < (data?.rows || []).length - 1
+              i < rows.length - 1
                 ? '1px solid var(--frya-outline-variant)'
                 : 'none',
           }}
         >
-          <span style={{ color: 'var(--frya-on-surface-variant)' }}>{row.key}</span>
+          <span style={{ color: 'var(--frya-on-surface-variant)' }}>{row.key || row.label}</span>
           <span
             style={{
               fontWeight: 600,

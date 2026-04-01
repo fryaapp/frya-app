@@ -1,18 +1,62 @@
 import React from 'react'
 
 interface DocumentBlockData {
-  filename: string
+  filename?: string
+  title?: string
   size?: string
   url?: string
   mime_type?: string
+  format?: string
   icon?: string
 }
 
 export function DocumentBlock({ data }: { data: DocumentBlockData }) {
   const [hovered, setHovered] = React.useState(false)
+  const [downloading, setDownloading] = React.useState(false)
+
+  // Support both 'filename' and 'title' (backend compat)
+  const displayName = data.filename || data.title || 'Dokument'
 
   const isPdf =
-    data.mime_type?.includes('pdf') || data.filename.toLowerCase().endsWith('.pdf')
+    data.mime_type?.includes('pdf') ||
+    data.format?.toLowerCase() === 'pdf' ||
+    displayName.toLowerCase().endsWith('.pdf')
+
+  /** Download file with auth token, then open as blob URL */
+  const handleClick = async () => {
+    if (!data.url || downloading) return
+
+    // External URLs (https://) — open directly
+    if (data.url.startsWith('http')) {
+      window.open(data.url, '_blank')
+      return
+    }
+
+    // Internal API URLs — fetch with auth token
+    setDownloading(true)
+    try {
+      const token = localStorage.getItem('frya-token')
+      const resp = await fetch(data.url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!resp.ok) {
+        console.error('Document download failed:', resp.status)
+        // Fallback: open directly (might show auth error but better than nothing)
+        window.open(data.url, '_blank')
+        return
+      }
+      const blob = await resp.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+      // Clean up blob URL after a delay
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    } catch (err) {
+      console.error('Document download error:', err)
+      window.open(data.url, '_blank')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <div
@@ -29,10 +73,9 @@ export function DocumentBlock({ data }: { data: DocumentBlockData }) {
         padding: '10px 14px',
         transition: 'background 0.15s ease',
         cursor: data.url ? 'pointer' : 'default',
+        opacity: downloading ? 0.6 : 1,
       }}
-      onClick={() => {
-        if (data.url) window.open(data.url, '_blank')
-      }}
+      onClick={handleClick}
     >
       {/* File icon */}
       <div
@@ -97,9 +140,9 @@ export function DocumentBlock({ data }: { data: DocumentBlockData }) {
             whiteSpace: 'nowrap',
           }}
         >
-          {data.filename}
+          {downloading ? 'Wird geladen...' : displayName}
         </div>
-        {data.size && (
+        {data.size && !downloading && (
           <div
             style={{
               fontSize: 10,

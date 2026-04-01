@@ -45,6 +45,7 @@ from app.api.backfill_views import router as backfill_router
 from app.api.bulk_upload import router as bulk_upload_router
 from app.api.accounting_api import router as accounting_router
 from app.api.greeting_views import router as greeting_router
+from app.api.template_views import router as template_router
 from app.api.finance_views import router as finance_router
 from app.api.auth_views import router as auth_views_router
 from app.api.customer_api import router as customer_router
@@ -314,6 +315,7 @@ app.include_router(customer_router)
 app.include_router(auth_views_router)
 app.include_router(accounting_router)
 app.include_router(greeting_router)
+app.include_router(template_router)
 app.include_router(finance_router)
 app.include_router(activity_router)
 app.include_router(pdf_router)

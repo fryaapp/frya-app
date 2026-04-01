@@ -110,6 +110,36 @@ class MemoryCuratorService:
         if not state_path.exists():
             self._write_file(state_path, '')
 
+    # ── User Fact Learning ──────────────────────────────────────────────────
+
+    async def learn_user_fact(self, tenant_id: uuid.UUID, fact: str) -> None:
+        """Append a learned fact to user.md (e.g. hourly rate, preferences).
+
+        Only appends if the fact is not already present in user.md.
+        Keeps user.md under _MEMORY_MAX_CHARS.
+        """
+        mem_dir = self._memory_dir(tenant_id)
+        self._ensure_static_files(mem_dir)
+        user_path = mem_dir / 'user.md'
+        current = self._read_file(user_path)
+
+        # Avoid duplicates
+        if fact.strip() in current:
+            return
+
+        # Append
+        updated = current.rstrip() + '\n' + fact.strip() + '\n'
+
+        # Trim if too long
+        if len(updated) > _MEMORY_MAX_CHARS:
+            lines = updated.strip().split('\n')
+            while len('\n'.join(lines)) > _MEMORY_MAX_CHARS and len(lines) > 5:
+                lines.pop(1)  # Keep header, remove oldest facts
+            updated = '\n'.join(lines) + '\n'
+
+        self._write_file(user_path, updated)
+        logger.info('user.md updated for tenant %s: +%d chars', tenant_id, len(fact))
+
     # ── Daily Log ─────────────────────────────────────────────────────────────
 
     async def append_daily_log(self, tenant_id: uuid.UUID, entry: str) -> None:
@@ -196,8 +226,39 @@ class MemoryCuratorService:
             parts.append(f'[AGENT]\n{agent_md.strip()}\n[/AGENT]')
 
         user_md = self._read_file(mem_dir / 'user.md')
+        # Also load user preferences from DB (company data, rates, etc.)
+        _user_prefs_text = ''
+        try:
+            import asyncpg
+            from app.config import get_settings as _gs
+            _db_url = _gs().database_url
+            if not _db_url.startswith('memory://'):
+                _conn = await asyncpg.connect(_db_url)
+                try:
+                    rows = await _conn.fetch(
+                        "SELECT key, value FROM frya_user_preferences WHERE tenant_id = $1 ORDER BY key",
+                        str(tenant_id),
+                    )
+                    if rows:
+                        _prefs = {r['key']: r['value'] for r in rows}
+                        _pref_lines = []
+                        for k, v in _prefs.items():
+                            if v and v not in ('', 'None', 'null'):
+                                _pref_lines.append(f'- {k}: {v}')
+                        if _pref_lines:
+                            _user_prefs_text = '\n'.join(_pref_lines)
+                finally:
+                    await _conn.close()
+        except Exception as _pref_exc:
+            logger.debug('context_assembly: user prefs load failed: %s', _pref_exc)
+
+        _nutzer_parts = []
         if user_md.strip():
-            parts.append(f'[NUTZER]\n{user_md.strip()}\n[/NUTZER]')
+            _nutzer_parts.append(user_md.strip())
+        if _user_prefs_text:
+            _nutzer_parts.append(_user_prefs_text)
+        if _nutzer_parts:
+            parts.append(f'[NUTZER]\n' + '\n'.join(_nutzer_parts) + '\n[/NUTZER]')
 
         soul_md = self._read_file(mem_dir / 'soul.md')
         if soul_md:

@@ -134,6 +134,7 @@ def _build_zugferd_xml(data: dict) -> bytes:
     if not gross_amount and net_amount:
         gross_amount = float(net_amount) + float(tax_amount or 0)
 
+    tax_rate = data.get('tax_rate', 19.0)
     iban = data.get('iban', '')
     bic = data.get('bic', '')
 
@@ -179,6 +180,7 @@ def _build_zugferd_xml(data: dict) -> bytes:
     buyer_tax_xml = f'<ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">{e(buyer_tax_id)}</ram:ID></ram:SpecifiedTaxRegistration>' if buyer_tax_id else ''
     iban_xml = f'<ram:PayeePartyCreditorFinancialAccount><ram:IBANID>{e(iban)}</ram:IBANID></ram:PayeePartyCreditorFinancialAccount>' if iban else ''
     bic_xml = f'<ram:PayeeSpecifiedCreditorFinancialInstitution><ram:BICID>{e(bic)}</ram:BICID></ram:PayeeSpecifiedCreditorFinancialInstitution>' if bic else ''
+    payment_type_code = '58' if iban else 'ZZZ'  # 58=SEPA, ZZZ=mutual agreement
     due_date_xml = ''
     if due_date:
         due_date_xml = f'<ram:SpecifiedTradePaymentTerms><ram:DueDateDateTime><udt:DateTimeString format="102">{due_date}</udt:DateTimeString></ram:DueDateDateTime></ram:SpecifiedTradePaymentTerms>'
@@ -201,7 +203,7 @@ def _build_zugferd_xml(data: dict) -> bytes:
     </ram:IssueDateTime>
   </rsm:ExchangedDocument>
   <rsm:SupplyChainTradeTransaction>
-    <ram:ApplicableHeaderTradeAgreement>
+{lines_xml}    <ram:ApplicableHeaderTradeAgreement>
       <ram:SellerTradeParty>
         <ram:Name>{e(seller_name)}</ram:Name>
         {seller_tax_xml}
@@ -215,15 +217,17 @@ def _build_zugferd_xml(data: dict) -> bytes:
     <ram:ApplicableHeaderTradeSettlement>
       <ram:InvoiceCurrencyCode>{e(currency)}</ram:InvoiceCurrencyCode>
       <ram:SpecifiedTradeSettlementPaymentMeans>
+        <ram:TypeCode>{payment_type_code}</ram:TypeCode>
         {iban_xml}
         {bic_xml}
       </ram:SpecifiedTradeSettlementPaymentMeans>
       {due_date_xml}
       <ram:ApplicableTradeTax>
-        <ram:TypeCode>VAT</ram:TypeCode>
-        <ram:CategoryCode>S</ram:CategoryCode>
-        <ram:BasisAmount>{net_amount}</ram:BasisAmount>
         <ram:CalculatedAmount>{tax_amount}</ram:CalculatedAmount>
+        <ram:TypeCode>VAT</ram:TypeCode>
+        <ram:BasisAmount>{net_amount}</ram:BasisAmount>
+        <ram:CategoryCode>S</ram:CategoryCode>
+        <ram:RateApplicablePercent>{tax_rate}</ram:RateApplicablePercent>
       </ram:ApplicableTradeTax>
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
         <ram:LineTotalAmount>{net_amount}</ram:LineTotalAmount>
@@ -233,7 +237,7 @@ def _build_zugferd_xml(data: dict) -> bytes:
         <ram:DuePayableAmount>{gross_amount}</ram:DuePayableAmount>
       </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
     </ram:ApplicableHeaderTradeSettlement>
-{lines_xml}  </rsm:SupplyChainTradeTransaction>
+  </rsm:SupplyChainTradeTransaction>
 </rsm:CrossIndustryInvoice>'''
 
     return xml_str.encode('utf-8')
@@ -261,6 +265,7 @@ def _build_cii_xml(data: EInvoiceData) -> str:
 
     total_net = data.total_net or Decimal('0.00')
     total_tax = data.total_tax or Decimal('0.00')
+    header_tax_rate = data.line_items[0].tax_rate if data.line_items else Decimal('19.0')
     total_gross = data.total_gross if data.total_gross is not None else total_net + total_tax
 
     # Line items
@@ -301,6 +306,7 @@ def _build_cii_xml(data: EInvoiceData) -> str:
     note_xml = f'<ram:IncludedNote><ram:Content>{e(data.note)}</ram:Content></ram:IncludedNote>' if data.note else ''
     iban_xml = f'<ram:PayeePartyCreditorFinancialAccount><ram:IBANID>{e(data.iban)}</ram:IBANID></ram:PayeePartyCreditorFinancialAccount>' if data.iban else ''
     bic_xml = f'<ram:PayeeSpecifiedCreditorFinancialInstitution><ram:BICID>{e(data.bic)}</ram:BICID></ram:PayeeSpecifiedCreditorFinancialInstitution>' if data.bic else ''
+    payment_type_code = '58' if data.iban else 'ZZZ'  # 58=SEPA, ZZZ=mutual agreement
     payment_terms_xml = f'<ram:SpecifiedTradePaymentTerms><ram:Description>{e(data.payment_terms)}</ram:Description></ram:SpecifiedTradePaymentTerms>' if data.payment_terms else ''
     due_date_xml = ''
     if due_date:
@@ -325,7 +331,7 @@ def _build_cii_xml(data: EInvoiceData) -> str:
     {note_xml}
   </rsm:ExchangedDocument>
   <rsm:SupplyChainTradeTransaction>
-    <ram:ApplicableHeaderTradeAgreement>
+{lines_xml}    <ram:ApplicableHeaderTradeAgreement>
       <ram:SellerTradeParty>
         <ram:Name>{e(data.seller_name)}</ram:Name>
         {seller_tax_xml}
@@ -340,16 +346,18 @@ def _build_cii_xml(data: EInvoiceData) -> str:
       <ram:InvoiceCurrencyCode>{e(data.currency)}</ram:InvoiceCurrencyCode>
       {reference_xml}
       <ram:SpecifiedTradeSettlementPaymentMeans>
+        <ram:TypeCode>{payment_type_code}</ram:TypeCode>
         {iban_xml}
         {bic_xml}
       </ram:SpecifiedTradeSettlementPaymentMeans>
       {payment_terms_xml}
       {due_date_xml}
       <ram:ApplicableTradeTax>
-        <ram:TypeCode>VAT</ram:TypeCode>
-        <ram:CategoryCode>S</ram:CategoryCode>
-        <ram:BasisAmount>{total_net}</ram:BasisAmount>
         <ram:CalculatedAmount>{total_tax}</ram:CalculatedAmount>
+        <ram:TypeCode>VAT</ram:TypeCode>
+        <ram:BasisAmount>{total_net}</ram:BasisAmount>
+        <ram:CategoryCode>S</ram:CategoryCode>
+        <ram:RateApplicablePercent>{header_tax_rate}</ram:RateApplicablePercent>
       </ram:ApplicableTradeTax>
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
         <ram:LineTotalAmount>{total_net}</ram:LineTotalAmount>
@@ -359,7 +367,7 @@ def _build_cii_xml(data: EInvoiceData) -> str:
         <ram:DuePayableAmount>{total_gross}</ram:DuePayableAmount>
       </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
     </ram:ApplicableHeaderTradeSettlement>
-{lines_xml}  </rsm:SupplyChainTradeTransaction>
+  </rsm:SupplyChainTradeTransaction>
 </rsm:CrossIndustryInvoice>'''
 
 

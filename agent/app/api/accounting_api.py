@@ -268,6 +268,39 @@ async def get_invoice(invoice_id: str, user: AuthUser = Depends(require_authenti
     return inv.model_dump(mode='json')
 
 
+@router.get('/invoices/{invoice_id}/items')
+async def get_invoice_items(invoice_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
+    """Return line items for an invoice from frya_invoice_items."""
+    import asyncpg
+    from app.dependencies import get_settings
+    settings = get_settings()
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        rows = await conn.fetch(
+            "SELECT position, description, quantity, unit, unit_price, "
+            "tax_rate, net_amount, tax_amount, gross_amount "
+            "FROM frya_invoice_items WHERE invoice_id = $1::uuid ORDER BY position",
+            invoice_id,
+        )
+        items = []
+        for r in rows:
+            d = dict(r)
+            items.append({
+                'position': d['position'],
+                'description': d['description'],
+                'quantity': float(d['quantity']),
+                'unit': d['unit'],
+                'unit_price': float(d['unit_price']),
+                'tax_rate': float(d['tax_rate']),
+                'net_amount': float(d['net_amount']),
+                'tax_amount': float(d['tax_amount']),
+                'gross_amount': float(d['gross_amount']),
+            })
+        return {'count': len(items), 'items': items}
+    finally:
+        await conn.close()
+
+
 @router.post('/invoices/{invoice_id}/finalize')
 async def finalize_invoice(invoice_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
     """Finalize a DRAFT invoice: set status=SENT, create booking + open item."""
@@ -333,6 +366,157 @@ async def finalize_invoice(invoice_id: str, user: AuthUser = Depends(require_aut
         'booking_id': booking.id,
         'booking_number': booking.booking_number,
         'open_item_id': oi.id if oi else None,
+    }
+
+
+class SendInvoiceRequest(BaseModel):
+    email: str = Field(..., description='Recipient email address')
+
+
+@router.post('/invoices/{invoice_id}/send')
+async def send_invoice_email(
+    invoice_id: str,
+    body: SendInvoiceRequest,
+    user: AuthUser = Depends(require_authenticated),
+) -> dict:
+    """Generate PDF and send invoice via email (Brevo)."""
+    import base64
+    tid = await _resolve_tenant()
+    repo = _get_repo()
+
+    try:
+        inv_uuid = uuid.UUID(invoice_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail='invalid_invoice_id') from exc
+
+    invoice = await repo.get_invoice_by_id(tid, inv_uuid)
+    if not invoice:
+        raise HTTPException(status_code=404, detail='invoice_not_found')
+
+    # ── Generate PDF (reuse logic from pdf_views) ────────────────────────
+    from app.pdf.service import PdfService
+    from app.config import get_settings
+    settings = get_settings()
+    pdf_service = PdfService()
+
+    contact = await repo.get_contact_by_id(tid, uuid.UUID(invoice.contact_id))
+    contact_dict = {
+        'name': contact.name if contact else 'Unbekannt',
+        'street': (contact.address_street or '') if contact else '',
+        'zip': (contact.address_zip or '') if contact else '',
+        'city': (contact.address_city or '') if contact else '',
+    }
+
+    tenant_dict = {
+        'company_name': getattr(settings, 'company_name', 'Meine Firma GmbH'),
+        'street': getattr(settings, 'company_street', 'Musterstr. 1'),
+        'zip': getattr(settings, 'company_zip', '10115'),
+        'city': getattr(settings, 'company_city', 'Berlin'),
+        'iban': getattr(settings, 'company_iban', ''),
+        'bic': getattr(settings, 'company_bic', ''),
+        'tax_id': getattr(settings, 'company_tax_id', ''),
+        'tax_number': getattr(settings, 'company_tax_number', ''),
+    }
+
+    tax_rate = 19.0
+    if invoice.net_total and invoice.net_total > 0:
+        tax_rate = float(round(invoice.tax_total / invoice.net_total * 100, 2))
+
+    invoice_dict = {
+        'invoice_number': invoice.invoice_number,
+        'invoice_date': invoice.invoice_date.strftime('%d.%m.%Y') if invoice.invoice_date else '',
+        'due_date': invoice.due_date.strftime('%d.%m.%Y') if invoice.due_date else '',
+        'net_amount': float(invoice.net_total),
+        'tax_amount': float(invoice.tax_total),
+        'gross_amount': float(invoice.gross_total),
+        'tax_rate': tax_rate,
+        'payment_days': 14,
+    }
+    items_list = [{
+        'description': f'Rechnung {invoice.invoice_number}',
+        'quantity': 1,
+        'unit': 'Stk',
+        'unit_price': float(invoice.net_total),
+        'tax_rate': tax_rate,
+        'total_price': float(invoice.gross_total),
+    }]
+
+    pdf_bytes = await pdf_service.generate_invoice_pdf(
+        invoice=invoice_dict, items=items_list,
+        contact=contact_dict, tenant=tenant_dict,
+    )
+
+    # ZUGFeRD embedding (non-fatal)
+    try:
+        from app.e_invoice.generator import embed_zugferd
+        zugferd_data = {
+            'invoice_number': invoice.invoice_number,
+            'invoice_date': invoice.invoice_date,
+            'due_date': invoice.due_date,
+            'net_amount': float(invoice.net_total),
+            'tax_amount': float(invoice.tax_total),
+            'gross_amount': float(invoice.gross_total),
+            'currency': 'EUR',
+            'seller_name': tenant_dict.get('company_name', ''),
+            'seller_tax_id': tenant_dict.get('tax_id', ''),
+            'buyer_name': contact_dict.get('name', ''),
+            'iban': tenant_dict.get('iban', ''),
+            'bic': tenant_dict.get('bic', ''),
+            'items': items_list,
+        }
+        pdf_bytes = embed_zugferd(pdf_bytes, zugferd_data)
+    except Exception as exc:
+        logger.warning('ZUGFeRD embedding failed for send: %s', exc)
+
+    # ── Send via mail service (Brevo) ────────────────────────────────────
+    from app.dependencies import get_mail_service
+    mail_service = get_mail_service()
+
+    pdf_b64 = base64.b64encode(pdf_bytes).decode('ascii')
+    filename = f'Rechnung_{invoice.invoice_number}.pdf'
+
+    subject = f'Rechnung {invoice.invoice_number} — {tenant_dict.get("company_name", "")}'
+    body_html = (
+        f'<p>Sehr geehrte Damen und Herren,</p>'
+        f'<p>anbei erhalten Sie Rechnung <strong>{invoice.invoice_number}</strong> '
+        f'über <strong>{invoice.gross_total} EUR</strong>.</p>'
+        f'<p>Zahlungsziel: {invoice_dict["due_date"]}</p>'
+        f'<p>Mit freundlichen Grüßen<br/>{tenant_dict.get("company_name", "")}</p>'
+    )
+    body_text = (
+        f'Rechnung {invoice.invoice_number} über {invoice.gross_total} EUR.\n'
+        f'Zahlungsziel: {invoice_dict["due_date"]}\n'
+        f'PDF im Anhang.\n\n'
+        f'{tenant_dict.get("company_name", "")}'
+    )
+
+    await mail_service.send_mail(
+        to=body.email,
+        subject=subject,
+        body_html=body_html,
+        body_text=body_text,
+        tenant_id=str(tid),
+        attachments=[{'name': filename, 'content': pdf_b64}],
+    )
+
+    # ── If still DRAFT, also finalize ────────────────────────────────────
+    if invoice.status == 'DRAFT':
+        import asyncpg
+        conn = await asyncpg.connect(settings.database_url)
+        try:
+            await conn.execute(
+                "UPDATE frya_invoices SET status = 'SENT' WHERE id = $1::uuid",
+                invoice_id,
+            )
+        finally:
+            await conn.close()
+
+    logger.info('Invoice %s sent via email to %s', invoice.invoice_number, body.email)
+    return {
+        'status': 'sent',
+        'invoice_number': invoice.invoice_number,
+        'email': body.email,
+        'pdf_size': len(pdf_bytes),
     }
 
 
