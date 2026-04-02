@@ -44,8 +44,30 @@ class _InboxService:
             get_audit_service, get_open_items_service,
         )
         approval_svc = get_approval_service()
+        # P-12: Try UUID first, then resolve via case_documents (doc-X format)
         pending = [r for r in await approval_svc.list_by_case(case_id)
                    if r.status == 'PENDING' and r.action_type == 'booking_finalize']
+        if not pending:
+            # Approvals use doc-{paperless_id} as case_id — resolve via case_documents
+            try:
+                import asyncpg
+                from app.dependencies import get_settings
+                conn = await asyncpg.connect(get_settings().database_url)
+                try:
+                    doc_row = await conn.fetchrow(
+                        "SELECT document_source_id FROM case_documents WHERE case_id = $1::uuid LIMIT 1",
+                        case_id,
+                    )
+                    if doc_row and doc_row['document_source_id']:
+                        doc_case_id = f"doc-{doc_row['document_source_id']}"
+                        pending = [r for r in await approval_svc.list_by_case(doc_case_id)
+                                   if r.status == 'PENDING' and r.action_type == 'booking_finalize']
+                        if pending:
+                            case_id = doc_case_id  # Use doc-X for downstream
+                finally:
+                    await conn.close()
+            except Exception as exc:
+                logger.warning('Approval doc-ID resolve failed: %s', exc)
         if not pending:
             return {'status': 'no_pending', 'message': 'Keine offene Freigabe für diesen Beleg.'}
 
@@ -66,6 +88,27 @@ class _InboxService:
         approval_svc = get_approval_service()
         pending = [r for r in await approval_svc.list_by_case(case_id)
                    if r.status == 'PENDING']
+        # P-12: Resolve via doc-X if UUID lookup fails
+        if not pending:
+            try:
+                import asyncpg
+                from app.dependencies import get_settings
+                conn = await asyncpg.connect(get_settings().database_url)
+                try:
+                    doc_row = await conn.fetchrow(
+                        "SELECT document_source_id FROM case_documents WHERE case_id = $1::uuid LIMIT 1",
+                        case_id,
+                    )
+                    if doc_row and doc_row['document_source_id']:
+                        doc_case_id = f"doc-{doc_row['document_source_id']}"
+                        pending = [r for r in await approval_svc.list_by_case(doc_case_id)
+                                   if r.status == 'PENDING']
+                        if pending:
+                            case_id = doc_case_id
+                finally:
+                    await conn.close()
+            except Exception:
+                pass
         if pending:
             from app.booking.approval_service import BookingApprovalService
             from app.dependencies import get_audit_service, get_open_items_service

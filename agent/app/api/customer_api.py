@@ -83,6 +83,60 @@ async def send_chat_message(
         media_attachments=[],
     )
 
+    # P-12: APPROVE shortcircuit — execute booking approval BEFORE communicator
+    try:
+        from app.api.chat_ws import _get_tiered_orchestrator
+        _pre_orch = _get_tiered_orchestrator()
+        if _pre_orch:
+            _pre_route = await _pre_orch.route(message=body.message)
+            _pre_intent = _pre_route.get('intent')
+            if _pre_intent == 'APPROVE':
+                from app.agents.service_registry import _InboxService
+                _inbox_svc = _InboxService()
+                _approve_cid = None
+                # Find case by vendor name in text
+                import re as _re_ap
+                _case_match = _re_ap.search(r'CASE-\d{4}-\d{5}', body.message)
+                if _case_match:
+                    import asyncpg as _apg_ap
+                    from app.dependencies import get_settings as _gs_ap
+                    _conn_ap = await _apg_ap.connect(_gs_ap().database_url)
+                    try:
+                        _cr = await _conn_ap.fetchrow("SELECT id FROM case_cases WHERE case_number = $1", _case_match.group(0))
+                        if _cr:
+                            _approve_cid = str(_cr['id'])
+                    finally:
+                        await _conn_ap.close()
+                else:
+                    _text_low = body.message.lower()
+                    from app.dependencies import get_case_repository as _gcr2
+                    _case_repo = _gcr2()
+                    _tid = getattr(user, 'tenant_id', '') or ''
+                    if _tid:
+                        _all_c = await _case_repo.list_active_cases_for_tenant(uuid.UUID(_tid))
+                        for _cc in _all_c:
+                            if _cc.vendor_name and _cc.vendor_name.lower() in _text_low:
+                                _approve_cid = str(_cc.id)
+                                break
+
+                if _approve_cid:
+                    _ap_result = await _inbox_svc.approve(case_id=_approve_cid)
+                    if _ap_result.get('status') == 'approved':
+                        _next = _ap_result.get('next_item')
+                        _next_text = ''
+                        if _next:
+                            _next_text = f"\n\nNaechster Beleg: {_next.get('vendor', '?')} ({_next.get('amount', '?')} EUR)"
+                        return ChatResponse(
+                            reply=f'Freigabe erledigt. Buchung erstellt.{_next_text}',
+                            suggestions=['Naechster Beleg', 'Inbox', 'Finanzen'],
+                            content_blocks=[{'block_type': 'alert', 'data': {'severity': 'success', 'text': 'Buchung freigegeben und erstellt.'}}],
+                            actions=[],
+                        )
+                    elif _ap_result.get('status') == 'no_pending':
+                        pass  # Fall through to communicator
+    except Exception as _ae:
+        logger.warning('REST APPROVE shortcircuit failed: %s', _ae)
+
     communicator = get_telegram_communicator_service()
     result = await communicator.try_handle_turn(
         normalized, case_id,
