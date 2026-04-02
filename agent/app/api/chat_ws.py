@@ -142,6 +142,7 @@ def _get_response_builder():
 _TIER_INTENT_TO_CONTEXT: dict[str, str] = {
     'SHOW_INBOX': 'inbox',
     'SHOW_FINANCE': 'finance',
+    'SHOW_FINANCIAL_OVERVIEW': 'finance',
     'SHOW_DEADLINES': 'deadlines',
     'SHOW_BOOKINGS': 'bookings',
     'SHOW_OPEN_ITEMS': 'open_items',
@@ -163,6 +164,10 @@ _TIER_INTENT_TO_CONTEXT: dict[str, str] = {
     'STATUS_OVERVIEW': 'none',
     'SMALL_TALK': 'none',
     'APPROVE': 'inbox',
+    'SHOW_EXPENSE_CATEGORIES': 'finance',
+    'SHOW_PROFIT_LOSS': 'finance',
+    'SHOW_REVENUE_TREND': 'finance',
+    'SHOW_FORECAST': 'finance',
 }
 
 
@@ -1058,16 +1063,40 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                     finally:
                                         await _conn_approve.close()
                                 else:
-                                    # Try vendor name match
+                                    # P-12b: Match vendor name against PENDING approvals via DB join
                                     _text_lower = text.lower()
-                                    from app.dependencies import get_case_repository as _gcr
-                                    _cr = _gcr()
-                                    _tid_uuid = uuid.UUID(tenant_id)
-                                    _all_cases = await _cr.list_active_cases_for_tenant(_tid_uuid)
-                                    for _c in _all_cases:
-                                        if _c.vendor_name and _c.vendor_name.lower() in _text_lower:
-                                            _approve_case_id = str(_c.id)
-                                            break
+                                    _stop_words = {'gmbh', 'ag', 'ug', 'kg', 'ohg', 'se', 'co', 'mbh',
+                                                   'freigeben', 'buchen', 'genehmigen', 'beleg', 'rechnung',
+                                                   'bitte', 'den', 'die', 'das', 'der', 'und', 'oder', 'von'}
+                                    _text_words = set(_text_lower.split()) - _stop_words
+                                    try:
+                                        import asyncpg as _apg_vn
+                                        from app.dependencies import get_settings as _gs_vn
+                                        _conn_vn = await _apg_vn.connect(_gs_vn().database_url)
+                                        try:
+                                            # Get all pending approvals with their vendor names
+                                            _pend_rows = await _conn_vn.fetch("""
+                                                SELECT a.case_id AS approval_case_id, cc.id AS case_uuid, cc.vendor_name
+                                                FROM frya_approvals a
+                                                JOIN case_documents cd ON cd.document_source_id::text = REPLACE(a.case_id, 'doc-', '')
+                                                JOIN case_cases cc ON cc.id = cd.case_id
+                                                WHERE a.status = 'PENDING' AND a.action_type = 'booking_finalize'
+                                                  AND cc.vendor_name IS NOT NULL
+                                            """)
+                                            _best_match = (None, 0)
+                                            for _pr in _pend_rows:
+                                                _vn_lower = _pr['vendor_name'].lower()
+                                                if any(w in _vn_lower for w in _text_words if len(w) >= 4):
+                                                    _vn_words = set(_vn_lower.split()) - _stop_words
+                                                    _overlap = len(_text_words & _vn_words)
+                                                    if _overlap > _best_match[1]:
+                                                        _best_match = (str(_pr['case_uuid']), _overlap)
+                                            if _best_match[0] and _best_match[1] >= 1:
+                                                _approve_case_id = _best_match[0]
+                                        finally:
+                                            await _conn_vn.close()
+                                    except Exception as _vn_exc:
+                                        logger.warning('Vendor name approval lookup failed: %s', _vn_exc)
 
                             if _approve_case_id:
                                 _approve_result = await _inbox_svc.approve(case_id=_approve_case_id)
@@ -1214,6 +1243,58 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                     _shortcircuit_reply = f'Rechnung {_inv_nr} nicht gefunden.'
                             except Exception as _inv_exc:
                                 logger.warning('SHOW_INVOICE failed: %s', _inv_exc)
+
+                    # P-12b: Shortcircuit ALL chart/data intents — bypass Communicator
+                    _CHART_SHORTCIRCUIT_INTENTS = {
+                        'SHOW_FINANCIAL_OVERVIEW', 'SHOW_FINANCE', 'SHOW_INBOX',
+                        'SHOW_BOOKINGS', 'SHOW_OPEN_ITEMS', 'SHOW_DEADLINES',
+                        'SHOW_EXPENSE_CATEGORIES', 'SHOW_PROFIT_LOSS',
+                        'SHOW_REVENUE_TREND', 'SHOW_FORECAST',
+                    }
+                    if _shortcircuit_reply is None and tier_intent in _CHART_SHORTCIRCUIT_INTENTS:
+                        try:
+                            from app.agents.service_registry import build_service_registry
+                            _chart_reg = build_service_registry()
+                            _chart_intent_map = {
+                                'SHOW_INBOX': ('inbox_service', 'list_pending'),
+                                'SHOW_FINANCIAL_OVERVIEW': ('euer_service', 'get_finance_summary'),
+                                'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
+                                'SHOW_BOOKINGS': ('booking_service', 'list'),
+                                'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
+                                'SHOW_DEADLINES': ('deadline_service', 'list'),
+                                'SHOW_EXPENSE_CATEGORIES': ('booking_service', 'list'),
+                                'SHOW_PROFIT_LOSS': ('euer_service', 'get_finance_summary'),
+                                'SHOW_REVENUE_TREND': ('booking_service', 'list'),
+                                'SHOW_FORECAST': ('euer_service', 'get_finance_summary'),
+                            }
+                            _si = _chart_intent_map.get(tier_intent)
+                            if _si:
+                                _svc_obj = _chart_reg.get(_si[0])
+                                if _svc_obj:
+                                    _method = getattr(_svc_obj, _si[1], None)
+                                    if _method:
+                                        _chart_data = await _method() or {}
+                                        _shortcircuit_data = _chart_data
+                                        # Map intent for ResponseBuilder
+                                        _rb_intent = tier_intent
+                                        if tier_intent == 'SHOW_FINANCIAL_OVERVIEW':
+                                            _rb_intent = 'SHOW_FINANCE'
+                                        # Build reply text from data
+                                        _texts = {
+                                            'SHOW_INBOX': f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
+                                            'SHOW_FINANCE': 'Hier ist deine Finanzuebersicht.',
+                                            'SHOW_FINANCIAL_OVERVIEW': 'Hier ist deine Finanzuebersicht.',
+                                            'SHOW_BOOKINGS': f'Hier sind deine letzten Buchungen.',
+                                            'SHOW_OPEN_ITEMS': 'Hier sind deine offenen Posten.',
+                                            'SHOW_DEADLINES': 'Hier sind deine anstehenden Fristen.',
+                                            'SHOW_EXPENSE_CATEGORIES': 'Hier ist die Aufschluesselung deiner Ausgaben nach Kategorie.',
+                                            'SHOW_PROFIT_LOSS': 'Hier ist deine Gewinn- und Verlustrechnung.',
+                                            'SHOW_REVENUE_TREND': 'Hier ist die Umsatzentwicklung.',
+                                            'SHOW_FORECAST': 'Hier ist die Hochrechnung fuer das Geschaeftsjahr.',
+                                        }
+                                        _shortcircuit_reply = _texts.get(tier_intent, 'Hier sind die Daten.')
+                        except Exception as _chart_exc:
+                            logger.warning('Chart shortcircuit failed: %s', _chart_exc)
 
                     if _shortcircuit_reply is not None:
                         # Determine context_type from orchestrator

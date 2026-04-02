@@ -19,10 +19,15 @@ class TieredOrchestrator:
         r"(?i)(logo.*(?:hochlad|upload|änder)|mein\s+logo)": "UPLOAD_LOGO",
         r"(?i)(wer schuldet|offene posten|offene rechnung|offene forderung)": "SHOW_OPEN_ITEMS",
         r"(?i)(inbox|belege|was liegt an|was steht an|abarbeiten)": "SHOW_INBOX",
-        r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell)": "SHOW_FINANCE",
+        # P-12b: Chart-specific intents BEFORE generic SHOW_FINANCE
+        r"(?i)(ausgaben.*kategorie|kostenverteilung|wohin.*geld|kosten.*aufgeteilt)": "SHOW_EXPENSE_CATEGORIES",
+        r"(?i)(gewinn|verlust|gewinn.*verlust|guv)": "SHOW_PROFIT_LOSS",
+        r"(?i)(umsatz.*entwicklung|umsatz.*trend|umsatz.*verlauf)": "SHOW_REVENUE_TREND",
+        r"(?i)(hochrechnung|prognose|jahres.?hochrechnung|forecast)": "SHOW_FORECAST",
+        r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell|finanz.?übersicht)": "SHOW_FINANCIAL_OVERVIEW",
         r"(?i)(frist|deadline|dringend|überfällig|was ist fällig)": "SHOW_DEADLINES",
         r"(?i)(zeig.*kontakt|meine\s*kontakte|alle\s*kontakte|alles über|kundenakte|kontaktliste)": "SHOW_CONTACTS",
-        r"(?i)(buchungsjournal|buchungen zeig|journal)": "SHOW_BOOKINGS",
+        r"(?i)(buchungsjournal|buchungen zeig|journal|meine buchungen)": "SHOW_BOOKINGS",
         r"(?i)(einstellung|dark.?mode|hell|dunkel|theme|anrede)": "SETTINGS",
         r"(?i)(export|datev|steuerberater)": "SHOW_EXPORT",
         r"(?i)(upload|wäschekorb|belege.*rein|stapel)": "UPLOAD",
@@ -38,12 +43,13 @@ class TieredOrchestrator:
     ]
 
     VALID_INTENTS = {
-        "SHOW_INBOX", "SHOW_FINANCE", "SHOW_DEADLINES", "SHOW_BOOKINGS",
+        "SHOW_INBOX", "SHOW_FINANCE", "SHOW_FINANCIAL_OVERVIEW", "SHOW_DEADLINES", "SHOW_BOOKINGS",
         "SHOW_OPEN_ITEMS", "SHOW_CONTACT", "SHOW_CONTACTS", "SHOW_EXPORT", "CREATE_INVOICE",
         "CREATE_CONTACT", "CREATE_REMINDER", "APPROVE", "SETTINGS", "UPLOAD",
         "STATUS_OVERVIEW", "SMALL_TALK", "UNKNOWN",
         "SEND_INVOICE", "VOID_INVOICE", "EDIT_INVOICE", "SHOW_INVOICE",
         "CHOOSE_TEMPLATE", "SET_TEMPLATE", "UPLOAD_LOGO",
+        "SHOW_EXPENSE_CATEGORIES", "SHOW_PROFIT_LOSS", "SHOW_REVENUE_TREND", "SHOW_FORECAST",
     }
 
     def __init__(self, action_router=None):

@@ -108,16 +108,39 @@ async def send_chat_message(
                     finally:
                         await _conn_ap.close()
                 else:
+                    # P-12b: Match vendor name against PENDING approvals via DB join
                     _text_low = body.message.lower()
-                    from app.dependencies import get_case_repository as _gcr2
-                    _case_repo = _gcr2()
-                    _tid = getattr(user, 'tenant_id', '') or ''
-                    if _tid:
-                        _all_c = await _case_repo.list_active_cases_for_tenant(uuid.UUID(_tid))
-                        for _cc in _all_c:
-                            if _cc.vendor_name and _cc.vendor_name.lower() in _text_low:
-                                _approve_cid = str(_cc.id)
-                                break
+                    _stop = {'gmbh', 'ag', 'ug', 'kg', 'ohg', 'se', 'co', 'mbh',
+                             'freigeben', 'buchen', 'genehmigen', 'beleg', 'rechnung',
+                             'bitte', 'den', 'die', 'das', 'der', 'und', 'oder', 'von'}
+                    _tw = set(_text_low.split()) - _stop
+                    try:
+                        import asyncpg as _apg_rest
+                        from app.dependencies import get_settings as _gs_rest
+                        _conn_rest = await _apg_rest.connect(_gs_rest().database_url)
+                        try:
+                            _pr_rows = await _conn_rest.fetch("""
+                                SELECT a.case_id AS approval_case_id, cc.id AS case_uuid, cc.vendor_name
+                                FROM frya_approvals a
+                                JOIN case_documents cd ON cd.document_source_id::text = REPLACE(a.case_id, 'doc-', '')
+                                JOIN case_cases cc ON cc.id = cd.case_id
+                                WHERE a.status = 'PENDING' AND a.action_type = 'booking_finalize'
+                                  AND cc.vendor_name IS NOT NULL
+                            """)
+                            _best = (None, 0)
+                            for _pr in _pr_rows:
+                                _vn = _pr['vendor_name'].lower()
+                                if any(w in _vn for w in _tw if len(w) >= 4):
+                                    _vw = set(_vn.split()) - _stop
+                                    _ov = len(_tw & _vw)
+                                    if _ov > _best[1]:
+                                        _best = (str(_pr['case_uuid']), _ov)
+                            if _best[0] and _best[1] >= 1:
+                                _approve_cid = _best[0]
+                        finally:
+                            await _conn_rest.close()
+                    except Exception:
+                        pass
 
                 if _approve_cid:
                     _ap_result = await _inbox_svc.approve(case_id=_approve_cid)

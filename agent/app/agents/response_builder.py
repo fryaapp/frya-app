@@ -74,6 +74,27 @@ class ResponseBuilder:
         "UPLOAD_LOGO": [
             {"label": "Logo hochladen", "chat_text": "Logo hochladen", "style": "primary"},
         ],
+        "SHOW_FINANCIAL_OVERVIEW": [
+            {"label": "Ausgaben Detail", "chat_text": "Ausgaben nach Kategorie", "style": "primary"},
+            {"label": "Gewinn/Verlust", "chat_text": "Wie ist mein Gewinn?", "style": "secondary"},
+            {"label": "Prognose", "chat_text": "Hochrechnung", "style": "text"},
+        ],
+        "SHOW_EXPENSE_CATEGORIES": [
+            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+            {"label": "Umsatztrend", "chat_text": "Umsatzentwicklung", "style": "text"},
+        ],
+        "SHOW_PROFIT_LOSS": [
+            {"label": "Prognose", "chat_text": "Hochrechnung", "style": "primary"},
+            {"label": "Umsatztrend", "chat_text": "Umsatzentwicklung", "style": "secondary"},
+        ],
+        "SHOW_REVENUE_TREND": [
+            {"label": "Gewinn/Verlust", "chat_text": "Wie ist mein Gewinn?", "style": "secondary"},
+            {"label": "Prognose", "chat_text": "Hochrechnung", "style": "text"},
+        ],
+        "SHOW_FORECAST": [
+            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+            {"label": "Ausgaben", "chat_text": "Ausgaben nach Kategorie", "style": "text"},
+        ],
     }
 
     FALLBACK_SUGGESTIONS = [
@@ -464,8 +485,130 @@ class ResponseBuilder:
     def _blocks_upload(self, results: dict) -> list[dict]:
         return [{"block_type": "alert", "data": {"severity": "info", "text": "Nutze das Bueroklammer-Symbol unten links oder ziehe Dateien in den Chat."}}]
 
+    def _blocks_show_financial_overview(self, results: dict) -> list[dict]:
+        return self._blocks_show_finance(results)
+
     def _blocks_status_overview(self, results: dict) -> list[dict]:
         return self._blocks_show_finance(results)
+
+    # P-12b: New chart intent builders ------------------------------------ #
+
+    def _blocks_show_expense_categories(self, results: dict) -> list[dict]:
+        """Pie chart: expenses grouped by SKR03 account category."""
+        bookings = results if isinstance(results, list) else results.get("bookings", results.get("items", []))
+        if not isinstance(bookings, list):
+            bookings = []
+        # Group by account category
+        _cat_map = {
+            '4210': 'Miete', '4200': 'Miete', '4920': 'Telefon/Internet', '4930': 'Telefon/Internet',
+            '4530': 'Kfz-Kosten', '4510': 'Kfz-Kosten', '4964': 'IT/Cloud', '4960': 'IT/Cloud',
+            '4360': 'Versicherung', '4650': 'Bewirtung', '4670': 'Reisekosten',
+            '4900': 'Porto', '4600': 'Werbung', '4855': 'Nebenkosten',
+        }
+        _colors = ['#F08A3A', '#FFD54F', '#66E07A', '#4FC3F7', '#FF8A80', '#CE93D8', '#A5D6A7', '#FFAB91']
+        cats: dict[str, float] = {}
+        for b in bookings:
+            if not isinstance(b, dict):
+                continue
+            acct = str(b.get("debit_account", b.get("skr03_soll", "")))[:4]
+            cat = _cat_map.get(acct, 'Sonstiges')
+            amt = abs(float(b.get("amount", b.get("gross_amount", 0)) or 0))
+            cats[cat] = cats.get(cat, 0) + amt
+        if not cats:
+            return [{"block_type": "alert", "data": {"severity": "info", "text": "Noch keine Ausgaben verbucht."}}]
+        series = [{"label": k, "value": round(v, 2), "color": _colors[i % len(_colors)]}
+                  for i, (k, v) in enumerate(sorted(cats.items(), key=lambda x: -x[1]))]
+        total = sum(s["value"] for s in series)
+        return [{"block_type": "chart", "data": {
+            "title": "Ausgaben nach Kategorie",
+            "chart_type": "pie",
+            "center_value": self._eur(total),
+            "center_label": "Gesamt",
+            "series": series,
+        }}]
+
+    def _blocks_show_profit_loss(self, results: dict) -> list[dict]:
+        """KPI card + bar chart for profit/loss."""
+        s = results.get("summary", results)
+        income = float(s.get("total_income", s.get("income", 0)) or 0)
+        expenses = float(s.get("total_expenses", s.get("expenses", 0)) or 0)
+        profit = income - expenses
+        blocks: list[dict] = []
+        # KPI card
+        blocks.append({"block_type": "chart", "data": {
+            "title": "Gewinn / Verlust",
+            "chart_type": "kpi",
+            "kpi_value": self._eur(profit),
+            "kpi_label": "Ergebnis " + str(s.get("year", "2026")),
+            "kpi_trend": "up" if profit > 0 else "down",
+            "series": [
+                {"label": "Einnahmen", "value": round(income, 2), "color": "#66E07A"},
+                {"label": "Ausgaben", "value": round(expenses, 2), "color": "#FF8A80"},
+            ],
+        }})
+        return blocks
+
+    def _blocks_show_revenue_trend(self, results: dict) -> list[dict]:
+        """Line chart: revenue by month."""
+        bookings = results if isinstance(results, list) else results.get("bookings", results.get("items", []))
+        if not isinstance(bookings, list):
+            bookings = []
+        months: dict[str, float] = {}
+        _month_names = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+        for b in bookings:
+            if not isinstance(b, dict):
+                continue
+            d = str(b.get("booking_date", ""))
+            if len(d) >= 7:
+                m_key = d[:7]  # "2026-03"
+                try:
+                    m_idx = int(m_key.split('-')[1]) - 1
+                    m_label = _month_names[m_idx] if 0 <= m_idx < 12 else m_key
+                except (IndexError, ValueError):
+                    m_label = m_key
+                amt = float(b.get("amount", b.get("gross_amount", 0)) or 0)
+                if amt > 0:  # Only income
+                    months[m_label] = months.get(m_label, 0) + amt
+        if not months:
+            return [{"block_type": "alert", "data": {"severity": "info", "text": "Noch keine Umsatzdaten vorhanden."}}]
+        series = [{"label": k, "value": round(v, 2), "color": "#F08A3A"} for k, v in months.items()]
+        return [{"block_type": "chart", "data": {
+            "title": "Umsatzentwicklung",
+            "chart_type": "line",
+            "series": series,
+        }}]
+
+    def _blocks_show_forecast(self, results: dict) -> list[dict]:
+        """Forecast: actual + projected for remaining months."""
+        s = results.get("summary", results)
+        income = float(s.get("total_income", s.get("income", 0)) or 0)
+        expenses = float(s.get("total_expenses", s.get("expenses", 0)) or 0)
+        from datetime import date
+        current_month = date.today().month
+        if current_month < 1:
+            current_month = 1
+        avg_monthly_income = income / current_month if current_month > 0 else 0
+        avg_monthly_expense = expenses / current_month if current_month > 0 else 0
+        projected_income = income + avg_monthly_income * (12 - current_month)
+        projected_expenses = expenses + avg_monthly_expense * (12 - current_month)
+        projected_profit = projected_income - projected_expenses
+
+        blocks: list[dict] = []
+        # KPI: projected annual profit
+        blocks.append({"block_type": "chart", "data": {
+            "title": "Jahreshochrechnung",
+            "chart_type": "kpi",
+            "kpi_value": self._eur(projected_profit),
+            "kpi_label": "Hochgerechneter Jahresgewinn",
+            "kpi_trend": "up" if projected_profit > 0 else "down",
+            "series": [
+                {"label": "Einnahmen (hochger.)", "value": round(projected_income, 2), "color": "#66E07A"},
+                {"label": "Ausgaben (hochger.)", "value": round(projected_expenses, 2), "color": "#FF8A80"},
+                {"label": "Einnahmen (bisher)", "value": round(income, 2), "color": "#A5D6A7"},
+                {"label": "Ausgaben (bisher)", "value": round(expenses, 2), "color": "#FFAB91"},
+            ],
+        }})
+        return blocks
 
     def _blocks_small_talk(self, results: dict) -> list[dict]:
         return []
