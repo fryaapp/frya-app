@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     mailgun_from: str = 'noreply@frya.app'
 
     # Base URL shown in password-reset links (e.g. https://app.myfrya.de)
-    app_base_url: str = 'http://localhost:8001'
+    app_base_url: str = 'https://app.staging.myfrya.de'
 
     # Mail provider switch: 'brevo' | 'mailgun' (default)
     # Set FRYA_MAIL_PROVIDER=brevo to route system mails via Brevo API v3
