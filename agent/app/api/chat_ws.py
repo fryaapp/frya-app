@@ -911,6 +911,70 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                 })
 
                 try:
+                    # --- Phase 0: Pending-Flow Resume (P-10 A3) ---
+                    # If a previous turn set a pending flow (e.g. waiting for email),
+                    # resume that flow instead of starting a new intent.
+                    _pending_flow = getattr(websocket, '_frya_pending_flow', None)
+                    if _pending_flow and isinstance(_pending_flow, dict):
+                        _pf_type = _pending_flow.get('waiting_for')
+                        _pf_invoice_id = _pending_flow.get('invoice_id')
+                        _pf_data = _pending_flow.get('pending_data', {})
+
+                        # Clear pending before processing
+                        websocket._frya_pending_flow = None
+
+                        if _pf_type == 'recipient_email' and _pf_invoice_id:
+                            # User responded with email — resume send flow
+                            from app.services.invoice_pipeline import handle_send_invoice
+                            _send_params = {
+                                'invoice_id': _pf_invoice_id,
+                                'recipient_email': text.strip(),
+                            }
+                            _send_result = await handle_send_invoice(_send_params, user_id)
+                            await websocket.send_json({
+                                'type': 'typing', 'active': False,
+                            })
+                            await websocket.send_json({
+                                'type': 'message_complete',
+                                'text': _send_result.get('text', ''),
+                                'case_ref': None,
+                                'context_type': 'none',
+                                'suggestions': [a['chat_text'] for a in _send_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
+                                'content_blocks': _send_result.get('content_blocks', []),
+                                'actions': _send_result.get('actions', []),
+                                'routing': 'pending_flow',
+                            })
+                            continue
+
+                        elif _pf_type == 'recipient_address' and _pf_data:
+                            # User responded with address — merge into pending data and retry
+                            _pf_data['contact_address'] = text.strip()
+                            from app.services.invoice_pipeline import handle_create_invoice
+                            _resume_result = await handle_create_invoice(_pf_data, user_id)
+                            _resume_text = _resume_result.get('text', '')
+                            _resume_blocks = _resume_result.get('content_blocks', [])
+                            _resume_actions = _resume_result.get('actions', [])
+                            # Check if still pending
+                            if _resume_result.get('_pending_intent'):
+                                websocket._frya_pending_flow = {
+                                    'waiting_for': 'recipient_address',
+                                    'pending_data': _resume_result.get('_pending_data', _pf_data),
+                                }
+                            await websocket.send_json({
+                                'type': 'typing', 'active': False,
+                            })
+                            await websocket.send_json({
+                                'type': 'message_complete',
+                                'text': _resume_text,
+                                'case_ref': None,
+                                'context_type': _resume_result.get('context_type', 'invoice_draft'),
+                                'suggestions': [a['chat_text'] for a in _resume_actions[:3]] or _DEFAULT_SUGGESTIONS,
+                                'content_blocks': _resume_blocks,
+                                'actions': _resume_actions,
+                                'routing': 'pending_flow',
+                            })
+                            continue
+
                     # --- Phase 1: TieredOrchestrator intent routing ---
                     quick_action = data.get('quick_action')
                     # Inject user_id + tenant_id so ActionRouter can use them
@@ -1249,6 +1313,21 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             actions = pipeline_result.get('actions', [])
                             context_type = pipeline_result.get('context_type', 'invoice_draft')
                             logger.info('Invoice pipeline: draft created from INVOICE_DATA')
+
+                            # P-10 A3: Set pending flow if pipeline needs more info
+                            if pipeline_result.get('_pending_intent'):
+                                _pending_data = pipeline_result.get('_pending_data', _invoice_data)
+                                if pipeline_result.get('awaiting_email_for_invoice'):
+                                    websocket._frya_pending_flow = {
+                                        'waiting_for': 'recipient_email',
+                                        'invoice_id': pipeline_result['awaiting_email_for_invoice'],
+                                        'pending_data': _pending_data,
+                                    }
+                                else:
+                                    websocket._frya_pending_flow = {
+                                        'waiting_for': 'recipient_address',
+                                        'pending_data': _pending_data,
+                                    }
                         except Exception as exc:
                             logger.error('Invoice pipeline failed: %s', exc)
                             reply_text = f'Rechnung konnte nicht erstellt werden: {exc}'
@@ -1263,6 +1342,13 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             actions = _pipeline_result.get('actions', [])
                             reply_text = _pipeline_result.get('text', reply_text)
                             context_type = _pipeline_result.get('context_type', context_type)
+                        # P-10 A3: Pending flow for send_invoice email question
+                        if isinstance(_pipeline_result, dict) and _pipeline_result.get('awaiting_email_for_invoice'):
+                            websocket._frya_pending_flow = {
+                                'waiting_for': 'recipient_email',
+                                'invoice_id': _pipeline_result['awaiting_email_for_invoice'],
+                                'pending_data': {},
+                            }
 
                     # --- Synchronize text with content_blocks for SHOW_INBOX ---
                     # The communicator generates text BEFORE blocks exist,

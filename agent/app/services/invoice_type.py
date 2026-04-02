@@ -20,12 +20,36 @@ EU_COUNTRIES = frozenset({
 
 
 def determine_invoice_type(profile: dict, intent_data: dict) -> dict[str, Any]:
-    """Bestimmt den Rechnungstyp basierend auf Profil und Rechnungsdaten."""
+    """Bestimmt den Rechnungstyp basierend auf Profil und Rechnungsdaten.
+
+    Prioritaet:
+    1. Expliziter User-Override (z.B. "mit 19% MwSt")
+    2. Produkt-Typ (Buecher = 7%)
+    3. Profil-Default (Kleinunternehmer = 0%)
+    4. Standard = 19%
+    """
     recipient = intent_data.get('recipient', {})
     items = intent_data.get('items', [])
+
+    # P-10 A2: Pruefen ob User explizit einen Steuersatz angegeben hat
+    # NUR explicit_tax_rate zaehlt — items.tax_rate wird vom Communicator gesetzt
+    # und spiegelt den Default, nicht den User-Wunsch
+    user_tax_rate = intent_data.get('explicit_tax_rate')  # z.B. 19, 7, 0
+
+    # Wenn User explizit einen Satz angibt, hat das hoechste Prio
+    if user_tax_rate is not None and int(user_tax_rate) > 0:
+        rate = int(user_tax_rate)
+        return {
+            'type': 'STANDARD_B2B' if rate == 19 else 'REDUCED_RATE',
+            'tax_rate': rate,
+            'tax_note': None,
+            'show_tax_line': True,
+            'e_invoice_required': False,
+        }
+
     total_gross = _calculate_gross(items, profile)
 
-    # === KLEINUNTERNEHMER §19 ===
+    # === KLEINUNTERNEHMER §19 (nur wenn KEIN expliziter Override) ===
     if profile.get('is_kleinunternehmer'):
         return {
             'type': 'KLEINUNTERNEHMER',
@@ -101,6 +125,13 @@ def _is_einvoice_required() -> bool:
     return True
 
 
+_REDUCED_RATE_KEYWORDS = frozenset({
+    'buch', 'buecher', 'bücher', 'ebook', 'e-book', 'publikation',
+    'zeitung', 'zeitschrift', 'magazin', 'lebensmittel', 'nahrung',
+    'exemplar', 'exemplare', 'lektüre', 'roman', 'sachbuch',
+})
+
+
 def _determine_tax_rate(items: list, profile: dict) -> int:
     """Bestimmt den MwSt-Satz.
 
@@ -114,6 +145,12 @@ def _determine_tax_rate(items: list, profile: dict) -> int:
     first_rate = items[0].get('tax_rate')
     if first_rate is not None:
         return int(first_rate)
+
+    # P-10 A2: Ermaessigter Satz fuer Buecher/Lebensmittel
+    for item in items:
+        desc = (item.get('description') or '').lower()
+        if any(kw in desc for kw in _REDUCED_RATE_KEYWORDS):
+            return 7
 
     return profile.get('default_tax_rate') or 19
 

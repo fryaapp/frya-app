@@ -152,8 +152,9 @@ INVOICE_DATA: {
   "contact_name": "Name des Empfängers",
   "contact_email": "email@example.de oder null",
   "contact_address": "Adresse oder null",
+  "explicit_tax_rate": null,
   "items": [
-    {"description": "Leistungsbeschreibung", "quantity": 1, "unit_price": 120.00, "tax_rate": 19}
+    {"description": "Leistungsbeschreibung", "quantity": 1, "unit_price": 120.00}
   ],
   "payment_terms_days": 14,
   "notes": "Zusätzliche Hinweise oder null"
@@ -164,6 +165,8 @@ WICHTIG zu unit_price:
 - Wenn der Nutzer "10 Euro" sagt, ist das der Netto-Preis. NICHT rückrechnen!
 - Beispiel: "4 Butterbrote zu je 10 Euro" → unit_price: 10.00 (NICHT 9.35!)
 - Die MwSt wird vom System automatisch aufgeschlagen. Du rechnest NICHTS um.
+- explicit_tax_rate: NUR setzen wenn der User EXPLIZIT einen Steuersatz nennt (z.B. "mit 19% MwSt", "7% MwSt"). Sonst null lassen — das System bestimmt den Satz automatisch.
+- Setze KEIN tax_rate in den items. Das System bestimmt den Steuersatz basierend auf explicit_tax_rate, Produkttyp und Geschaeftsprofil.
 
 Wenn Informationen fehlen, frage GEZIELT nach (KEIN INVOICE_DATA Block):
 - Kein Name: "Für wen soll die Rechnung sein?"
