@@ -52,6 +52,38 @@ from app.bulk_upload.repository import BulkUploadRepository
 from app.bulk_upload.service import BulkUploadService
 
 
+# ─── P-12b: Global asyncpg connection pool ──────────────────────────────────
+_db_pool = None
+
+
+async def init_db_pool():
+    """Initialize the global asyncpg connection pool. Call in lifespan."""
+    global _db_pool
+    if _db_pool is not None:
+        return
+    import asyncpg
+    settings = get_settings()
+    _db_pool = await asyncpg.create_pool(
+        dsn=settings.database_url,
+        min_size=2,
+        max_size=10,
+        command_timeout=30,
+    )
+
+
+async def close_db_pool():
+    """Close the global connection pool. Call in lifespan shutdown."""
+    global _db_pool
+    if _db_pool is not None:
+        await _db_pool.close()
+        _db_pool = None
+
+
+def get_db_pool():
+    """Get the global connection pool. Falls back to None if not initialized."""
+    return _db_pool
+
+
 @lru_cache
 def get_file_store() -> FileStore:
     settings = get_settings()

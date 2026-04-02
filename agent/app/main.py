@@ -107,6 +107,10 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # P-12b: Initialize global connection pool
+    from app.dependencies import init_db_pool, close_db_pool
+    await init_db_pool()
+
     audit_service: AuditService = get_audit_service()
     open_items_service: OpenItemsService = get_open_items_service()
     problem_service: ProblemCaseService = get_problem_case_service()
@@ -225,6 +229,9 @@ async def lifespan(app: FastAPI):
     )
 
     yield
+
+    # P-12b: Close global connection pool on shutdown
+    await close_db_pool()
 
 
 app = FastAPI(title='FRYA Agent Backend', version='0.3.0', lifespan=lifespan)
