@@ -41,6 +41,8 @@ class ProblemCaseRepository:
             )
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_problem_case_id ON frya_problem_cases(case_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_problem_created_at ON frya_problem_cases(created_at)")
+            await conn.execute("ALTER TABLE frya_problem_cases ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_problem_cases_tenant ON frya_problem_cases(tenant_id)")
         finally:
             await conn.close()
 

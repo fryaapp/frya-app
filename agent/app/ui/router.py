@@ -2982,6 +2982,11 @@ async def ui_users_delete(request: Request, auth_user: AuthUser = Depends(requir
     settings = get_settings()
     user_repo = get_user_repository()
 
+    # Resolve tenant_id for multi-tenant scoping
+    from app.case_engine.tenant_resolver import resolve_tenant_id as _del_resolve_tid
+    _del_tid = await _del_resolve_tid()
+    _del_tenant = _del_tid or (auth_user.tenant_id if auth_user.tenant_id else 'default')
+
     try:
         # 1. Delete user record from auth store
         existing = await user_repo.find_by_username(username)
@@ -2994,16 +2999,16 @@ async def ui_users_delete(request: Request, auth_user: AuthUser = Depends(requir
             try:
                 # Delete conversations
                 await conn.execute(
-                    "DELETE FROM frya_conversations WHERE user_id = $1", username)
+                    "DELETE FROM frya_conversations WHERE user_id = $1 AND tenant_id = $2", username, str(_del_tenant))
                 # Delete token usage
                 await conn.execute(
-                    "DELETE FROM frya_token_usage WHERE agent_id = $1", username)
+                    "DELETE FROM frya_token_usage WHERE tenant_id = $1", str(_del_tenant))
                 # Delete feedback
                 await conn.execute(
-                    "DELETE FROM frya_feedback WHERE user_id = $1", username)
+                    "DELETE FROM frya_feedback WHERE user_id = $1 AND tenant_id = $2", username, str(_del_tenant))
                 # Delete user preferences
                 await conn.execute(
-                    "DELETE FROM frya_user_preferences WHERE user_id = $1", username)
+                    "DELETE FROM frya_user_preferences WHERE user_id = $1 AND tenant_id = $2", username, str(_del_tenant))
             except Exception:
                 pass  # Tables may not exist yet
             finally:

@@ -41,9 +41,7 @@ class BusinessProfileService:
             try:
                 row = await conn.fetchrow(
                     "SELECT * FROM frya_business_profile "
-                    "WHERE user_id = $1 AND tenant_id IN ($2, 'default', '') "
-                    "ORDER BY CASE WHEN tenant_id = $2 THEN 0 WHEN tenant_id = 'default' THEN 1 ELSE 2 END "
-                    "LIMIT 1",
+                    "WHERE user_id = $1 AND tenant_id = $2",
                     user_id, tenant_id or 'default',
                 )
                 return dict(row) if row else None

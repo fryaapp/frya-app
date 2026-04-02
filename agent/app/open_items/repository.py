@@ -46,6 +46,8 @@ class OpenItemsRepository:
             await conn.execute("UPDATE frya_open_items SET case_id = COALESCE(case_id, 'legacy')")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_open_items_case_id ON frya_open_items(case_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_open_items_status ON frya_open_items(status)")
+            await conn.execute("ALTER TABLE frya_open_items ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_open_items_tenant ON frya_open_items(tenant_id)")
         finally:
             await conn.close()
 

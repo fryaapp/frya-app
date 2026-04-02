@@ -320,27 +320,76 @@ async def reset_password_submit(
 
 def _reset_mail_html(link: str, *, first: bool) -> str:
     if first:
-        heading = 'Willkommen bei FRYA'
-        body = 'Ihr Zugang wurde eingerichtet. Bitte setzen Sie jetzt Ihr Passwort:'
+        subject_line = 'Willkommen bei FRYA'
+        body_text = (
+            'du bist eingeladen, FRYA als Alpha-Tester auszuprobieren!<br><br>'
+            'FRYA ist deine KI-gestuetzte Buchhaltung:<br>'
+            'Dokument hochladen → KI versteht → bucht → archiviert → meldet.'
+        )
+        button_text = 'Account einrichten'
+        validity = 'Dieser Link ist 7 Tage gueltig.'
     else:
-        heading = 'Passwort zuruecksetzen'
-        body = 'Sie haben einen Passwort-Reset angefordert. Klicken Sie auf den folgenden Link:'
-    return (
-        f'<html><body>'
-        f'<h2>{heading}</h2>'
-        f'<p>{body}</p>'
-        f'<p><a href="{link}">{link}</a></p>'
-        f'<p>Dieser Link ist 30 Minuten gueltig.</p>'
-        f'<p>Falls Sie keinen Reset angefordert haben, ignorieren Sie diese Mail.</p>'
-        f'</body></html>'
-    )
+        subject_line = 'Passwort zuruecksetzen'
+        body_text = 'Du hast einen Passwort-Reset angefordert. Klicke auf den Button um ein neues Passwort zu setzen.'
+        button_text = 'Neues Passwort setzen'
+        validity = 'Dieser Link ist 30 Minuten gueltig.'
+
+    return f'''<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="margin:0;padding:0;background:#1a1a1a;font-family:'Plus Jakarta Sans',Helvetica,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#1a1a1a;padding:40px 20px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;">
+  <!-- Orange Header Bar -->
+  <tr><td style="background:linear-gradient(135deg,#E87830 0%,#D4722A 100%);height:6px;border-radius:16px 16px 0 0;"></td></tr>
+  <!-- Content -->
+  <tr><td style="background:#2a2a2a;padding:44px 36px 40px;border-radius:0 0 16px 16px;">
+    <!-- Logo/Icon -->
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="width:56px;height:56px;border-radius:18px;background:linear-gradient(135deg,#E87830 0%,#D4722A 100%);display:inline-flex;align-items:center;justify-content:center;">
+        <span style="font-size:28px;color:#fff;font-weight:bold;">F</span>
+      </div>
+    </div>
+    <!-- Title -->
+    <h1 style="text-align:center;font-size:24px;font-weight:700;color:#ffffff;margin:0 0 8px;letter-spacing:-0.02em;">{subject_line}</h1>
+    <p style="text-align:center;font-size:14px;color:#aaaaaa;margin:0 0 28px;">FRYA — Deine KI-Buchhaltung</p>
+    <!-- Body -->
+    <p style="font-size:15px;color:#dddddd;line-height:1.6;margin:0 0 28px;">{body_text}</p>
+    <!-- CTA Button -->
+    <div style="text-align:center;margin-bottom:24px;">
+      <a href="{link}" style="display:inline-block;padding:16px 40px;background:linear-gradient(135deg,#E87830 0%,#D4722A 100%);color:#ffffff;text-decoration:none;border-radius:28px;font-size:15px;font-weight:700;letter-spacing:0.02em;">{button_text}</a>
+    </div>
+    <!-- Validity -->
+    <p style="text-align:center;font-size:12px;color:#888888;margin:0 0 8px;">{validity}</p>
+    <p style="text-align:center;font-size:12px;color:#888888;margin:0;">Falls der Button nicht funktioniert:<br><a href="{link}" style="color:#E87830;word-break:break-all;">{link}</a></p>
+  </td></tr>
+  <!-- Footer -->
+  <tr><td style="padding:24px 0;text-align:center;">
+    <p style="font-size:12px;color:#666666;margin:0;">Viele Gruesse<br>Maze — Mycelium Enterprises UG</p>
+    <p style="font-size:11px;color:#555555;margin:12px 0 0;">Du erhaeltst diese Mail weil du als Alpha-Tester eingeladen wurdest.<br>Fragen? <a href="mailto:kontakt@myfrya.de" style="color:#E87830;">kontakt@myfrya.de</a></p>
+  </td></tr>
+</table>
+</td></tr></table>
+</body></html>'''
 
 
 def _reset_mail_text(link: str, *, first: bool) -> str:
     if first:
-        heading = 'Willkommen bei FRYA'
-        body = 'Ihr Zugang wurde eingerichtet. Bitte setzen Sie jetzt Ihr Passwort:'
-    else:
-        heading = 'Passwort zuruecksetzen'
-        body = 'Sie haben einen Passwort-Reset angefordert.'
-    return f'{heading}\n\n{body}\n\n{link}\n\nDieser Link ist 30 Minuten gueltig.\n'
+        return (
+            'Willkommen bei FRYA\n\n'
+            'Du bist eingeladen, FRYA als Alpha-Tester auszuprobieren!\n\n'
+            'FRYA ist deine KI-gestuetzte Buchhaltung:\n'
+            'Dokument hochladen → KI versteht → bucht → archiviert → meldet.\n\n'
+            f'Account einrichten: {link}\n\n'
+            'Dieser Link ist 7 Tage gueltig.\n\n'
+            'Viele Gruesse\n'
+            'Maze — Mycelium Enterprises UG\n'
+        )
+    return (
+        'Passwort zuruecksetzen\n\n'
+        'Du hast einen Passwort-Reset angefordert.\n\n'
+        f'Neues Passwort setzen: {link}\n\n'
+        'Dieser Link ist 30 Minuten gueltig.\n\n'
+        'Falls du keinen Reset angefordert hast, ignoriere diese Mail.\n'
+    )

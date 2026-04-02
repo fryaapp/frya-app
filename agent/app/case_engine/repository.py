@@ -249,8 +249,8 @@ class CaseRepository:
         conn = await asyncpg.connect(self.database_url)
         try:
             await conn.execute(
-                'UPDATE case_cases SET metadata=$1, updated_at=$2 WHERE id=$3',
-                json.dumps(merged), now, case_id,
+                'UPDATE case_cases SET metadata=$1, updated_at=$2 WHERE id=$3 AND tenant_id=$4',
+                json.dumps(merged), now, case_id, case.tenant_id,
             )
         finally:
             await conn.close()
@@ -292,8 +292,8 @@ class CaseRepository:
         conn = await asyncpg.connect(self.database_url)
         try:
             await conn.execute(
-                "UPDATE case_cases SET status=$1, updated_at=$2 WHERE id=$3",
-                new_status, now, case_id,
+                "UPDATE case_cases SET status=$1, updated_at=$2 WHERE id=$3 AND tenant_id=$4",
+                new_status, now, case_id, case.tenant_id,
             )
         finally:
             await conn.close()

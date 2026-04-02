@@ -536,6 +536,10 @@ async def handle_send_invoice(params: dict, user_id: str) -> dict:
     except Exception:
         company = 'Meine Firma'
 
+    # TODO Post-Alpha: Optionale PDF-Verschluesselung vor Mail-Versand
+    # Optionen: PDF-Passwort (reportlab encrypt), S/MIME (Zertifikat-basiert)
+    # Aktuell: Nur TLS (Brevo Standard)
+
     # 3. Send via Brevo
     try:
         from app.dependencies import get_mail_service, get_settings
