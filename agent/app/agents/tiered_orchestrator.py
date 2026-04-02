@@ -28,6 +28,7 @@ class TieredOrchestrator:
         r"(?i)(upload|wäschekorb|belege.*rein|stapel)": "UPLOAD",
         r"(?i)(kontakt.*anleg|neuer kontakt|kund.*anleg)": "CREATE_CONTACT",
         r"(?i)(mahnung|mahnen|zahlungserinnerung)": "CREATE_REMINDER",
+        r"(?i)(freigeb|buchen|genehmig|bestätig.*buchung|CASE-\d{4}-\d{5}.*freigeb)": "APPROVE",
     }
 
     DEEP_KEYWORDS = [

@@ -1030,7 +1030,62 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     _shortcircuit_data: dict = {}
                     _theme_changed: str | None = None
 
-                    if tier_intent == 'UPLOAD':
+                    if tier_intent == 'APPROVE':
+                        # P-12: Direct approval shortcircuit — find case, resolve approval, execute
+                        try:
+                            from app.agents.service_registry import _InboxService
+                            _inbox_svc = _InboxService()
+                            # Extract case_id from quick_action or text
+                            _approve_case_id = None
+                            if quick_action and quick_action.get('type') == 'approve':
+                                _approve_case_id = quick_action.get('params', {}).get('case_id')
+                            if not _approve_case_id:
+                                # Try to find case_id from text (e.g. "CASE-2026-00018 freigeben")
+                                import re as _re_approve
+                                _case_match = _re_approve.search(r'CASE-\d{4}-\d{5}', text)
+                                if _case_match:
+                                    _case_nr = _case_match.group(0)
+                                    # Look up UUID from case_number
+                                    import asyncpg as _apg_approve
+                                    from app.dependencies import get_settings as _gs_approve
+                                    _conn_approve = await _apg_approve.connect(_gs_approve().database_url)
+                                    try:
+                                        _case_row = await _conn_approve.fetchrow(
+                                            "SELECT id FROM case_cases WHERE case_number = $1", _case_nr
+                                        )
+                                        if _case_row:
+                                            _approve_case_id = str(_case_row['id'])
+                                    finally:
+                                        await _conn_approve.close()
+                                else:
+                                    # Try vendor name match
+                                    _text_lower = text.lower()
+                                    from app.dependencies import get_case_repository as _gcr
+                                    _cr = _gcr()
+                                    _tid_uuid = uuid.UUID(tenant_id)
+                                    _all_cases = await _cr.list_active_cases_for_tenant(_tid_uuid)
+                                    for _c in _all_cases:
+                                        if _c.vendor_name and _c.vendor_name.lower() in _text_lower:
+                                            _approve_case_id = str(_c.id)
+                                            break
+
+                            if _approve_case_id:
+                                _approve_result = await _inbox_svc.approve(case_id=_approve_case_id)
+                                if _approve_result.get('status') == 'approved':
+                                    _shortcircuit_reply = 'Freigabe erledigt. Buchung erstellt.'
+                                    _shortcircuit_data = _approve_result
+                                elif _approve_result.get('status') == 'no_pending':
+                                    _shortcircuit_reply = _approve_result.get('message', 'Keine offene Freigabe.')
+                                    _shortcircuit_data = _approve_result
+                                else:
+                                    _shortcircuit_reply = str(_approve_result)
+                            else:
+                                _shortcircuit_reply = None  # Fall through to communicator
+                        except Exception as _ae:
+                            logger.warning('APPROVE shortcircuit failed: %s', _ae)
+                            _shortcircuit_reply = None
+
+                    elif tier_intent == 'UPLOAD':
                         # BUG-002: User typed "upload" but has no attachment —
                         # skip communicator to avoid hallucinated "received" reply.
                         _shortcircuit_reply = (
