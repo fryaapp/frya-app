@@ -178,11 +178,23 @@ class ResponseBuilder:
         profit = s.get("profit", None)
         if profit is None:
             profit = (float(income) if income else 0) - (float(expenses) if expenses else 0)
-        return [{"block_type": "key_value", "data": {"items": [
+        blocks: list[dict] = []
+        # P-11 A2: bar_chart for income vs expenses
+        blocks.append({"block_type": "chart", "data": {
+            "title": "Einnahmen vs. Ausgaben",
+            "chart_type": "bar",
+            "series": [
+                {"label": "Einnahmen", "value": round(float(income), 2), "color": "#66E07A"},
+                {"label": "Ausgaben", "value": round(float(expenses), 2), "color": "#FF8A80"},
+                {"label": "Gewinn", "value": round(float(profit), 2), "color": "#F08A3A"},
+            ],
+        }})
+        blocks.append({"block_type": "key_value", "data": {"items": [
             {"label": "Einnahmen", "value": self._eur(income)},
             {"label": "Ausgaben", "value": self._eur(expenses)},
             {"label": "Ergebnis", "value": self._eur(profit)},
-        ]}}]
+        ]}})
+        return blocks
 
     def _blocks_show_eur(self, results: dict) -> list[dict]:
         return self._blocks_show_finance(results)
@@ -224,7 +236,22 @@ class ResponseBuilder:
                 "amount": self._eur(op.get("remaining_amount", op.get("amount", op.get("original_amount", 0)))),
                 "badge": {"label": f"{days}d ueberfaellig" if overdue else "Offen", "color": "error" if overdue else "warning"},
             })
-        return [{"block_type": "card_list", "data": {"title": f"{len(items)} offene Posten", "items": cards}}]
+        blocks: list[dict] = []
+        # P-11 A2: KPI + summary chart for OP
+        total_open = sum(float(op.get("remaining_amount", op.get("amount", op.get("original_amount", 0))) or 0) for op in items if isinstance(op, dict))
+        overdue_count = sum(1 for op in items if isinstance(op, dict) and (op.get("days_overdue", 0) or 0) > 0)
+        blocks.append({"block_type": "chart", "data": {
+            "title": "Offene Posten",
+            "chart_type": "donut",
+            "center_value": self._eur(total_open),
+            "center_label": "Gesamt offen",
+            "series": [
+                {"label": "Ueberfaellig", "value": overdue_count, "color": "#FF8A80"},
+                {"label": "Offen", "value": len(items) - overdue_count, "color": "#FFD54F"},
+            ],
+        }})
+        blocks.append({"block_type": "card_list", "data": {"title": f"{len(items)} offene Posten", "items": cards}})
+        return blocks
 
     def _blocks_show_deadlines(self, results: dict) -> list[dict]:
         items = results if isinstance(results, list) else results.get("deadlines", results.get("items", []))
