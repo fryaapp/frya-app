@@ -249,21 +249,74 @@ class BookingApprovalService:
         booking_id = None
         try:
             from app.dependencies import get_accounting_repository
-            # Resolve tenant_id from case if available
+            # Resolve tenant_id from case — handle both UUID and doc-X formats
             tenant_id = None
             try:
                 from app.dependencies import get_case_repository
-                case = await get_case_repository().get_case(case_id)
+                _case_repo = get_case_repository()
+                case = None
+                # If case_id is a UUID, use directly
+                import uuid as _uuid
+                try:
+                    _case_uuid = _uuid.UUID(case_id)
+                    case = await _case_repo.get_case(str(_case_uuid))
+                except (ValueError, AttributeError):
+                    pass
+                # If case_id is doc-X format, resolve via case_documents
+                if case is None and case_id.startswith('doc-'):
+                    try:
+                        import asyncpg as _apg_bk
+                        from app.dependencies import get_settings as _gs_bk
+                        _conn_bk = await _apg_bk.connect(_gs_bk().database_url)
+                        try:
+                            _doc_id = case_id.replace('doc-', '')
+                            _row = await _conn_bk.fetchrow(
+                                "SELECT cc.id, cc.tenant_id FROM case_documents cd "
+                                "JOIN case_cases cc ON cc.id = cd.case_id "
+                                "WHERE cd.document_source_id::text = $1 LIMIT 1",
+                                _doc_id,
+                            )
+                            if _row:
+                                tenant_id = _row['tenant_id']
+                        finally:
+                            await _conn_bk.close()
+                    except Exception as _doc_exc:
+                        logger.warning('Booking tenant resolve via doc-ID failed: %s', _doc_exc)
                 if case:
                     tenant_id = getattr(case, 'tenant_id', None)
-            except Exception:
-                pass
+            except Exception as _case_exc:
+                logger.warning('Booking tenant resolve failed: %s', _case_exc)
             if tenant_id is None:
-                import uuid as _uuid
+                # Last resort: resolve via tenant_resolver
+                try:
+                    from app.case_engine.tenant_resolver import resolve_tenant_id
+                    _tid_str = await resolve_tenant_id()
+                    if _tid_str:
+                        tenant_id = _uuid.UUID(_tid_str)
+                except Exception:
+                    pass
+            if tenant_id is None:
                 tenant_id = _uuid.UUID('00000000-0000-0000-0000-000000000000')
 
+            # Resolve case_id to UUID if doc-X format
+            _booking_case_id = case_id
+            if case_id.startswith('doc-'):
+                try:
+                    _conn_resolve = await _apg_bk.connect(_gs_bk().database_url)
+                    try:
+                        _resolve_row = await _conn_resolve.fetchrow(
+                            "SELECT case_id FROM case_documents WHERE document_source_id::text = $1 LIMIT 1",
+                            case_id.replace('doc-', ''),
+                        )
+                        if _resolve_row:
+                            _booking_case_id = str(_resolve_row['case_id'])
+                    finally:
+                        await _conn_resolve.close()
+                except Exception:
+                    pass
+
             booking = await self.booking_service.create_booking_from_case(
-                case_id=case_id,
+                case_id=_booking_case_id,
                 tenant_id=tenant_id,
                 vendor_name=bill_data.get('vendor_name', 'Unbekannt'),
                 description=f"Buchung: {bill_data.get('vendor_name', '')} {bill_data.get('amount', '')} EUR",
