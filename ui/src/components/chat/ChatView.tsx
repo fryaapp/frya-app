@@ -2,10 +2,19 @@ import { useState, useCallback } from 'react'
 import { ChatHistory } from './ChatHistory'
 import { ChatInputBar } from './ChatInputBar'
 import { useFryaStore } from '../../stores/fryaStore'
+import { useTheme } from '../../hooks/useTheme'
 import { api } from '../../lib/api'
+
+const _THEME_CYCLE: Record<string, { next: 'light' | 'dark' | 'system'; icon: string; label: string }> = {
+  dark: { next: 'light', icon: 'light_mode', label: 'Light Mode' },
+  light: { next: 'system', icon: 'brightness_auto', label: 'Auto Mode' },
+  system: { next: 'dark', icon: 'dark_mode', label: 'Dark Mode' },
+}
 
 function ChatTopBar() {
   const goHome = useFryaStore((s) => s.goHome)
+  const { theme, setTheme } = useTheme()
+  const cycle = _THEME_CYCLE[theme] || _THEME_CYCLE.dark
 
   return (
     <div
@@ -21,35 +30,37 @@ function ChatTopBar() {
       <button
         onClick={goHome}
         style={{
-          width: 28,
-          height: 28,
-          borderRadius: 8,
-          border: 'none',
-          background: 'transparent',
+          width: 28, height: 28, borderRadius: 8,
+          border: 'none', background: 'transparent',
           color: 'var(--frya-on-surface-variant)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', flexShrink: 0,
           transition: 'color 0.15s, background 0.15s',
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.color = 'var(--frya-primary)'
-          e.currentTarget.style.background = 'var(--frya-surface-container)'
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.color = 'var(--frya-on-surface-variant)'
-          e.currentTarget.style.background = 'transparent'
-        }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--frya-primary)'; e.currentTarget.style.background = 'var(--frya-surface-container)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--frya-on-surface-variant)'; e.currentTarget.style.background = 'transparent' }}
         aria-label="Zur Startseite"
       >
-        <span
-          className="material-symbols-rounded"
-          style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 18" }}
-        >
-          arrow_back
-        </span>
+        <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>arrow_back</span>
+      </button>
+
+      <div style={{ flex: 1 }} />
+
+      {/* Theme toggle */}
+      <button
+        onClick={() => setTheme(cycle.next)}
+        title={cycle.label}
+        style={{
+          width: 28, height: 28, borderRadius: 8,
+          border: 'none', background: 'transparent',
+          color: 'var(--frya-on-surface-variant)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', flexShrink: 0,
+          transition: 'color 0.15s',
+        }}
+        aria-label={cycle.label}
+      >
+        <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>{cycle.icon}</span>
       </button>
     </div>
   )

@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useFryaStore } from '../stores/fryaStore'
+import { useTheme } from '../hooks/useTheme'
 import { LegalModal } from './LegalModal'
 
 type LegalTab = 'datenschutz' | 'impressum' | 'agb'
 
 export function SettingsScreen() {
   const [legalTab, setLegalTab] = useState<LegalTab | null>(null)
+  const { theme, setTheme } = useTheme()
   const goHome = useFryaStore((s) => s.goHome)
   const logout = useFryaStore((s) => s.logout)
   const messageCount = useFryaStore((s) => s.messages.length)
@@ -87,7 +89,33 @@ export function SettingsScreen() {
             </div>
           </div>
 
-          <SettingsItem icon="dark_mode" label="Dark Mode" hint="Aktiv" />
+          {/* Theme Switcher */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--frya-outline-variant)' }}>
+            <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--frya-on-surface-variant)' }}>
+              {theme === 'dark' ? 'dark_mode' : theme === 'light' ? 'light_mode' : 'brightness_auto'}
+            </span>
+            <span style={{ flex: 1, fontSize: 13, color: 'var(--frya-on-surface)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Theme</span>
+            <div style={{ display: 'flex', gap: 2, background: 'var(--frya-surface)', borderRadius: 10, padding: 2 }}>
+              {([['dark', 'dark_mode', 'Dunkel'], ['light', 'light_mode', 'Hell'], ['system', 'brightness_auto', 'Auto']] as const).map(([val, icon, label]) => (
+                <button
+                  key={val}
+                  onClick={() => setTheme(val)}
+                  style={{
+                    padding: '4px 10px', borderRadius: 8, border: 'none',
+                    background: theme === val ? 'var(--frya-primary-container)' : 'transparent',
+                    color: theme === val ? 'var(--frya-on-primary-container)' : 'var(--frya-on-surface-variant)',
+                    fontSize: 11, fontWeight: theme === val ? 600 : 400,
+                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <span className="material-symbols-rounded" style={{ fontSize: 14 }}>{icon}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <SettingsItem icon="translate" label="Sprache" hint="Deutsch" />
           <SettingsItem icon="notifications" label="Benachrichtigungen" hint="An" />
         </div>
