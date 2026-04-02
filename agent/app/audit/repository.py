@@ -82,6 +82,8 @@ class AuditRepository:
             await conn.execute("UPDATE frya_audit_log SET case_id = COALESCE(case_id, 'legacy')")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_audit_case_id ON frya_audit_log(case_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_audit_created_at ON frya_audit_log(created_at)")
+            await conn.execute("ALTER TABLE frya_audit_log ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_tenant ON frya_audit_log(tenant_id)")
         finally:
             await conn.close()
 

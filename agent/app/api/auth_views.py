@@ -10,8 +10,11 @@ from pydantic import BaseModel, Field
 from app.auth.dependencies import require_authenticated
 from app.auth.jwt_auth import create_access_token, create_refresh_token
 from app.auth.models import AuthUser
+from app.auth.reset_service import PasswordResetService
 from app.auth.service import hash_password_pbkdf2, verify_password
+from app.auth.user_repository import UserRepository
 from app.config import get_settings
+from app.dependencies import get_password_reset_service, get_user_repository
 
 logger = logging.getLogger(__name__)
 
@@ -94,29 +97,40 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
 # ---------------------------------------------------------------------------
 
 @router.post('/reset-password')
-async def reset_password(body: ResetPasswordRequest):
-    """Validate a reset token and set a new password."""
-    serializer = _get_serializer()
+async def reset_password(
+    body: ResetPasswordRequest,
+    reset_service: PasswordResetService = Depends(get_password_reset_service),
+    user_repo: UserRepository = Depends(get_user_repository),
+):
+    """Validate a reset token and set a new password.
 
+    Tries itsdangerous tokens first, then falls back to Redis-based tokens
+    (used by invite and form-based password reset flows).
+    """
+    serializer = _get_serializer()
+    username: str | None = None
+
+    # 1) Try itsdangerous token
     try:
         data = serializer.loads(body.token, max_age=RESET_MAX_AGE)
+        if isinstance(data, dict) and data.get('action') == 'reset':
+            username = data.get('user_id')
     except (SignatureExpired, BadSignature):
-        raise HTTPException(status_code=400, detail='Link ungueltig oder abgelaufen.')
+        pass
 
-    if not isinstance(data, dict) or data.get('action') != 'reset':
-        raise HTTPException(status_code=400, detail='Link ungueltig oder abgelaufen.')
+    # 2) Fallback: Redis-based token (invite / form-based reset)
+    if not username:
+        username = await reset_service.consume_token(body.token)
 
-    username: str | None = data.get('user_id')
     if not username:
         raise HTTPException(status_code=400, detail='Link ungueltig oder abgelaufen.')
 
-    repo = _get_user_repo()
-    user = await repo.find_by_username(username)
+    user = await user_repo.find_by_username(username)
     if user is None:
         raise HTTPException(status_code=400, detail='Link ungueltig oder abgelaufen.')
 
     new_hash = hash_password_pbkdf2(body.new_password)
-    await repo.update_password(username, new_hash)
+    await user_repo.update_password(username, new_hash)
 
     logger.info('Password reset completed for user=%s', username)
     return {'message': 'Passwort wurde erfolgreich zurueckgesetzt.'}
@@ -189,3 +203,53 @@ async def activate_account(body: ActivateRequest):
 
     logger.info('Account activated for user=%s', username)
     return {'message': 'Konto wurde erfolgreich aktiviert.'}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/auth/validate-invite
+# ---------------------------------------------------------------------------
+
+@router.get('/validate-invite')
+async def validate_invite(
+    token: str,
+    reset_service: PasswordResetService = Depends(get_password_reset_service),
+    user_repo: UserRepository = Depends(get_user_repository),
+):
+    """Validate an invitation token without consuming it."""
+    if not token:
+        return {'valid': False, 'reason': 'missing_token'}
+    username = await reset_service.validate_token(token)
+    if not username:
+        return {'valid': False, 'reason': 'expired_or_used'}
+    user = await user_repo.find_by_username(username)
+    return {
+        'valid': True,
+        'username': username,
+        'email': user.email if user else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/auth/complete-invite
+# ---------------------------------------------------------------------------
+
+@router.post('/complete-invite')
+async def complete_invite(
+    body: ResetPasswordRequest,
+    reset_service: PasswordResetService = Depends(get_password_reset_service),
+    user_repo: UserRepository = Depends(get_user_repository),
+):
+    """Complete invitation by setting password (Redis-based token)."""
+    username = await reset_service.consume_token(body.token)
+    if not username:
+        raise HTTPException(status_code=400, detail='Link ungueltig oder abgelaufen.')
+
+    user = await user_repo.find_by_username(username)
+    if user is None:
+        raise HTTPException(status_code=400, detail='Link ungueltig oder abgelaufen.')
+
+    new_hash = hash_password_pbkdf2(body.new_password)
+    await user_repo.update_password(username, new_hash)
+
+    logger.info('Invite completed — password set for user=%s', username)
+    return {'message': 'Passwort wurde erfolgreich gesetzt.'}

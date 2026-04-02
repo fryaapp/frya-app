@@ -53,6 +53,7 @@ function AppContent() {
   const path = window.location.pathname
   if (path === '/forgot-password') return <><ForgotPasswordPage /><BugReportFAB /></>
   if (path === '/reset-password') return <><ResetPasswordPage /><BugReportFAB /></>
+  if (path === '/invite') return <><ResetPasswordPage /><BugReportFAB /></>
 
   if (!isAuthenticated) return <><LoginPage /><BugReportFAB /></>
 

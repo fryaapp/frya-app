@@ -26,3 +26,4 @@ class ApprovalRecord(BaseModel):
     reason: str | None = None
     policy_refs: list[dict[str, Any]] = Field(default_factory=list)
     audit_event_id: str | None = None
+    tenant_id: str | None = None

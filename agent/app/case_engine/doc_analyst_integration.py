@@ -171,6 +171,7 @@ async def integrate_document_analysis(
     analysis_version: str | None = None,
     is_business_relevant: bool | None = None,
     private_info: str | None = None,
+    ocr_text: str | None = None,
     repo: 'CaseRepository',
     audit_service: 'AuditService | None' = None,
 ) -> dict[str, Any]:
@@ -336,13 +337,21 @@ async def integrate_document_analysis(
     except Exception as exc:
         logger.warning('integrate_document_analysis: metadata update failed: %s', exc)
 
-    # Write FRYA analysis text back to Paperless "content" field
+    # Write FRYA analysis + OCR text back to Paperless
+    # P-13b: content = full OCR text (for full-text search in Paperless)
+    #         notes   = structured analysis summary (human-readable)
     if document_ref and document_ref.isdigit() and event_source in ('paperless_webhook', 'paperless'):
         try:
             from app.dependencies import get_paperless_connector
             pc = get_paperless_connector()
-            # Build a human-readable analysis summary for Paperless
-            analysis_lines = []
+            patch: dict[str, str] = {}
+
+            # Full OCR text → content field (Paperless full-text search)
+            if ocr_text and ocr_text.strip():
+                patch['content'] = ocr_text.strip()
+
+            # Build a human-readable analysis summary → notes field
+            analysis_lines = ['--- FRYA Analyse ---']
             if vendor_name:
                 analysis_lines.append(f'Absender: {vendor_name}')
             if document_type_value:
@@ -369,11 +378,23 @@ async def integrate_document_analysis(
                 analysis_lines.append(f'Privat-Info: {private_info}')
             if is_business_relevant is False:
                 analysis_lines.append('Geschaeftsrelevanz: Nein (privates Dokument)')
+            analysis_lines.append(f'Konfidenz: {overall_confidence:.2f}')
 
-            content_text = '\n'.join(analysis_lines)
-            if content_text:
-                await pc.update_document_metadata(int(document_ref), {'content': content_text})
-                logger.info('Wrote FRYA analysis back to Paperless doc %s (%d chars)', document_ref, len(content_text))
+            notes_text = '\n'.join(analysis_lines)
+            patch['notes'] = notes_text
+
+            # Fallback: if no OCR text available, put structured summary in content too
+            if 'content' not in patch and notes_text:
+                patch['content'] = notes_text
+
+            if patch:
+                await pc.update_document_metadata(int(document_ref), patch)
+                logger.info(
+                    'Wrote FRYA analysis back to Paperless doc %s (content=%d chars, notes=%d chars)',
+                    document_ref,
+                    len(patch.get('content', '')),
+                    len(patch.get('notes', '')),
+                )
         except Exception as exc:
             logger.warning('Paperless content writeback failed for doc %s: %s', document_ref, exc)
 

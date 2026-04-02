@@ -14,7 +14,8 @@ const inputStyle = {
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token') || ''
-  const isFirstLogin = searchParams.get('first') === 'true'
+  const isInvite = window.location.pathname === '/invite'
+  const isFirstLogin = searchParams.get('first') === 'true' || isInvite
 
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
@@ -31,7 +32,8 @@ export function ResetPasswordPage() {
     if (!token) { setError('Link ungültig oder abgelaufen.'); return }
     setLoading(true)
     try {
-      await api.post('/auth/reset-password', { token, new_password: password })
+      const endpoint = isInvite ? '/auth/complete-invite' : '/auth/reset-password'
+      await api.post(endpoint, { token, new_password: password })
       setSuccess(true)
     } catch {
       setError('Link ungültig oder abgelaufen.')
@@ -97,11 +99,26 @@ export function ResetPasswordPage() {
                 onBlur={(e) => (e.target.style.boxShadow = 'none')} />
             </div>
 
-            {/* Password strength hint */}
-            {password.length > 0 && password.length < 8 && (
-              <p style={{ fontSize: 12, color: 'var(--frya-on-surface-variant)', paddingLeft: 4 }}>
-                Noch {8 - password.length} Zeichen
-              </p>
+            {/* Password strength indicator */}
+            {password.length > 0 && (
+              <div style={{ paddingLeft: 4, paddingRight: 4 }}>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                  {[0, 1, 2].map(i => (
+                    <div key={i} style={{
+                      flex: 1, height: 3, borderRadius: 2,
+                      background: password.length < 8 ? (i === 0 ? '#ef4444' : 'var(--frya-surface-container-high)')
+                        : password.length < 12 ? (i <= 1 ? '#f59e0b' : 'var(--frya-surface-container-high)')
+                        : '#22c55e',
+                      transition: 'background 0.2s',
+                    }} />
+                  ))}
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--frya-on-surface-variant)', margin: 0 }}>
+                  {password.length < 8 ? `Noch ${8 - password.length} Zeichen`
+                    : password.length < 12 ? 'Mittel'
+                    : 'Stark'}
+                </p>
+              </div>
             )}
 
             {error && (

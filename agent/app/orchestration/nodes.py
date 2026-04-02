@@ -404,64 +404,69 @@ async def run_document_analyst(state: AgentState) -> AgentState:
         except Exception as exc:
             fetch_warning = str(exc)
 
-    # ── Stage 1: LightOnOCR — PDF visual OCR when no usable text available ────
-    # Runs when ocr_text is absent or below the minimum useful length.
-    # Pipeline: PDF bytes → page images → LightOnOCR-2-1B → plain text
-    # That text is then passed to Stage 2 (Mistral semantic) below.
+    # ── Stage 1: LightOnOCR (AUGE) — ALWAYS run for non-e-invoice documents ──
+    # P-13b: Every document that is NOT XRechnung/ZUGFeRD MUST go through
+    # AUGE (LightOnOCR) + STIRN (Mistral semantic).  Previously this stage
+    # was skipped when Paperless Tesseract had already produced >= 80 chars
+    # of text.  LightOnOCR produces significantly better results than
+    # Tesseract for handwriting, low-quality scans, and complex layouts.
+    # Tesseract text is kept ONLY as a last-resort fallback when LightOnOCR
+    # is unavailable (no API key / no PDF bytes).
     from app.document_analysis.ocr_service import MIN_OCR_CHARS, read_pdf_from_local_path, run_lightocr
     _ocr_text: str | None = state.get('ocr_text')
-    if not _ocr_text or len(_ocr_text.strip()) < MIN_OCR_CHARS:
-        _pdf_bytes: bytes | None = None
+    _pdf_bytes_ocr: bytes | None = None
 
-        # Try 1: local stored file (Telegram-sourced documents)
-        _stored_path = (
-            metadata.get('stored_relative_path')
-            or (state.get('paperless_metadata') or {}).get('stored_relative_path')
-        )
-        if _stored_path:
-            _pdf_bytes = read_pdf_from_local_path(_stored_path)
+    # Try 1: local stored file (Telegram-sourced documents)
+    _stored_path = (
+        metadata.get('stored_relative_path')
+        or (state.get('paperless_metadata') or {}).get('stored_relative_path')
+    )
+    if _stored_path:
+        _pdf_bytes_ocr = read_pdf_from_local_path(_stored_path)
 
-        # Try 2: download from Paperless (numeric doc ID)
-        if _pdf_bytes is None and document_ref and document_ref.isdigit():
+    # Try 2: download from Paperless (numeric doc ID)
+    if _pdf_bytes_ocr is None and document_ref and document_ref.isdigit():
+        try:
+            _pdf_bytes_ocr = await get_paperless_connector().download_document_bytes(document_ref)
+        except Exception as _dl_exc:
+            _logger.debug('Paperless PDF download failed for %s: %s', document_ref, _dl_exc)
+
+    # ALWAYS run LightOnOCR when PDF bytes and API key are available —
+    # regardless of whether Tesseract text already exists.
+    if _pdf_bytes_ocr and _da_config and _da_repo:
+        _ocr_model = (_da_config.get('model') or '').strip()
+        _ocr_api_key = _da_repo.decrypt_key_for_call(_da_config)
+        _ocr_base_url = _da_config.get('base_url')
+        if _ocr_model and _ocr_api_key:
             try:
-                _pdf_bytes = await get_paperless_connector().download_document_bytes(document_ref)
-            except Exception as _dl_exc:
-                _logger.debug('Paperless PDF download failed for %s: %s', document_ref, _dl_exc)
-
-        # Run LightOnOCR if we have PDF bytes and an API key
-        if _pdf_bytes and _da_config and _da_repo:
-            _ocr_model = (_da_config.get('model') or '').strip()
-            _ocr_api_key = _da_repo.decrypt_key_for_call(_da_config)
-            _ocr_base_url = _da_config.get('base_url')
-            if _ocr_model and _ocr_api_key:
-                try:
-                    _ocr_text = await run_lightocr(
-                        _pdf_bytes,
-                        model=f'openai/{_ocr_model}',
-                        api_key=_ocr_api_key,
-                        base_url=_ocr_base_url,
-                        max_pages=3,
-                    )
-                    state['ocr_text'] = _ocr_text
-                    _logger.info(
-                        'LightOnOCR stage 1 completed: %d chars for case %s',
-                        len(_ocr_text), state.get('case_id'),
-                    )
-                except Exception as _ocr_exc:
-                    _logger.warning(
-                        'LightOnOCR stage 1 failed for case %s: %s',
-                        state.get('case_id'), _ocr_exc,
-                    )
-
-        # Fallback: use Paperless Tesseract content when LightOnOCR is unavailable
-        if not state.get('ocr_text'):
-            _paperless_content = (metadata.get('content') or '').strip()
-            if _paperless_content:
-                state['ocr_text'] = _paperless_content
-                _logger.info(
-                    'Using Paperless Tesseract content as OCR fallback: %d chars for case %s',
-                    len(_paperless_content), state.get('case_id'),
+                _ocr_text = await run_lightocr(
+                    _pdf_bytes_ocr,
+                    model=f'openai/{_ocr_model}',
+                    api_key=_ocr_api_key,
+                    base_url=_ocr_base_url,
+                    max_pages=3,
                 )
+                state['ocr_text'] = _ocr_text
+                _logger.info(
+                    'LightOnOCR (AUGE) stage 1 completed: %d chars for case %s',
+                    len(_ocr_text), state.get('case_id'),
+                )
+            except Exception as _ocr_exc:
+                _logger.warning(
+                    'LightOnOCR (AUGE) stage 1 failed for case %s: %s',
+                    state.get('case_id'), _ocr_exc,
+                )
+
+    # Fallback: use Paperless Tesseract content ONLY when LightOnOCR is
+    # unavailable (no PDF bytes, no API key, or LightOnOCR failed).
+    if not state.get('ocr_text'):
+        _paperless_content = (metadata.get('content') or '').strip()
+        if _paperless_content:
+            state['ocr_text'] = _paperless_content
+            _logger.info(
+                'Using Paperless Tesseract content as OCR fallback (AUGE unavailable): %d chars for case %s',
+                len(_paperless_content), state.get('case_id'),
+            )
 
     case_context = await _build_document_context(state.get('case_id', 'uncategorized'))
     if fetch_warning:
@@ -692,10 +697,13 @@ async def _writeback_to_paperless(
     document_ref: str,
     analysis: DocumentAnalysisResult,
     case_id: str,
+    ocr_text: str | None = None,
 ) -> None:
     """Enrich a Paperless document with analysis metadata.
 
-    Sets correspondent, document type, tags, title, and custom fields.
+    Sets correspondent, document type, tags, title, custom fields,
+    and writes the complete OCR text + structured analysis results
+    to the Paperless document.
     Never raises — errors are logged and swallowed by the caller.
     """
     connector = get_paperless_connector()
@@ -768,6 +776,45 @@ async def _writeback_to_paperless(
 
     if custom_fields:
         patch_data['custom_fields'] = custom_fields
+
+    # ── P-13b: Write COMPLETE OCR text + structured analysis to Paperless ──
+    # The full OCR text goes into 'content' so Paperless full-text search
+    # can find it.  The structured analysis summary goes into 'notes' so
+    # the human-readable breakdown is also preserved.
+    if ocr_text and ocr_text.strip():
+        patch_data['content'] = ocr_text.strip()
+
+    # Build structured analysis summary for Paperless notes field
+    _notes_lines: list[str] = ['--- FRYA Analyse ---']
+    if vendor:
+        _notes_lines.append(f'Absender: {vendor}')
+    if analysis.document_type.status in ('FOUND', 'UNCERTAIN'):
+        _notes_lines.append(f'Dokumenttyp: {analysis.document_type.value}')
+    if total is not None:
+        _notes_lines.append(f'Betrag: {total:.2f} {currency}')
+    _net = next((a.amount for a in analysis.amounts if a.label == 'NET' and a.status == 'FOUND'), None)
+    _tax = next((a.amount for a in analysis.amounts if a.label == 'TAX' and a.status == 'FOUND'), None)
+    if _net is not None:
+        _notes_lines.append(f'Netto: {_net:.2f} {currency}')
+    if _tax is not None:
+        _notes_lines.append(f'MwSt: {_tax:.2f} {currency}')
+    if analysis.document_date.status == 'FOUND' and analysis.document_date.value:
+        _notes_lines.append(f'Datum: {analysis.document_date.value}')
+    if analysis.due_date.status == 'FOUND' and analysis.due_date.value:
+        _notes_lines.append(f'Faellig: {analysis.due_date.value}')
+    for ref in analysis.references:
+        if ref.status == 'FOUND' and ref.value:
+            _notes_lines.append(f'{ref.label or "Referenz"}: {ref.value}')
+    if hasattr(analysis, 'line_items') and analysis.line_items:
+        _notes_lines.append('Positionen:')
+        for li in analysis.line_items[:10]:
+            desc = getattr(li, 'description', '') or ''
+            price = getattr(li, 'total_price', getattr(li, 'unit_price', '')) or ''
+            if desc:
+                _notes_lines.append(f'  - {desc} {price}')
+    _notes_lines.append(f'Konfidenz: {analysis.overall_confidence:.2f}')
+    _notes_lines.append(f'Case: {case_id}')
+    patch_data['notes'] = '\n'.join(_notes_lines)
 
     if patch_data:
         await connector.update_document_metadata(doc_id, patch_data)
@@ -947,6 +994,7 @@ async def finalize_document_review(state: AgentState) -> AgentState:
                 analysis_version=result.analysis_version,
                 is_business_relevant=getattr(result, 'is_business_relevant', None),
                 private_info=getattr(result, 'private_info', None),
+                ocr_text=state.get('ocr_text'),
                 repo=get_case_repository(),
                 audit_service=get_audit_service(),
             )
@@ -954,12 +1002,14 @@ async def finalize_document_review(state: AgentState) -> AgentState:
         _logger.debug('CaseEngine: skipped, no tenant_id in state')
 
     # ── Paperless writeback — enrich document with metadata ────────────────
+    # P-13b: Pass the full OCR text so it is stored in Paperless content field
     if document_ref and document_ref.isdigit():
         try:
             await _writeback_to_paperless(
                 document_ref=document_ref,
                 analysis=result,
                 case_id=case_id,
+                ocr_text=state.get('ocr_text'),
             )
         except Exception as _wb_exc:
             _logger.warning('Paperless writeback failed for doc %s: %s', document_ref, _wb_exc)

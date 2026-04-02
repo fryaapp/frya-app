@@ -100,9 +100,10 @@ async def send_chat_message(
                 if _case_match:
                     import asyncpg as _apg_ap
                     from app.dependencies import get_settings as _gs_ap
+                    _ap_tenant = await _resolve_tenant_uuid()
                     _conn_ap = await _apg_ap.connect(_gs_ap().database_url)
                     try:
-                        _cr = await _conn_ap.fetchrow("SELECT id FROM case_cases WHERE case_number = $1", _case_match.group(0))
+                        _cr = await _conn_ap.fetchrow("SELECT id FROM case_cases WHERE case_number = $1 AND tenant_id = $2", _case_match.group(0), str(_ap_tenant))
                         if _cr:
                             _approve_cid = str(_cr['id'])
                     finally:

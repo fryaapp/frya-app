@@ -54,6 +54,8 @@ class TelegramCaseLinkRepository:
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_frya_tg_case_links_track ON frya_telegram_case_links(track_for_status, telegram_thread_ref, updated_at DESC)"
             )
+            await conn.execute("ALTER TABLE frya_telegram_case_links ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_tg_links_tenant ON frya_telegram_case_links(tenant_id)")
         finally:
             await conn.close()
 

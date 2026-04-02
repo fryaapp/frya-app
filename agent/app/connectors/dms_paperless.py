@@ -16,11 +16,28 @@ class PaperlessConnector(DMSConnector):
         self.base_url = base_url.rstrip('/')
         self.token = token
         self._custom_field_cache: dict[str, int] = {}
+        self._tenant_tag_cache: dict[str, int] = {}
 
     def _headers(self) -> dict[str, str]:
         if not self.token:
             return {}
         return {'Authorization': f'Token {self.token}'}
+
+    # ── Tenant-Isolation helpers ────────────────────────────────────
+
+    async def _ensure_tenant_tag(self, tenant_id: str) -> int | None:
+        """Ensure a Paperless tag ``tenant:<tenant_id>`` exists and return its ID.
+
+        Uses an in-memory cache so repeated calls within the same process
+        don't hit the Paperless API again.
+        """
+        tag_name = f"tenant:{tenant_id}"
+        if tag_name in self._tenant_tag_cache:
+            return self._tenant_tag_cache[tag_name]
+        tag_id = await self.find_or_create_tag(tag_name, color='#607D8B')
+        if tag_id is not None:
+            self._tenant_tag_cache[tag_name] = tag_id
+        return tag_id
 
     async def download_document_bytes(self, doc_id: str) -> bytes:
         """Download the raw PDF/file bytes for a Paperless document.
@@ -46,17 +63,37 @@ class PaperlessConnector(DMSConnector):
             response.raise_for_status()
             return response.content
 
-    async def get_document(self, doc_id: str) -> dict:
+    async def get_document(self, doc_id: str, tenant_id: str | None = None) -> dict | None:
+        """Fetch a single document. If *tenant_id* is given, verify that the
+        document carries the expected ``tenant:<tenant_id>`` tag.  Returns
+        ``None`` when the tenant check fails (the caller decides whether to
+        raise 403 or similar)."""
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(f'{self.base_url}/api/documents/{doc_id}/', headers=self._headers())
             response.raise_for_status()
-            return response.json()
+            doc = response.json()
 
-    async def search_documents(self, query: str) -> list[dict]:
+        if tenant_id:
+            tag_id = await self._ensure_tenant_tag(tenant_id)
+            if tag_id is None or tag_id not in doc.get('tags', []):
+                logger.warning(
+                    'Tenant isolation: doc %s does not belong to tenant %s',
+                    doc_id,
+                    tenant_id,
+                )
+                return None
+        return doc
+
+    async def search_documents(self, query: str, tenant_id: str | None = None) -> list[dict]:
+        params: dict[str, str | int] = {'query': query}
+        if tenant_id:
+            tag_id = await self._ensure_tenant_tag(tenant_id)
+            if tag_id is not None:
+                params['tags__id__in'] = tag_id
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(
                 f'{self.base_url}/api/documents/',
-                params={'query': query},
+                params=params,
                 headers=self._headers(),
             )
             response.raise_for_status()
@@ -78,9 +115,17 @@ class PaperlessConnector(DMSConnector):
             response.raise_for_status()
 
     async def upload_document(
-        self, file_bytes: bytes, filename: str, title: str | None = None
+        self,
+        file_bytes: bytes,
+        filename: str,
+        title: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict:
         """Upload a document to Paperless via POST /api/documents/post_document/.
+
+        If *tenant_id* is provided the Paperless tag ``tenant:<tenant_id>``
+        will be resolved (or created) **before** the upload and passed along
+        so Paperless assigns it immediately.
 
         Returns: {'task_id': 'uuid-string'}
         Raises: httpx.HTTPStatusError on HTTP 4xx/5xx, httpx.TimeoutException on timeout.
@@ -89,6 +134,14 @@ class PaperlessConnector(DMSConnector):
         data: dict[str, str] = {}
         if title:
             data['title'] = title
+
+        # Resolve tenant tag *before* upload so we can include it in the
+        # POST request — Paperless accepts ``tags`` as form field.
+        tag_id: int | None = None
+        if tenant_id:
+            tag_id = await self._ensure_tenant_tag(tenant_id)
+            if tag_id is not None:
+                data['tags'] = str(tag_id)
 
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
@@ -238,11 +291,21 @@ class PaperlessConnector(DMSConnector):
         except Exception:
             return False
 
-    async def list_all_documents(self, page_size: int = 100) -> list[dict]:
-        """Fetch all documents from Paperless (paginated)."""
+    async def list_all_documents(
+        self, page_size: int = 100, tenant_id: str | None = None
+    ) -> list[dict]:
+        """Fetch all documents from Paperless (paginated).
+
+        When *tenant_id* is given only documents tagged with
+        ``tenant:<tenant_id>`` are returned.
+        """
         results: list[dict] = []
         url = f'{self.base_url}/api/documents/'
         params: dict[str, int] = {'page_size': page_size}
+        if tenant_id:
+            tag_id = await self._ensure_tenant_tag(tenant_id)
+            if tag_id is not None:
+                params['tags__id__in'] = tag_id
         async with httpx.AsyncClient(timeout=30.0) as client:
             while url:
                 resp = await client.get(url, headers=self._headers(), params=params)

@@ -90,6 +90,8 @@ class ApprovalRepository:
             await conn.execute("ALTER TABLE frya_approvals ADD COLUMN IF NOT EXISTS approval_context JSONB NOT NULL DEFAULT '{}'::jsonb")
             await conn.execute("ALTER TABLE frya_approvals ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
             await conn.execute("ALTER TABLE frya_approvals ADD COLUMN IF NOT EXISTS open_item_id TEXT")
+            await conn.execute("ALTER TABLE frya_approvals ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_approvals_tenant ON frya_approvals(tenant_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_approvals_case_id ON frya_approvals(case_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_approvals_status ON frya_approvals(status)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_frya_approvals_case_status ON frya_approvals(case_id, status)")
@@ -108,8 +110,8 @@ class ApprovalRepository:
                 INSERT INTO frya_approvals (
                     approval_id, case_id, action_type, scope_ref, required_mode, approval_context, status,
                     requested_by, requested_at, decided_by, decided_at, expires_at, open_item_id, reason,
-                    policy_refs, audit_event_id
-                ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16)
+                    policy_refs, audit_event_id, tenant_id
+                ) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17)
                 ON CONFLICT (approval_id)
                 DO UPDATE SET
                     case_id = EXCLUDED.case_id,
@@ -126,7 +128,8 @@ class ApprovalRepository:
                     open_item_id = EXCLUDED.open_item_id,
                     reason = EXCLUDED.reason,
                     policy_refs = EXCLUDED.policy_refs,
-                    audit_event_id = EXCLUDED.audit_event_id
+                    audit_event_id = EXCLUDED.audit_event_id,
+                    tenant_id = EXCLUDED.tenant_id
                 """,
                 record.approval_id,
                 record.case_id,
@@ -144,6 +147,7 @@ class ApprovalRepository:
                 record.reason,
                 json.dumps(record.policy_refs),
                 record.audit_event_id,
+                record.tenant_id,
             )
         finally:
             await conn.close()

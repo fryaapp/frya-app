@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS frya_email_intake (
     body_plain TEXT,
     message_id TEXT UNIQUE,
     user_ref TEXT,
+    tenant_id TEXT,
     intake_status TEXT NOT NULL DEFAULT 'RECEIVED',
     attachment_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -27,6 +28,7 @@ _CREATE_ATTACHMENTS = """
 CREATE TABLE IF NOT EXISTS frya_email_attachments (
     attachment_id TEXT PRIMARY KEY,
     email_intake_id TEXT NOT NULL REFERENCES frya_email_intake(email_intake_id),
+    tenant_id TEXT,
     file_name TEXT,
     mime_type TEXT,
     file_size INTEGER,
@@ -56,6 +58,10 @@ class EmailIntakeRepository:
         try:
             await conn.execute(_CREATE_INTAKE)
             await conn.execute(_CREATE_ATTACHMENTS)
+            await conn.execute("ALTER TABLE frya_email_intake ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+            await conn.execute("ALTER TABLE frya_email_attachments ADD COLUMN IF NOT EXISTS tenant_id TEXT")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_email_intake_tenant ON frya_email_intake(tenant_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_email_attachments_tenant ON frya_email_attachments(tenant_id)")
         finally:
             await conn.close()
 

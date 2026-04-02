@@ -84,8 +84,8 @@ async def _get_user_preferences(username: str, tenant_id: uuid.UUID) -> dict[str
         conn = await asyncpg.connect(db_url)
         try:
             rows = await conn.fetch(
-                "SELECT key, value FROM frya_user_preferences WHERE user_id = $1",
-                username,
+                "SELECT key, value FROM frya_user_preferences WHERE user_id = $1 AND tenant_id = $2",
+                username, str(tenant_id),
             )
             return {r['key']: r['value'] for r in rows}
         finally:

@@ -14,12 +14,14 @@ from app.auth.csrf import require_csrf
 from app.auth.dependencies import require_admin
 from app.auth.models import AuthUser
 from app.auth.reset_service import PasswordResetService, INVITE_TTL
+from app.auth.tenant_repository import TenantRecord, TenantRepository
 from app.auth.user_repository import UserRecord, UserRepository
 from app.config import get_settings
 from app.dependencies import (
     get_audit_service,
     get_mail_service,
     get_password_reset_service,
+    get_tenant_repository,
     get_user_repository,
 )
 from app.email.mail_service import MailService
@@ -30,7 +32,7 @@ router = APIRouter(prefix='/api/auth', tags=['users'])
 class CreateUserRequest(BaseModel):
     username: str
     email: str
-    role: Literal['operator', 'admin'] = 'operator'
+    role: Literal['operator', 'admin', 'customer'] = 'operator'
     tenant_id: str | None = None
 
 
@@ -38,6 +40,7 @@ class CreateUserResponse(BaseModel):
     username: str
     email: str
     role: str
+    tenant_id: str | None = None
     invite_sent: bool
 
 
@@ -46,6 +49,7 @@ async def create_user(
     body: CreateUserRequest,
     current_user: AuthUser = Depends(require_admin),
     user_repo: UserRepository = Depends(get_user_repository),
+    tenant_repo: TenantRepository = Depends(get_tenant_repository),
     reset_service: PasswordResetService = Depends(get_password_reset_service),
     mail_service: MailService = Depends(get_mail_service),
 ):
@@ -54,29 +58,52 @@ async def create_user(
     if existing:
         raise HTTPException(status_code=409, detail='Username bereits vergeben.')
 
+    # ── Multi-Tenant: auto-create tenant for customer (Alpha-Tester) ─────
+    if body.role == 'customer':
+        new_tenant_id = str(uuid.uuid4())
+        await tenant_repo.create_tenant(TenantRecord(
+            tenant_id=new_tenant_id,
+            name=f'Tenant {body.username}',
+            admin_email=body.email,
+        ))
+        user_tenant_id = new_tenant_id
+        logger.info('Auto-created tenant %s for customer %s', new_tenant_id, body.username)
+    else:
+        # Operator/Admin keeps the explicit tenant_id (or None)
+        user_tenant_id = body.tenant_id
+
     record = UserRecord(
         username=body.username,
         email=body.email,
         role=body.role,
-        tenant_id=body.tenant_id,
+        tenant_id=user_tenant_id,
         is_active=True,
         session_version=1,
     )
     await user_repo.create_user(record)
 
+    # ── Seed default data for new customer tenants ───────────────────────
+    if body.role == 'customer':
+        try:
+            from app.auth.tenant_seeder import seed_tenant_defaults
+            settings = get_settings()
+            await seed_tenant_defaults(settings.database_url, new_tenant_id, body.username)
+        except Exception as exc:
+            logger.warning('Tenant seeding failed for %s: %s', new_tenant_id, exc)
+
     token = await reset_service.issue_invite_token(body.username)
     settings = get_settings()
-    invite_link = f'{settings.app_base_url}/auth/reset-password?token={token}&first=true'
+    invite_link = f'{settings.app_base_url}/invite?token={token}&first=true'
     invite_sent = False
 
     try:
         from app.auth.router import _reset_mail_html, _reset_mail_text
         await mail_service.send_mail(
             to=body.email,
-            subject=f'Ihr Zugang zu FRYA',
+            subject='Willkommen bei FRYA — Dein Zugang ist bereit',
             body_html=_reset_mail_html(invite_link, first=True),
             body_text=_reset_mail_text(invite_link, first=True),
-            tenant_id=body.tenant_id,
+            tenant_id=user_tenant_id,
         )
         invite_sent = True
     except Exception as exc:
@@ -95,6 +122,7 @@ async def create_user(
                 'username': body.username,
                 'email': body.email,
                 'role': body.role,
+                'tenant_id': user_tenant_id,
                 'created_by': current_user.username,
                 'invite_sent': invite_sent,
             },
@@ -106,6 +134,7 @@ async def create_user(
         username=record.username,
         email=record.email,
         role=record.role,
+        tenant_id=record.tenant_id,
         invite_sent=invite_sent,
     )
 
