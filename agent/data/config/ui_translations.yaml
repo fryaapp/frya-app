@@ -37,6 +37,7 @@ approval_mode:
 
 document_type:
   INVOICE: "Rechnung"
+  CREDIT_NOTE: "Gutschrift"
   REMINDER: "Mahnung"
   CONTRACT: "Vertrag"
   NOTICE: "Bescheid"
@@ -47,6 +48,9 @@ document_type:
   INSURANCE: "Versicherung"
   DUNNING: "Inkasso"
   CORRESPONDENCE: "Korrespondenz"
+  DELIVERY_NOTE: "Lieferschein"
+  OFFER: "Angebot"
+  ORDER: "Bestellung"
   OTHER: "Sonstiges"
   LETTER: "Brief"
 

@@ -420,6 +420,8 @@ export const useFryaStore = create<FryaStore>((set, get) => {
     startChat: (initialMessage?: string) => {
       set({ showGreeting: false, showSettings: false })
       if (initialMessage) {
+        // Show user message in chat immediately
+        get().addUserMessage(initialMessage)
         // Slight delay so the ChatView mounts and WS is ready
         setTimeout(() => { get().send({ type: 'message', text: initialMessage }) }, 100)
       }
