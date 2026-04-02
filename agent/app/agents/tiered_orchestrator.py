@@ -21,7 +21,7 @@ class TieredOrchestrator:
         r"(?i)(inbox|belege|was liegt an|was steht an|abarbeiten)": "SHOW_INBOX",
         r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell)": "SHOW_FINANCE",
         r"(?i)(frist|deadline|dringend|überfällig|was ist fällig)": "SHOW_DEADLINES",
-        r"(?i)(zeig.*kontakt|alles über|kundenakte)": "SHOW_CONTACT",
+        r"(?i)(zeig.*kontakt|meine\s*kontakte|alle\s*kontakte|alles über|kundenakte|kontaktliste)": "SHOW_CONTACTS",
         r"(?i)(buchungsjournal|buchungen zeig|journal)": "SHOW_BOOKINGS",
         r"(?i)(einstellung|dark.?mode|hell|dunkel|theme|anrede)": "SETTINGS",
         r"(?i)(export|datev|steuerberater)": "SHOW_EXPORT",
@@ -38,7 +38,7 @@ class TieredOrchestrator:
 
     VALID_INTENTS = {
         "SHOW_INBOX", "SHOW_FINANCE", "SHOW_DEADLINES", "SHOW_BOOKINGS",
-        "SHOW_OPEN_ITEMS", "SHOW_CONTACT", "SHOW_EXPORT", "CREATE_INVOICE",
+        "SHOW_OPEN_ITEMS", "SHOW_CONTACT", "SHOW_CONTACTS", "SHOW_EXPORT", "CREATE_INVOICE",
         "CREATE_CONTACT", "CREATE_REMINDER", "APPROVE", "SETTINGS", "UPLOAD",
         "STATUS_OVERVIEW", "SMALL_TALK", "UNKNOWN",
         "SEND_INVOICE", "VOID_INVOICE", "EDIT_INVOICE", "SHOW_INVOICE",
@@ -123,7 +123,7 @@ class TieredOrchestrator:
         classify_prompt = (
             "Klassifiziere die User-Nachricht in EINEN Intent.\n"
             "Mögliche: SHOW_INBOX, SHOW_FINANCE, SHOW_DEADLINES, SHOW_BOOKINGS, "
-            "SHOW_OPEN_ITEMS, SHOW_CONTACT, SHOW_EXPORT, CREATE_INVOICE, "
+            "SHOW_OPEN_ITEMS, SHOW_CONTACT, SHOW_CONTACTS, SHOW_EXPORT, CREATE_INVOICE, "
             "CREATE_CONTACT, CREATE_REMINDER, APPROVE, SETTINGS, UPLOAD, "
             "STATUS_OVERVIEW, SMALL_TALK, UNKNOWN\n"
             f'Nachricht: "{message}"\n'

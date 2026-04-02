@@ -608,18 +608,23 @@ class AccountingRepository:
         import asyncpg
         conn = await asyncpg.connect(self._url)
         try:
-            q = "SELECT * FROM frya_accounting_open_items WHERE tenant_id=$1"
+            q = (
+                "SELECT oi.*, COALESCE(c.display_name, c.name) AS contact_name "
+                "FROM frya_accounting_open_items oi "
+                "LEFT JOIN frya_contacts c ON oi.contact_id::uuid = c.id "
+                "WHERE oi.tenant_id=$1"
+            )
             params: list = [tenant_id]
             idx = 2
             if item_type:
-                q += f" AND item_type=${idx}"
+                q += f" AND oi.item_type=${idx}"
                 params.append(item_type)
                 idx += 1
             if status:
-                q += f" AND status=${idx}"
+                q += f" AND oi.status=${idx}"
                 params.append(status)
                 idx += 1
-            q += " ORDER BY due_date ASC NULLS LAST"
+            q += " ORDER BY oi.due_date ASC NULLS LAST"
             rows = await conn.fetch(q, *params)
             return [self._row_to_open_item(dict(r)) for r in rows]
         finally:
@@ -849,6 +854,7 @@ class AccountingRepository:
         return AccountingOpenItem(
             id=str(row['id']), tenant_id=str(row['tenant_id']),
             contact_id=str(row['contact_id']),
+            contact_name=row.get('contact_name'),
             booking_id=str(row['booking_id']) if row.get('booking_id') else None,
             case_id=str(row['case_id']) if row.get('case_id') else None,
             item_type=row['item_type'],

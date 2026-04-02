@@ -64,6 +64,16 @@ _SUGGESTIONS_RE = _re_filter.compile(
     _re_filter.MULTILINE | _re_filter.DOTALL,
 )
 
+# P-08 A4: Additional patterns for leaked JSON in text
+_JSON_LEAK_PATTERNS = [
+    # Catches SUGGESTIONS_JSON: [{...}] anywhere in text (not just end)
+    _re_filter.compile(r'SUGGESTIONS_JSON:\s*\[.*?\]', _re_filter.DOTALL),
+    # Catches bare {"suggestions": [...]} or {"label": ...} arrays
+    _re_filter.compile(r'\{["\']?(?:suggestions|label)["\']?\s*:\s*[\[\{].*?\}[\]\}]*', _re_filter.DOTALL),
+    # Catches bare JSON arrays that look like suggestions [{"label": ...}]
+    _re_filter.compile(r'\[\s*\{\s*["\']label["\']\s*:.*?\}\s*\]', _re_filter.DOTALL),
+]
+
 # ---------------------------------------------------------------------------
 # Aufgabe: Parse INVOICE_DATA from communicator response
 # ---------------------------------------------------------------------------
@@ -133,11 +143,14 @@ def _parse_llm_suggestions(raw_text: str) -> tuple[str, list[dict]]:
     """
     match = _SUGGESTIONS_RE.search(raw_text)
     if not match:
-        return raw_text, []
+        # P-08 A4: Fallback — clean any leaked JSON from text
+        cleaned = _clean_json_leaks(raw_text)
+        return cleaned, []
     try:
         suggestions = _json_mod.loads(match.group(1))
         if not isinstance(suggestions, list):
-            return raw_text, []
+            cleaned = _clean_json_leaks(raw_text[:match.start()].rstrip())
+            return cleaned, []
         # Validate each suggestion has required fields
         valid = []
         for s in suggestions:
@@ -148,9 +161,22 @@ def _parse_llm_suggestions(raw_text: str) -> tuple[str, list[dict]]:
                     'style': str(s.get('style', 'secondary')),
                 })
         cleaned = raw_text[:match.start()].rstrip()
+        # P-08 A4: Also clean any remaining JSON fragments
+        cleaned = _clean_json_leaks(cleaned)
         return cleaned, valid
     except (_json_mod.JSONDecodeError, TypeError):
-        return raw_text, []
+        cleaned = _clean_json_leaks(raw_text)
+        return cleaned, []
+
+
+def _clean_json_leaks(text: str) -> str:
+    """P-08 A4: Remove any JSON fragments that leaked into chat text."""
+    for pattern in _JSON_LEAK_PATTERNS:
+        text = pattern.sub('', text)
+    # Clean up resulting whitespace
+    import re
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
 _CONTEXT_INTENTS = frozenset({
     'STATUS_OVERVIEW',

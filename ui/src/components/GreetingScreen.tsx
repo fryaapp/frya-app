@@ -3,6 +3,7 @@ import { FryaAvatar } from './chat/FryaAvatar'
 import { ChatInputBar } from './chat/ChatInputBar'
 import { useFryaStore } from '../stores/fryaStore'
 import { api } from '../lib/api'
+import { LegalModal, LegalFooter } from './LegalModal'
 
 interface GreetingResponse {
   greeting: string
@@ -60,6 +61,7 @@ export function GreetingScreen() {
   }
 
   const statusText = buildPrompt(data)
+  const [legalTab, setLegalTab] = useState<'datenschutz' | 'impressum' | 'agb' | null>(null)
 
   return (
     <div
@@ -258,6 +260,17 @@ export function GreetingScreen() {
 
       {/* Input bar at bottom */}
       <ChatInputBar onSend={handleSend} placeholder="Nachricht an Frya…" />
+
+      {/* Legal footer */}
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, background: 'var(--frya-surface)', paddingBottom: 2 }}>
+        <LegalFooter onOpen={(tab) => setLegalTab(tab)} />
+      </div>
+
+      <LegalModal
+        open={legalTab !== null}
+        initialTab={legalTab || 'datenschutz'}
+        onClose={() => setLegalTab(null)}
+      />
 
       <style>{`
         @keyframes frya-pulse {
