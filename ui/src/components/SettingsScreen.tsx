@@ -1,6 +1,11 @@
+import { useState } from 'react'
 import { useFryaStore } from '../stores/fryaStore'
+import { LegalModal } from './LegalModal'
+
+type LegalTab = 'datenschutz' | 'impressum' | 'agb'
 
 export function SettingsScreen() {
+  const [legalTab, setLegalTab] = useState<LegalTab | null>(null)
   const goHome = useFryaStore((s) => s.goHome)
   const logout = useFryaStore((s) => s.logout)
   const messageCount = useFryaStore((s) => s.messages.length)
@@ -123,8 +128,9 @@ export function SettingsScreen() {
           }}
         >
           <SettingsItem icon="info" label="Version" hint="Alpha 0.9" />
-          <SettingsItem icon="shield" label="Datenschutz" hint="" />
-          <SettingsItem icon="description" label="Impressum" hint="" />
+          <SettingsItem icon="shield" label="Datenschutz" hint="" onClick={() => setLegalTab('datenschutz')} />
+          <SettingsItem icon="description" label="Impressum" hint="" onClick={() => setLegalTab('impressum')} />
+          <SettingsItem icon="gavel" label="AGB" hint="" onClick={() => setLegalTab('agb')} />
         </div>
 
         {/* Logout */}
@@ -151,24 +157,39 @@ export function SettingsScreen() {
           Abmelden
         </button>
       </div>
+
+      <LegalModal
+        open={legalTab !== null}
+        initialTab={legalTab || 'datenschutz'}
+        onClose={() => setLegalTab(null)}
+      />
     </div>
   )
 }
 
-function SettingsItem({ icon, label, hint }: { icon: string; label: string; hint: string }) {
+function SettingsItem({ icon, label, hint, onClick }: { icon: string; label: string; hint: string; onClick?: () => void }) {
+  const Tag = onClick ? 'button' : 'div'
   return (
-    <div
+    <Tag
+      onClick={onClick}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 10,
         padding: '10px 0',
         borderBottom: '1px solid var(--frya-outline-variant)',
+        width: '100%',
+        background: 'transparent',
+        border: 'none',
+        borderBlockEnd: '1px solid var(--frya-outline-variant)',
+        cursor: onClick ? 'pointer' : 'default',
+        textAlign: 'left',
       }}
     >
       <span className="material-symbols-rounded" style={{ fontSize: 18, color: 'var(--frya-on-surface-variant)' }}>{icon}</span>
       <span style={{ flex: 1, fontSize: 13, color: 'var(--frya-on-surface)', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{label}</span>
       {hint && <span style={{ fontSize: 12, color: 'var(--frya-on-surface-variant)' }}>{hint}</span>}
-    </div>
+      {onClick && <span className="material-symbols-rounded" style={{ fontSize: 14, color: 'var(--frya-on-surface-variant)' }}>chevron_right</span>}
+    </Tag>
   )
 }

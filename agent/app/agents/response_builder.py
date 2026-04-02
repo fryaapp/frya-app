@@ -246,6 +246,32 @@ class ResponseBuilder:
             })
         return [{"block_type": "card_list", "data": {"items": cards}}]
 
+    def _blocks_show_contacts(self, results: dict) -> list[dict]:
+        """P-08 A2: Kontaktliste als card_list."""
+        contacts = results if isinstance(results, list) else results.get("contacts", results.get("items", []))
+        if not isinstance(contacts, list):
+            contacts = []
+        if not contacts:
+            return [{"block_type": "alert", "data": {"severity": "info", "text": "Keine Kontakte vorhanden."}}]
+        cards = []
+        for c in contacts[:20]:
+            if not isinstance(c, dict):
+                continue
+            name = c.get("name") or c.get("display_name") or "?"
+            ctype = c.get("contact_type", "")
+            type_label = {"CUSTOMER": "Kunde", "VENDOR": "Lieferant", "BOTH": "Kunde/Lieferant"}.get(ctype, ctype)
+            subtitle_parts = []
+            if type_label:
+                subtitle_parts.append(type_label)
+            email = c.get("email")
+            if email:
+                subtitle_parts.append(email)
+            cards.append({
+                "title": name,
+                "subtitle": " · ".join(subtitle_parts) if subtitle_parts else "\u2014",
+            })
+        return [{"block_type": "card_list", "data": {"title": f"{len(contacts)} Kontakte", "items": cards}}]
+
     def _blocks_show_contact(self, results: dict) -> list[dict]:
         if results.get("dossier"):
             d = results["dossier"]

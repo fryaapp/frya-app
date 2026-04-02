@@ -117,6 +117,7 @@ class AccountingOpenItem(BaseModel):
     id: str
     tenant_id: str
     contact_id: str
+    contact_name: str | None = None  # P-08 A3: resolved via JOIN
     booking_id: str | None = None
     case_id: str | None = None
     item_type: OpenItemType

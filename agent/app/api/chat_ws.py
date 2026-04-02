@@ -146,6 +146,7 @@ _TIER_INTENT_TO_CONTEXT: dict[str, str] = {
     'SHOW_BOOKINGS': 'bookings',
     'SHOW_OPEN_ITEMS': 'open_items',
     'SHOW_CONTACT': 'contact_card',
+    'SHOW_CONTACTS': 'contact_card',
     'SHOW_EXPORT': 'finance',
     'CREATE_INVOICE': 'invoice_draft',
     'SHOW_INVOICE': 'invoice_draft',
@@ -962,6 +963,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
 
                     # --- Phase 1b: Short-circuit intents that must NOT hit communicator ---
                     _shortcircuit_reply: str | None = None
+                    _shortcircuit_data: dict = {}
                     _theme_changed: str | None = None
 
                     if tier_intent == 'UPLOAD':
@@ -996,6 +998,29 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             'Schick mir einfach dein Logo als Bild (PNG, JPG oder SVG). '
                             'Nutze das Bueroklammer-Symbol unten links.'
                         )
+
+                    elif tier_intent == 'SHOW_CONTACTS':
+                        # P-08 A2: Load all contacts for card_list
+                        try:
+                            from app.dependencies import get_accounting_repository
+                            _contacts_repo = get_accounting_repository()
+                            _all_contacts = await _contacts_repo.list_contacts(uuid.UUID(tenant_id))
+                            _contact_dicts = [
+                                {
+                                    'name': c.display_name or c.name,
+                                    'contact_type': c.contact_type,
+                                    'email': c.email or '',
+                                    'category': c.category,
+                                }
+                                for c in _all_contacts if c.is_active
+                            ]
+                            _shortcircuit_reply = f'{len(_contact_dicts)} Kontakte gefunden.'
+                            # Store for ResponseBuilder
+                            _shortcircuit_data = {'contacts': _contact_dicts}
+                        except Exception as _ce:
+                            logger.warning('SHOW_CONTACTS failed: %s', _ce)
+                            _shortcircuit_reply = 'Kontakte konnten nicht geladen werden.'
+                            _shortcircuit_data = {}
 
                     elif tier_intent == 'SETTINGS':
                         # BUG-006: Handle theme change requests directly
@@ -1081,14 +1106,27 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 'context_type': context_type,
                             })
 
+                        # Build content_blocks via ResponseBuilder if data available
+                        _sc_blocks: list = []
+                        _sc_actions: list = []
+                        if _shortcircuit_data and tier_intent:
+                            try:
+                                from app.agents.response_builder import ResponseBuilder
+                                _sc_rb = ResponseBuilder()
+                                _sc_result = _sc_rb.build(tier_intent, _shortcircuit_data, _shortcircuit_reply or '')
+                                _sc_blocks = _sc_result.get('content_blocks', [])
+                                _sc_actions = _sc_result.get('actions', [])
+                            except Exception:
+                                pass
+
                         response_payload: dict[str, Any] = {
                             'type': 'message_complete',
                             'text': _shortcircuit_reply,
                             'case_ref': None,
                             'context_type': context_type,
-                            'suggestions': _DEFAULT_SUGGESTIONS,
-                            'content_blocks': [],
-                            'actions': [],
+                            'suggestions': [a['chat_text'] for a in _sc_actions[:3]] if _sc_actions else _DEFAULT_SUGGESTIONS,
+                            'content_blocks': _sc_blocks,
+                            'actions': _sc_actions if _sc_actions else [],
                             'routing': tier_routing,
                         }
                         if _theme_changed:

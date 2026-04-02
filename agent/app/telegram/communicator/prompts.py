@@ -237,8 +237,9 @@ REGELN:
 9. Nach Finanzen: "E\u00dcR als PDF", "DATEV Export", "Details nach Kategorie"
 10. Nach einem Kontakt: "Offene Posten", "Letzte Rechnungen", "Mahnen" (nur wenn offene Posten)
 
-Formatiere die Suggestions als JSON-Array am ENDE deiner Antwort in einer eigenen Zeile:
-SUGGESTIONS_JSON: [{"label": "Freigeben", "chat_text": "Freigeben", "style": "primary"}, {"label": "Konto \u00e4ndern", "chat_text": "Konto \u00e4ndern", "style": "secondary"}]
+WICHTIG: Suggestions gehoeren AUSSCHLIESSLICH in die letzte Zeile im Format:
+SUGGESTIONS_JSON: [{"label": "...", "chat_text": "...", "style": "primary"}]
+Schreibe NIEMALS JSON, Arrays oder Suggestions-Daten in den normalen Antwort-Text. Der User darf kein JSON sehen.
 
 style-Werte: "primary" (Hauptaktion), "secondary" (Alternative), "text" (Untergeordnet)\
 """
