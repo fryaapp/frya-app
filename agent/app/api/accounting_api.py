@@ -18,7 +18,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1', tags=['accounting'])
 
 
-async def _resolve_tenant() -> uuid.UUID:
+async def _resolve_tenant(user: AuthUser | None = None) -> uuid.UUID:
+    """Resolve tenant from JWT user first, then fallback to DB resolver."""
+    # P-13: Multi-Tenant — IMMER den Tenant aus dem JWT nehmen
+    if user and user.tenant_id:
+        return uuid.UUID(str(user.tenant_id))
     from app.case_engine.tenant_resolver import resolve_tenant_id
     tid = await resolve_tenant_id()
     if not tid:
@@ -74,7 +78,7 @@ class ContactCreateRequest(BaseModel):
 
 @router.post('/bookings')
 async def create_booking(body: BookingCreateRequest, user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     svc = _get_booking_svc()
     booking = await svc.create_manual_booking(
         tenant_id=tid, booking_date=date.fromisoformat(body.booking_date),
@@ -95,7 +99,7 @@ async def list_bookings(
     date_from: str = '', date_to: str = '', status: str = '',
     limit: int = 100, offset: int = 0,
 ) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     repo = _get_repo()
     bookings = await repo.list_bookings(
         tid,
@@ -111,7 +115,7 @@ async def list_bookings(
 
 @router.get('/bookings/{booking_id}')
 async def get_booking(booking_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     repo = _get_repo()
     bookings = await repo.list_bookings(tid, limit=10000)
     booking = next((b for b in bookings if b.id == booking_id), None)
@@ -124,14 +128,14 @@ async def get_booking(booking_id: str, user: AuthUser = Depends(require_authenti
 
 @router.get('/contacts')
 async def list_contacts(user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     contacts = await _get_repo().list_contacts(tid)
     return {'count': len(contacts), 'items': [c.model_dump(mode='json') for c in contacts]}
 
 
 @router.post('/contacts')
 async def create_contact(body: ContactCreateRequest, user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     contact = await _get_repo().find_or_create_contact(
         tid, body.name, contact_type=body.contact_type,
     )
@@ -140,7 +144,7 @@ async def create_contact(body: ContactCreateRequest, user: AuthUser = Depends(re
 
 @router.get('/contacts/{contact_id}')
 async def get_contact(contact_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     contacts = await _get_repo().list_contacts(tid)
     contact = next((c for c in contacts if c.id == contact_id), None)
     if not contact:
@@ -151,7 +155,7 @@ async def get_contact(contact_id: str, user: AuthUser = Depends(require_authenti
 @router.get('/contacts/{contact_id}/dossier')
 async def get_contact_dossier(contact_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
     """Komplette Kundenakte — Kontakt + Stats + letzte Buchungen + offene Posten."""
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     repo = _get_repo()
 
     contact = await repo.get_contact_by_id(tid, uuid.UUID(contact_id))
@@ -219,7 +223,7 @@ async def list_open_items(
     user: AuthUser = Depends(require_authenticated),
     item_type: str = '', status: str = '',
 ) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     items = await _get_repo().list_open_items(
         tid, item_type=item_type or None, status=status or None,
     )
@@ -238,7 +242,7 @@ async def record_payment(item_id: str, body: PaymentRequest, user: AuthUser = De
 
 @router.post('/invoices')
 async def create_invoice(body: InvoiceCreateRequest, user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     from app.accounting.invoice_service import InvoiceService
     svc = InvoiceService(_get_repo())
     contact = await _get_repo().find_or_create_contact(tid, body.contact_name, contact_type='CUSTOMER')
@@ -252,7 +256,7 @@ async def create_invoice(body: InvoiceCreateRequest, user: AuthUser = Depends(re
 
 @router.get('/invoices')
 async def list_invoices(user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     from app.accounting.invoice_service import InvoiceService
     invoices = await InvoiceService(_get_repo()).list_invoices(tid)
     return {'count': len(invoices), 'items': [i.model_dump(mode='json') for i in invoices]}
@@ -260,7 +264,7 @@ async def list_invoices(user: AuthUser = Depends(require_authenticated)) -> dict
 
 @router.get('/invoices/{invoice_id}')
 async def get_invoice(invoice_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     invoices = await _get_repo().list_invoices(tid)
     inv = next((i for i in invoices if i.id == invoice_id), None)
     if not inv:
@@ -304,7 +308,7 @@ async def get_invoice_items(invoice_id: str, user: AuthUser = Depends(require_au
 @router.post('/invoices/{invoice_id}/finalize')
 async def finalize_invoice(invoice_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
     """Finalize a DRAFT invoice: set status=SENT, create booking + open item."""
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     repo = _get_repo()
 
     invoices = await repo.list_invoices(tid)
@@ -381,7 +385,7 @@ async def send_invoice_email(
 ) -> dict:
     """Generate PDF and send invoice via email (Brevo)."""
     import base64
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     repo = _get_repo()
 
     try:
@@ -524,7 +528,7 @@ async def send_invoice_email(
 
 @router.get('/reports/euer')
 async def get_euer(user: AuthUser = Depends(require_authenticated), year: int = 0) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     if year == 0:
         year = date.today().year
     from app.accounting.euer_service import EuerService
@@ -533,7 +537,7 @@ async def get_euer(user: AuthUser = Depends(require_authenticated), year: int = 
 
 @router.get('/reports/ust')
 async def get_ust(user: AuthUser = Depends(require_authenticated), year: int = 0, quarter: int = 0) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     if year == 0:
         year = date.today().year
     if quarter == 0:
@@ -544,7 +548,7 @@ async def get_ust(user: AuthUser = Depends(require_authenticated), year: int = 0
 
 @router.get('/reports/account-balances')
 async def get_account_balances(user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     repo = _get_repo()
     accounts = await repo.list_accounts(tid)
     balances = []
@@ -564,5 +568,5 @@ async def get_account_balances(user: AuthUser = Depends(require_authenticated)) 
 
 @router.get('/admin/verify-hash-chain')
 async def verify_hash_chain(user: AuthUser = Depends(require_authenticated)) -> dict:
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(user)
     return await _get_booking_svc().verify_hash_chain(tid)

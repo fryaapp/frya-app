@@ -16,7 +16,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1/finance', tags=['finance'])
 
 
-async def _resolve_tenant() -> uuid.UUID:
+async def _resolve_tenant(user=None) -> uuid.UUID:
+    if user and getattr(user, 'tenant_id', None):
+        return uuid.UUID(str(user.tenant_id))
     from app.case_engine.tenant_resolver import resolve_tenant_id
     tid = await resolve_tenant_id()
     if not tid:
@@ -54,7 +56,7 @@ async def get_finance_summary(
     period: Period = Query(Period.month, description='Zeitraum: month, quarter oder year'),
 ) -> dict:
     """Financial summary: income, expenses, open receivables/payables, overdue."""
-    tenant_id = await _resolve_tenant()
+    tenant_id = await _resolve_tenant(user)
     date_from, date_to = _period_range(period)
 
     repo = _get_repo()

@@ -14,8 +14,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1', tags=['activity'])
 
 
-async def _resolve_tenant_uuid() -> uuid.UUID:
-    """Resolve the single-tenant UUID. Raises 503 if unavailable."""
+async def _resolve_tenant_uuid(user=None) -> uuid.UUID:
+    """Resolve tenant from JWT user first, then fallback to DB resolver."""
+    if user and getattr(user, 'tenant_id', None):
+        return uuid.UUID(str(user.tenant_id))
     from app.case_engine.tenant_resolver import resolve_tenant_id
     tid = await resolve_tenant_id()
     if not tid:
@@ -73,7 +75,7 @@ async def get_activity_summary(
     else:
         since_dt = datetime.now(timezone.utc) - timedelta(hours=24)
 
-    tenant_id = await _resolve_tenant_uuid()
+    tenant_id = await _resolve_tenant_uuid(user)
 
     new_documents = 0
     auto_booked = 0

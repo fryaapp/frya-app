@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1/invoice-templates', tags=['templates'])
 
 
-async def _resolve_tenant_id() -> str:
+async def _resolve_tenant_id(user=None) -> str:
+    if user and getattr(user, 'tenant_id', None):
+        return str(user.tenant_id)
     from app.case_engine.tenant_resolver import resolve_tenant_id
     tid = await resolve_tenant_id()
     return tid or 'default'
@@ -37,7 +39,7 @@ async def get_template_preview(
     if template_name not in TEMPLATES:
         raise HTTPException(404, f"Template '{template_name}' nicht gefunden")
 
-    tenant_id = await _resolve_tenant_id()
+    tenant_id = await _resolve_tenant_id(user)
     company_data = await get_company_data_for_template(user.username, tenant_id)
     logo_b64 = await get_company_logo_b64(user.username, tenant_id)
 
@@ -109,7 +111,7 @@ async def select_template(
     if body.template not in TEMPLATES:
         raise HTTPException(400, f"Unbekanntes Template: '{body.template}'")
 
-    tenant_id = await _resolve_tenant_id()
+    tenant_id = await _resolve_tenant_id(user)
 
     try:
         import asyncpg
@@ -201,7 +203,7 @@ async def upload_logo(
 
     # Store as base64 in preferences
     logo_b64 = base64.b64encode(processed).decode('utf-8')
-    tenant_id = await _resolve_tenant_id()
+    tenant_id = await _resolve_tenant_id(user)
 
     try:
         import asyncpg
@@ -268,7 +270,7 @@ async def delete_logo(
     user: AuthUser = Depends(require_authenticated),
 ) -> dict:
     """Delete the company logo."""
-    tenant_id = await _resolve_tenant_id()
+    tenant_id = await _resolve_tenant_id(user)
     try:
         import asyncpg
         from app.dependencies import get_settings
