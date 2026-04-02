@@ -228,6 +228,7 @@ class BookingService:
         return {
             'total_income': float(income),
             'total_expense': float(expenses),
+            'total_expenses': float(expenses),  # P-12b: both singular and plural for compat
             'profit': float(income - expenses),
             'booking_count': len(bookings),
         }
