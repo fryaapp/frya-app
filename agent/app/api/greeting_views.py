@@ -47,7 +47,9 @@ _GREETINGS_EVENING: list[str] = [
 # ---------------------------------------------------------------------------
 
 
-async def _resolve_tenant() -> uuid.UUID:
+async def _resolve_tenant(user=None) -> uuid.UUID:
+    if user and getattr(user, 'tenant_id', None):
+        return uuid.UUID(str(user.tenant_id))
     from app.case_engine.tenant_resolver import resolve_tenant_id
     tid = await resolve_tenant_id()
     if not tid:
@@ -104,7 +106,7 @@ async def _get_display_name(username: str, tenant_id: uuid.UUID) -> str:
 @router.get('/greeting')
 async def get_greeting(user: AuthUser = Depends(require_authenticated)) -> dict:
     """Personalised greeting with quick status summary for the start page."""
-    tenant_id = await _resolve_tenant()
+    tenant_id = await _resolve_tenant(user)
     today = date.today()
     deadline_horizon = today + timedelta(days=7)
 

@@ -19,7 +19,9 @@ router = APIRouter(prefix='/api/v1', tags=['pdf'])
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-async def _resolve_tenant() -> uuid.UUID:
+async def _resolve_tenant(user=None) -> uuid.UUID:
+    if user and getattr(user, 'tenant_id', None):
+        return uuid.UUID(str(user.tenant_id))
     from app.case_engine.tenant_resolver import resolve_tenant_id
     tid = await resolve_tenant_id()
     if not tid:
@@ -90,7 +92,7 @@ async def get_invoice_pdf(
     user: AuthUser = Depends(require_authenticated),
 ) -> Response:
     """Generate and return an invoice as PDF (binary)."""
-    tenant_id = await _resolve_tenant()
+    tenant_id = await _resolve_tenant(user)
     repo = _get_repo()
     pdf_service = _get_pdf_service()
 
@@ -271,7 +273,7 @@ async def send_invoice_email(
 ) -> dict:
     """Aufgabe 7: Generate invoice PDF and send via email."""
     import base64
-    tenant_id = await _resolve_tenant()
+    tenant_id = await _resolve_tenant(user)
     repo = _get_repo()
     pdf_service = _get_pdf_service()
 
@@ -390,7 +392,7 @@ async def generate_dunning_pdf(
     user: AuthUser = Depends(require_authenticated),
 ) -> Response:
     """Generate a dunning letter PDF for a contact's overdue items."""
-    tenant_id = await _resolve_tenant()
+    tenant_id = await _resolve_tenant(user)
     repo = _get_repo()
     pdf_service = _get_pdf_service()
 

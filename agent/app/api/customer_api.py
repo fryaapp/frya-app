@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1', tags=['customer'])
 
 
-async def _resolve_tenant_uuid() -> uuid.UUID:
-    """Resolve the single-tenant UUID. Raises 503 if unavailable."""
+async def _resolve_tenant_uuid(user=None) -> uuid.UUID:
+    """Resolve tenant UUID from authenticated user or DB fallback."""
+    if user and getattr(user, 'tenant_id', None):
+        return uuid.UUID(str(user.tenant_id))
     from app.case_engine.tenant_resolver import resolve_tenant_id
     tid = await resolve_tenant_id()
     if not tid:
@@ -100,7 +102,7 @@ async def send_chat_message(
                 if _case_match:
                     import asyncpg as _apg_ap
                     from app.dependencies import get_settings as _gs_ap
-                    _ap_tenant = await _resolve_tenant_uuid()
+                    _ap_tenant = await _resolve_tenant_uuid(user)
                     _conn_ap = await _apg_ap.connect(_gs_ap().database_url)
                     try:
                         _cr = await _conn_ap.fetchrow("SELECT id FROM case_cases WHERE case_number = $1 AND tenant_id = $2", _case_match.group(0), str(_ap_tenant))
@@ -317,7 +319,7 @@ async def get_inbox(
     offset: int = 0,
 ) -> InboxResponse:
     from app.dependencies import get_case_repository
-    tenant_id = await _resolve_tenant_uuid()
+    tenant_id = await _resolve_tenant_uuid(user)
     repo = get_case_repository()
 
     all_cases = await repo.list_active_cases_for_tenant(tenant_id)
@@ -586,7 +588,7 @@ async def list_cases(
 ) -> CasesResponse:
     """List all cases for the tenant."""
     from app.dependencies import get_case_repository
-    tenant_id = await _resolve_tenant_uuid()
+    tenant_id = await _resolve_tenant_uuid(user)
     repo = get_case_repository()
 
     if status:
@@ -612,7 +614,7 @@ async def get_case_detail_endpoint(
 ) -> CaseDetail:
     """Get full case details including line items and timeline."""
     from app.dependencies import get_audit_service, get_case_repository
-    tenant_id = await _resolve_tenant_uuid()
+    tenant_id = await _resolve_tenant_uuid(user)
     repo = get_case_repository()
 
     case = await repo.get_case(uuid.UUID(case_id))
@@ -656,7 +658,7 @@ async def get_deadlines(
     """Return deadline overview."""
     from app.deadline_analyst.service import build_deadline_analyst_service
     from app.dependencies import get_case_repository, get_llm_config_repository
-    tenant_id = await _resolve_tenant_uuid()
+    tenant_id = await _resolve_tenant_uuid(user)
     _llm_repo = get_llm_config_repository()
     _llm_config = None
     if _llm_repo:
@@ -725,7 +727,7 @@ async def get_finance_summary(
     total_income = 0.0
     total_expenses = 0.0
     try:
-        tid = await _resolve_tenant_uuid()
+        tid = await _resolve_tenant_uuid(user)
         svc = BookingService(get_accounting_repository())
         from calendar import monthrange
         date_from = date(now.year, months[0], 1)
@@ -744,7 +746,7 @@ async def get_finance_summary(
     overdue_amount = 0.0
     try:
         from app.dependencies import get_case_repository
-        tid = await _resolve_tenant_uuid()
+        tid = await _resolve_tenant_uuid(user)
         overdue = await get_case_repository().list_cases_by_status(tid, 'OVERDUE')
         overdue_count = len(overdue)
         overdue_amount = sum(float(c.total_amount or 0) for c in overdue)
@@ -1049,7 +1051,7 @@ async def gdpr_export_proxy(user: AuthUser = Depends(require_authenticated)):
         get_tenant_repository, get_user_repository,
     )
 
-    tenant_id = await _resolve_tenant_uuid()
+    tenant_id = await _resolve_tenant_uuid(user)
     return await export_tenant_data(
         tenant_id=str(tenant_id),
         current_user=user,
@@ -1068,7 +1070,7 @@ async def gdpr_delete_proxy(user: AuthUser = Depends(require_authenticated)):
         get_audit_service, get_tenant_repository, get_user_repository,
     )
 
-    tenant_id = await _resolve_tenant_uuid()
+    tenant_id = await _resolve_tenant_uuid(user)
     return await request_tenant_deletion(
         tenant_id=str(tenant_id),
         current_user=user,
@@ -1241,7 +1243,7 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
         # Resolve tenant + system context
         _tenant_id = None
         try:
-            _tenant_id = await _resolve_tenant_uuid()
+            _tenant_id = await _resolve_tenant_uuid(user)
         except Exception as exc:
             logger.warning('Failed to resolve tenant UUID for WS: %s', exc)
 
