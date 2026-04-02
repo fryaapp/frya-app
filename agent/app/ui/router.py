@@ -2894,11 +2894,11 @@ async def ui_users_invite(request: Request, auth_user: AuthUser = Depends(requir
                     from app.auth.router import _reset_mail_html, _reset_mail_text
                     reset_svc = get_password_reset_service()
                     token = await reset_svc.issue_invite_token(username)
-                    invite_link = f'{settings.app_base_url}/auth/reset-password?token={token}&first=true'
+                    invite_link = f'{settings.app_base_url}/invite?token={token}&first=true'
                     mail_svc = get_mail_service()
                     await mail_svc.send_mail(
                         to=email,
-                        subject='Ihr Zugang zu FRYA',
+                        subject='Willkommen bei FRYA — Dein Zugang ist bereit',
                         body_html=_reset_mail_html(invite_link, first=True),
                         body_text=_reset_mail_text(invite_link, first=True),
                         tenant_id=None,
