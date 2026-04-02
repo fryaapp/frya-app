@@ -53,6 +53,7 @@ _DOCTYPE_TO_CASETYPE: dict[str, str] = {
     'REMINDER': 'dunning',
     'LETTER': 'correspondence',
     'OTHER': 'other',
+    'CREDIT_NOTE': 'other',
 }
 
 
@@ -65,6 +66,46 @@ def _map_source(event_source: str) -> str:
 
 def _map_case_type(document_type_value: str | None) -> str:
     return _DOCTYPE_TO_CASETYPE.get(document_type_value or 'OTHER', 'other')
+
+
+async def _is_own_company(sender_name: str | None, tenant_id: uuid.UUID) -> bool:
+    """P-10 A1: Check if sender matches the user's own company (outgoing invoice).
+
+    Uses fuzzy matching: 'Mycelium Enterprises' matches 'Mycelium Enterprises UG'.
+    """
+    if not sender_name or not sender_name.strip():
+        return False
+    try:
+        import asyncpg
+        from app.dependencies import get_settings
+        conn = await asyncpg.connect(get_settings().database_url)
+        try:
+            bp = await conn.fetchrow(
+                "SELECT company_name FROM frya_business_profile "
+                "WHERE tenant_id IN ($1::text, 'default', '') LIMIT 1",
+                str(tenant_id),
+            )
+            if not bp or not bp['company_name']:
+                return False
+            own_name = bp['company_name'].strip().lower()
+            sender_lower = sender_name.strip().lower()
+            # Exact or prefix/suffix match
+            if own_name == sender_lower:
+                return True
+            if sender_lower.startswith(own_name) or own_name.startswith(sender_lower):
+                return True
+            # Remove legal suffixes for comparison
+            for suffix in (' ug', ' gmbh', ' ag', ' e.k.', ' ohg', ' kg', ' gbr'):
+                own_clean = own_name.rstrip(suffix).strip()
+                sender_clean = sender_lower.rstrip(suffix).strip()
+                if own_clean and sender_clean and (own_clean == sender_clean):
+                    return True
+            return False
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.warning('_is_own_company check failed: %s', exc)
+        return False
 
 
 def _confidence_from_float(score: float) -> str:
@@ -227,6 +268,15 @@ async def integrate_document_analysis(
     else:
         # ── Miss: create a new DRAFT case for operator review ─────────────────
         case_type = _map_case_type(document_type_value)
+
+        # P-10 A1: Check if this is the user's OWN outgoing invoice
+        if case_type == 'incoming_invoice' and vendor_name:
+            try:
+                if await _is_own_company(vendor_name, tenant_id):
+                    case_type = 'outgoing_invoice'
+                    logger.info('Detected external outgoing invoice from own company: %s', vendor_name)
+            except Exception as exc:
+                logger.warning('Own-company check failed: %s', exc)
         new_case = await repo.create_case(
             tenant_id=tenant_id,
             case_type=case_type,
