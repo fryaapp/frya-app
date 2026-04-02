@@ -53,7 +53,7 @@ async def create_user(
     reset_service: PasswordResetService = Depends(get_password_reset_service),
     mail_service: MailService = Depends(get_mail_service),
 ):
-    await require_csrf  # type hint only — enforced via CSRF middleware on POST
+    # CSRF enforced via middleware on POST — no await needed
     existing = await user_repo.find_by_username(body.username)
     if existing:
         raise HTTPException(status_code=409, detail='Username bereits vergeben.')
