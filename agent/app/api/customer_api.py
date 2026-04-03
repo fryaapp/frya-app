@@ -62,6 +62,11 @@ async def send_chat_message(
     user: AuthUser = Depends(require_authenticated),
 ) -> ChatResponse:
     """Send a message to Frya and get a synchronous reply."""
+    # P-22: Token-Tracking Kontext setzen
+    from app.token_tracking import set_tracking_context
+    _tid = str(user.tenant_id) if user and getattr(user, 'tenant_id', None) else 'default'
+    set_tracking_context(tenant_id=_tid, agent_id='communicator')
+
     from app.dependencies import (
         get_audit_service, get_case_repository, get_chat_history_store,
         get_communicator_conversation_store, get_communicator_user_store,

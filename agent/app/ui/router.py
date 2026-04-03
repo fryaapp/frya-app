@@ -2827,19 +2827,25 @@ async def ui_users(request: Request, auth_user: AuthUser = Depends(require_admin
     except Exception:
         pass
 
-    # Token costs per user
+    # P-22: Token costs per user (gruppiert nach tenant_id, gematcht mit frya_users.tenant_id)
     token_costs: dict[str, float] = {}
     token_summary = {'total_tokens': 0, 'total_cost': 0.0, 'call_count': 0}
     if not settings.database_url.startswith('memory://'):
         try:
             conn = await asyncpg.connect(settings.database_url)
             try:
-                rows = await conn.fetch(
-                    "SELECT agent_id, SUM(total_tokens) as tokens, SUM(estimated_cost_eur) as cost, COUNT(*) as calls "
-                    "FROM frya_token_usage GROUP BY agent_id"
-                )
+                rows = await conn.fetch("""
+                    SELECT t.tenant_id, u.username,
+                           SUM(t.total_tokens) as tokens,
+                           SUM(t.estimated_cost_eur) as cost,
+                           COUNT(*) as calls
+                    FROM frya_token_usage t
+                    LEFT JOIN frya_users u ON t.tenant_id = u.tenant_id
+                    GROUP BY t.tenant_id, u.username
+                """)
                 for row in rows:
-                    token_costs[row['agent_id']] = float(row['cost'] or 0)
+                    uname = row['username'] or row['tenant_id'] or 'unknown'
+                    token_costs[uname] = float(row['cost'] or 0)
                     token_summary['total_tokens'] += int(row['tokens'] or 0)
                     token_summary['total_cost'] += float(row['cost'] or 0)
                     token_summary['call_count'] += int(row['calls'] or 0)
@@ -2965,12 +2971,18 @@ async def ui_users_invite(request: Request, auth_user: AuthUser = Depends(requir
         try:
             conn = await asyncpg.connect(settings2.database_url)
             try:
-                rows = await conn.fetch(
-                    "SELECT agent_id, SUM(total_tokens) as tokens, SUM(estimated_cost_eur) as cost, COUNT(*) as calls "
-                    "FROM frya_token_usage GROUP BY agent_id"
-                )
+                rows = await conn.fetch("""
+                    SELECT t.tenant_id, u.username,
+                           SUM(t.total_tokens) as tokens,
+                           SUM(t.estimated_cost_eur) as cost,
+                           COUNT(*) as calls
+                    FROM frya_token_usage t
+                    LEFT JOIN frya_users u ON t.tenant_id = u.tenant_id
+                    GROUP BY t.tenant_id, u.username
+                """)
                 for row in rows:
-                    token_costs[row['agent_id']] = float(row['cost'] or 0)
+                    uname = row['username'] or row['tenant_id'] or 'unknown'
+                    token_costs[uname] = float(row['cost'] or 0)
                     token_summary['total_tokens'] += int(row['tokens'] or 0)
                     token_summary['total_cost'] += float(row['cost'] or 0)
                     token_summary['call_count'] += int(row['calls'] or 0)
