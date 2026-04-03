@@ -9,8 +9,16 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 
-async def _resolve_tenant() -> uuid.UUID:
+async def _resolve_tenant(tenant_id: str | None = None) -> uuid.UUID:
+    """Resolve tenant UUID. P-17: Prefer explicit tenant_id from caller (JWT)."""
+    if tenant_id:
+        try:
+            return uuid.UUID(str(tenant_id))
+        except ValueError:
+            pass
+    # Fallback for non-authenticated contexts
     from app.case_engine.tenant_resolver import resolve_tenant_id
+    logger.warning('P-17: form_handlers using resolve_tenant_id() fallback — no tenant_id in caller context')
     tid = await resolve_tenant_id()
     if not tid:
         raise RuntimeError('tenant_unavailable')
@@ -22,10 +30,10 @@ def _get_repo():
     return get_accounting_repository()
 
 
-async def handle_invoice_form(form_data: dict, user_id: str) -> dict:
+async def handle_invoice_form(form_data: dict, user_id: str, tenant_id: str | None = None) -> dict:
     """Form → InvoiceService.create_invoice."""
     from app.accounting.invoice_service import InvoiceService
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(tenant_id)
     repo = _get_repo()
     svc = InvoiceService(repo)
 
@@ -52,7 +60,7 @@ async def handle_invoice_form(form_data: dict, user_id: str) -> dict:
     }
 
 
-async def handle_invoice_send(form_data: dict, user_id: str) -> dict:
+async def handle_invoice_send(form_data: dict, user_id: str, tenant_id: str | None = None) -> dict:
     """Create invoice + finalize + send via email in one step.
 
     Called when the communicator confirms invoice sending.
@@ -62,7 +70,7 @@ async def handle_invoice_send(form_data: dict, user_id: str) -> dict:
     from datetime import timedelta
     from app.accounting.invoice_service import InvoiceService
 
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(tenant_id)
     repo = _get_repo()
     svc = InvoiceService(repo)
 
@@ -229,9 +237,9 @@ async def handle_invoice_send(form_data: dict, user_id: str) -> dict:
     }
 
 
-async def handle_contact_form(form_data: dict, user_id: str) -> dict:
+async def handle_contact_form(form_data: dict, user_id: str, tenant_id: str | None = None) -> dict:
     """Form → find_or_create_contact + update fields."""
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(tenant_id)
     repo = _get_repo()
 
     name = form_data.get('name', 'Unbekannt')
@@ -276,7 +284,7 @@ async def handle_contact_form(form_data: dict, user_id: str) -> dict:
     return {'contact_id': contact.id, 'name': name, 'status': 'saved'}
 
 
-async def handle_settings_form(form_data: dict, user_id: str) -> dict:
+async def handle_settings_form(form_data: dict, user_id: str, tenant_id: str | None = None) -> dict:
     """Form → frya_user_preferences upsert."""
     try:
         from app.dependencies import get_settings

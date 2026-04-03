@@ -259,7 +259,7 @@ async def send_chat_message(
     if _invoice_data and isinstance(_invoice_data, dict):
         try:
             from app.services.invoice_pipeline import handle_create_invoice
-            pipeline_result = await handle_create_invoice(_invoice_data, user.username)
+            pipeline_result = await handle_create_invoice(_invoice_data, user.username, tenant_id=str(user.tenant_id) if getattr(user, 'tenant_id', None) else None)
             result.reply_text = pipeline_result.get('text', result.reply_text)
             content_blocks = pipeline_result.get('content_blocks', [])
             actions = pipeline_result.get('actions', [])
@@ -1393,10 +1393,14 @@ async def backfill_case_metadata(
 ) -> dict:
     """Backfill document_analysis metadata for cases that don't have it."""
     from app.dependencies import get_case_repository, get_paperless_connector
-    from app.case_engine.tenant_resolver import resolve_tenant_id
 
-    # Resolve tenant
-    tid_str = await resolve_tenant_id()
+    # P-17: Use JWT tenant_id instead of resolve_tenant_id()
+    if user and getattr(user, 'tenant_id', None):
+        tid_str = str(user.tenant_id)
+    else:
+        from app.case_engine.tenant_resolver import resolve_tenant_id
+        logger.warning('P-17: backfill_case_metadata using resolve_tenant_id() fallback — no tenant_id in JWT')
+        tid_str = await resolve_tenant_id()
     if not tid_str:
         return {'error': 'no_tenant', 'updated': 0, 'skipped': 0}
 
