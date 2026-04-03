@@ -129,7 +129,7 @@ UPDATE case_documents
 SET    tenant_id = (
            SELECT tenant_id::text
            FROM   case_cases
-           WHERE  case_cases.id::text = case_documents.case_id
+           WHERE  case_cases.id = case_documents.case_id::uuid
            LIMIT  1
        )
 WHERE  tenant_id IS NULL;
@@ -147,7 +147,7 @@ UPDATE case_references
 SET    tenant_id = (
            SELECT tenant_id::text
            FROM   case_cases
-           WHERE  case_cases.id::text = case_references.case_id
+           WHERE  case_cases.id = case_references.case_id::uuid
            LIMIT  1
        )
 WHERE  tenant_id IS NULL;
@@ -165,7 +165,7 @@ UPDATE case_conflicts
 SET    tenant_id = (
            SELECT tenant_id::text
            FROM   case_cases
-           WHERE  case_cases.id::text = case_conflicts.case_id
+           WHERE  case_cases.id = case_conflicts.case_id::uuid
            LIMIT  1
        )
 WHERE  tenant_id IS NULL;
