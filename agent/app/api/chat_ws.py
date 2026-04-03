@@ -1274,7 +1274,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 if _svc_obj:
                                     _method = getattr(_svc_obj, _si[1], None)
                                     if _method:
-                                        _chart_data = await _method() or {}
+                                        _chart_data = await _method(tenant_id=tenant_id) or {}
                                         _shortcircuit_data = _chart_data
                                         # Map intent for ResponseBuilder
                                         _rb_intent = tier_intent
@@ -1405,7 +1405,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 if svc:
                                     method = getattr(svc, svc_info[1], None)
                                     if method:
-                                        agent_results = await method() or {}
+                                        agent_results = await method(tenant_id=tenant_id) or {}
                         except Exception as exc:
                             logger.warning('Service data fetch failed: %s', exc)
 
