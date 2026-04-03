@@ -288,8 +288,12 @@ class BookingApprovalService:
                 logger.warning('Booking tenant resolve failed: %s', _case_exc)
             if tenant_id is None:
                 # Last resort: resolve via tenant_resolver
+                # P-17: This fallback is acceptable for approval_service since
+                # the primary source is case.tenant_id (line 286). Log a warning
+                # so we can track how often this fallback is used.
                 try:
                     from app.case_engine.tenant_resolver import resolve_tenant_id
+                    logger.warning('P-17: approval_service using resolve_tenant_id() fallback for case_id=%s — case.tenant_id was None', case_id)
                     _tid_str = await resolve_tenant_id()
                     if _tid_str:
                         tenant_id = _uuid.UUID(_tid_str)

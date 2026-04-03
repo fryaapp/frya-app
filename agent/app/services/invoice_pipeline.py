@@ -43,8 +43,16 @@ async def validate_company_data(user_id: str, tenant_id: str) -> tuple[bool, lis
         return True, []  # Don't block on errors
 
 
-async def _resolve_tenant() -> uuid.UUID:
+async def _resolve_tenant(tenant_id: str | None = None) -> uuid.UUID:
+    """Resolve tenant UUID. P-17: Prefer explicit tenant_id from caller (JWT)."""
+    if tenant_id:
+        try:
+            return uuid.UUID(str(tenant_id))
+        except ValueError:
+            pass
+    # Fallback for non-authenticated contexts
     from app.case_engine.tenant_resolver import resolve_tenant_id
+    logger.warning('P-17: invoice_pipeline using resolve_tenant_id() fallback — no tenant_id in caller context')
     tid = await resolve_tenant_id()
     if not tid:
         raise RuntimeError('tenant_unavailable')
@@ -60,7 +68,7 @@ def _get_repo():
 # Schritt 2: Invoice-Draft erstellen + Vorschau
 # ---------------------------------------------------------------------------
 
-async def handle_create_invoice(invoice_data: dict, user_id: str) -> dict:
+async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str | None = None) -> dict:
     """Create Invoice DRAFT + PDF + return content_blocks preview.
 
     Args:
@@ -68,13 +76,14 @@ async def handle_create_invoice(invoice_data: dict, user_id: str) -> dict:
             Required: contact_name, items[{description, quantity, unit_price, tax_rate}]
             Optional: contact_email, contact_address, payment_terms_days, notes
         user_id: Current user ID for audit.
+        tenant_id: P-17 — JWT tenant_id from authenticated context.
 
     Returns:
         dict with text, content_blocks, actions for WebSocket response.
     """
     from app.accounting.invoice_service import InvoiceService
 
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(tenant_id)
 
     # §14 UStG: Compliance-Gate pruefen bevor Rechnung erstellt wird
     try:
@@ -409,7 +418,7 @@ async def handle_create_invoice(invoice_data: dict, user_id: str) -> dict:
 # Schritt 3: Send-Action (nach Freigabe)
 # ---------------------------------------------------------------------------
 
-async def handle_send_invoice(params: dict, user_id: str) -> dict:
+async def handle_send_invoice(params: dict, user_id: str, tenant_id: str | None = None) -> dict:
     """User clicked 'Freigeben & Senden'.
 
     1. Check email (ask if missing)
@@ -421,6 +430,8 @@ async def handle_send_invoice(params: dict, user_id: str) -> dict:
     """
     invoice_id = params.get('invoice_id')
     recipient_email = params.get('recipient_email')
+    # P-17: Extract tenant_id from params if not passed directly
+    _tid_from_params = tenant_id or params.get('tenant_id')
 
     if not invoice_id:
         return {
@@ -429,7 +440,7 @@ async def handle_send_invoice(params: dict, user_id: str) -> dict:
             'actions': [],
         }
 
-    tid = await _resolve_tenant()
+    tid = await _resolve_tenant(_tid_from_params)
 
     # Compliance-Gate: send_invoice_email requires company_email
     try:

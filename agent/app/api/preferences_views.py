@@ -22,14 +22,24 @@ def _get_repo() -> UserPreferencesRepository:
 
 
 async def _get_user_ids(user: AuthUser) -> tuple[str, str]:
-    """Resolve tenant_id and user_id from the authenticated user."""
+    """Resolve tenant_id and user_id from the authenticated user.
+
+    P-17: Prefer JWT tenant_id over resolve_tenant_id() to prevent
+    cross-tenant data leakage.
+    """
     from app.dependencies import get_user_repository
-    from app.case_engine.tenant_resolver import resolve_tenant_id
     user_repo = get_user_repository()
     db_user = await user_repo.find_by_username(user.username)
     if db_user is None:
         raise HTTPException(status_code=404, detail='User not found in DB')
-    tenant_id = await resolve_tenant_id()
+    # P-17: Use JWT tenant first, fallback only for non-authenticated contexts
+    if user and getattr(user, 'tenant_id', None):
+        tenant_id = str(user.tenant_id)
+    else:
+        import logging as _logging
+        _logging.getLogger(__name__).warning('P-17: preferences_views using resolve_tenant_id() fallback — no tenant_id in JWT')
+        from app.case_engine.tenant_resolver import resolve_tenant_id
+        tenant_id = await resolve_tenant_id()
     if tenant_id is None:
         raise HTTPException(status_code=404, detail='No tenant configured')
     return tenant_id, db_user.username

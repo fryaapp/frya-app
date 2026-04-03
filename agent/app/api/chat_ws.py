@@ -393,6 +393,7 @@ async def _extract_and_persist_business_info(
             _tid = _uuid.UUID(tenant_id) if tenant_id else None
             if not _tid:
                 from app.case_engine.tenant_resolver import resolve_tenant_id
+                logger.warning('P-17: _extract_and_persist_business_info using resolve_tenant_id() fallback — tenant_id param was empty')
                 _tid_str = await resolve_tenant_id()
                 _tid = _uuid.UUID(_tid_str) if _tid_str else None
             if _tid:
@@ -740,7 +741,7 @@ async def _dispatch_invoice_send(
         'email': email,
         'items': items,
         'payment_terms_days': payment_terms_days,
-    }, user_id)
+    }, user_id, tenant_id=tenant_id)
 
     return result
 
@@ -935,7 +936,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 'invoice_id': _pf_invoice_id,
                                 'recipient_email': text.strip(),
                             }
-                            _send_result = await handle_send_invoice(_send_params, user_id)
+                            _send_result = await handle_send_invoice(_send_params, user_id, tenant_id=tenant_id)
                             await websocket.send_json({
                                 'type': 'typing', 'active': False,
                             })
@@ -955,7 +956,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             # User responded with address — merge into pending data and retry
                             _pf_data['contact_address'] = text.strip()
                             from app.services.invoice_pipeline import handle_create_invoice
-                            _resume_result = await handle_create_invoice(_pf_data, user_id)
+                            _resume_result = await handle_create_invoice(_pf_data, user_id, tenant_id=tenant_id)
                             _resume_text = _resume_result.get('text', '')
                             _resume_blocks = _resume_result.get('content_blocks', [])
                             _resume_actions = _resume_result.get('actions', [])
@@ -1442,7 +1443,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     if _invoice_data and isinstance(_invoice_data, dict):
                         try:
                             from app.services.invoice_pipeline import handle_create_invoice
-                            pipeline_result = await handle_create_invoice(_invoice_data, user_id)
+                            pipeline_result = await handle_create_invoice(_invoice_data, user_id, tenant_id=tenant_id)
                             # Override response with pipeline result
                             reply_text = pipeline_result.get('text', reply_text)
                             content_blocks = pipeline_result.get('content_blocks', [])
@@ -1551,19 +1552,19 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     )
                     rb = _get_response_builder()
                     if form_type == 'invoice':
-                        result = await handle_invoice_form(form_data, user_id)
+                        result = await handle_invoice_form(form_data, user_id, tenant_id=tenant_id)
                         text = f'FRYA: Rechnung {result.get("invoice_number","?")} erstellt ({result.get("gross_total","?")}€, Entwurf).'
                     elif form_type == 'invoice_send':
-                        result = await handle_invoice_send(form_data, user_id)
+                        result = await handle_invoice_send(form_data, user_id, tenant_id=tenant_id)
                         if result.get('status') == 'sent':
                             text = f'Rechnung {result.get("invoice_number","?")} wurde erstellt und an {result.get("email","?")} gesendet ({result.get("gross_total","?")}€).'
                         else:
                             text = f'Rechnung {result.get("invoice_number","?")} erstellt ({result.get("gross_total","?")}€). {result.get("message","")}'
                     elif form_type == 'contact':
-                        result = await handle_contact_form(form_data, user_id)
+                        result = await handle_contact_form(form_data, user_id, tenant_id=tenant_id)
                         text = f'FRYA: Kontakt {form_data.get("name","?")} gespeichert.'
                     elif form_type == 'settings':
-                        result = await handle_settings_form(form_data, user_id)
+                        result = await handle_settings_form(form_data, user_id, tenant_id=tenant_id)
                         text = 'FRYA: Einstellungen gespeichert.'
                     else:
                         result = {}

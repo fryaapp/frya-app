@@ -14,8 +14,16 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-async def _resolve_tenant() -> uuid.UUID:
+async def _resolve_tenant(tenant_id: str | None = None) -> uuid.UUID:
+    """Resolve tenant UUID. P-17: Prefer explicit tenant_id from caller (JWT)."""
+    if tenant_id:
+        try:
+            return uuid.UUID(str(tenant_id))
+        except ValueError:
+            pass
+    # Fallback for non-authenticated contexts (webhooks, cron)
     from app.case_engine.tenant_resolver import resolve_tenant_id
+    logger.warning('P-17: service_registry using resolve_tenant_id() fallback — no tenant_id in caller context')
     tid = await resolve_tenant_id()
     if not tid:
         raise RuntimeError('tenant_unavailable')
@@ -129,7 +137,7 @@ class _InboxService:
     async def list_pending(self, **kw) -> dict:
         """List pending inbox items — same logic as GET /inbox."""
         from app.dependencies import get_case_repository
-        tid = await _resolve_tenant()
+        tid = await _resolve_tenant(kw.get('tenant_id'))
         repo = get_case_repository()
         cases = await repo.list_active_cases_for_tenant(tid)
         try:
@@ -177,7 +185,7 @@ class _DeadlineService:
         """Same as GET /deadlines — wraps deadline_analyst_service."""
         from app.deadline_analyst.service import build_deadline_analyst_service
         from app.dependencies import get_case_repository, get_llm_config_repository
-        tid = await _resolve_tenant()
+        tid = await _resolve_tenant(kw.get('tenant_id'))
         llm_repo = get_llm_config_repository()
         llm_config = None
         if llm_repo:
@@ -208,7 +216,7 @@ class _DeadlineService:
 
 class _FinanceService:
     async def get_finance_summary(self, **kw) -> dict:
-        tid = await _resolve_tenant()
+        tid = await _resolve_tenant(kw.get('tenant_id'))
         svc = _get_booking_svc()
         year = kw.get('year', date.today().year)
         return await svc.get_finance_summary(
@@ -223,21 +231,21 @@ class _FinanceService:
 
 class _BookingService:
     async def list(self, **kw) -> dict:
-        tid = await _resolve_tenant()
+        tid = await _resolve_tenant(kw.get('tenant_id'))
         bookings = await _get_repo().list_bookings(tid, limit=kw.get('limit', 20))
         return {'items': [b.model_dump(mode='json') for b in bookings], 'count': len(bookings)}
 
 
 class _OpenItemService:
     async def list(self, **kw) -> dict:
-        tid = await _resolve_tenant()
+        tid = await _resolve_tenant(kw.get('tenant_id'))
         items = await _get_repo().list_open_items(tid)
         return {'items': [i.model_dump(mode='json') for i in items], 'count': len(items)}
 
 
 class _ContactService:
     async def get_dossier(self, contact_id: str = '', **kw) -> dict:
-        tid = await _resolve_tenant()
+        tid = await _resolve_tenant(kw.get('tenant_id'))
         repo = _get_repo()
         contact = await repo.get_contact_by_id(tid, uuid.UUID(contact_id))
         if not contact:
@@ -263,7 +271,7 @@ class _InvoiceService:
         from app.services.form_builders import build_invoice_form
         contact = None
         if contact_name:
-            tid = await _resolve_tenant()
+            tid = await _resolve_tenant(kw.get('tenant_id'))
             contacts = await _get_repo().list_contacts(tid)
             contact = next((c for c in contacts if contact_name.lower() in c.name.lower()), None)
         form = build_invoice_form(contact=contact)

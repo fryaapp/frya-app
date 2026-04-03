@@ -61,9 +61,10 @@ class ActionRouter:
                 handle_send_invoice, handle_void_invoice,
             )
             user_id = params.pop('user_id', 'system')
+            _ar_tenant_id = params.pop('tenant_id', None)
 
             if action_type == 'send_invoice':
-                result = await handle_send_invoice(params, user_id)
+                result = await handle_send_invoice(params, user_id, tenant_id=_ar_tenant_id)
             elif action_type == 'void_invoice':
                 result = await handle_void_invoice(params, user_id)
             elif action_type == 'edit_invoice':
