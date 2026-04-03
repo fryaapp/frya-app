@@ -53,6 +53,15 @@ document_type:
   ORDER: "Bestellung"
   OTHER: "Sonstiges"
   LETTER: "Brief"
+  PRIVATE: "Privat"
+  PAYSLIP: "Lohnzettel"
+  AGB: "AGB"
+  WIDERRUF: "Widerruf"
+  incoming_invoice: "Eingangsrechnung"
+  outgoing_invoice: "Ausgangsrechnung"
+  dunning: "Mahnwesen"
+  correspondence: "Korrespondenz"
+  other: "Sonstiges"
 
 risk_flags:
   duplicate_detection: "Moegliches Duplikat"
