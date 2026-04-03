@@ -1,9 +1,13 @@
 """API endpoints for alpha feedback."""
 from __future__ import annotations
 
+import base64
 import logging
+import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.auth.dependencies import require_authenticated, require_operator, require_admin
@@ -14,6 +18,9 @@ from app.feedback.repository import FeedbackRepository
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1/feedback', tags=['feedback'])
 
+# Screenshots werden als Dateien gespeichert, nicht Base64 in der DB
+SCREENSHOTS_DIR = Path('/app/data/bugreports')
+
 
 def _get_repo() -> FeedbackRepository:
     return FeedbackRepository(get_settings().database_url)
@@ -21,15 +28,41 @@ def _get_repo() -> FeedbackRepository:
 
 async def _get_user_ids(user: AuthUser) -> tuple[str, str]:
     from app.dependencies import get_user_repository
-    from app.case_engine.tenant_resolver import resolve_tenant_id
     user_repo = get_user_repository()
     db_user = await user_repo.find_by_username(user.username)
     if db_user is None:
         raise HTTPException(status_code=404, detail='User not found in DB')
-    tenant_id = await resolve_tenant_id()
+    # P-14d: JWT tenant first, then fallback
+    if user and getattr(user, 'tenant_id', None):
+        tenant_id = str(user.tenant_id)
+    else:
+        from app.case_engine.tenant_resolver import resolve_tenant_id
+        tenant_id = await resolve_tenant_id()
     if tenant_id is None:
         raise HTTPException(status_code=404, detail='No tenant configured')
     return tenant_id, db_user.username
+
+
+def _save_screenshot(screenshot_data: str, feedback_id: str) -> str | None:
+    """Speichert Base64-Screenshot als JPEG-Datei. Gibt den relativen Pfad zurueck."""
+    if not screenshot_data:
+        return None
+    try:
+        SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        # Strip data URI prefix: "data:image/jpeg;base64,..."
+        if ',' in screenshot_data:
+            raw_b64 = screenshot_data.split(',', 1)[1]
+        else:
+            raw_b64 = screenshot_data
+        img_bytes = base64.b64decode(raw_b64)
+        filename = f'{feedback_id}.jpg'
+        filepath = SCREENSHOTS_DIR / filename
+        filepath.write_bytes(img_bytes)
+        logger.info('Screenshot saved: %s (%d bytes)', filepath, len(img_bytes))
+        return f'/api/v1/feedback/screenshots/{filename}'
+    except Exception as exc:
+        logger.warning('Screenshot save failed: %s', exc)
+        return None
 
 
 class FeedbackCreate(BaseModel):
@@ -66,19 +99,24 @@ async def create_feedback(
     tenant_id, user_id = await _get_user_ids(user)
     repo = _get_repo()
 
-    screenshot_path: str | None = None
-
     description = body.resolved_description
     page = body.resolved_page
+
+    # Pre-generate ID fuer Screenshot-Dateiname
+    feedback_id_pre = str(uuid.uuid4())
+
+    # Screenshot als Datei speichern statt Base64 in DB
+    screenshot_url = _save_screenshot(body.screenshot, feedback_id_pre)
 
     feedback_id = await repo.create(
         tenant_id=tenant_id,
         user_id=user_id,
         description=description,
         page=page,
-        screenshot_path=screenshot_path,
-        screenshot_data=body.screenshot,
+        screenshot_path=screenshot_url,
+        screenshot_data=None,  # Kein Base64 mehr in DB
         system_info=body.system_info,
+        feedback_id=feedback_id_pre,
     )
 
     # Telegram notification to Maze
@@ -101,6 +139,19 @@ async def create_feedback(
         logger.warning('Feedback Telegram notification failed: %s', exc)
 
     return {'feedback_id': feedback_id}
+
+
+@router.get('/screenshots/{filename}')
+async def get_screenshot(filename: str):
+    """Serve screenshot files."""
+    # Sanitize filename — nur alphanumerisch + Bindestrich + .jpg
+    import re
+    if not re.match(r'^[a-f0-9\-]+\.jpg$', filename):
+        raise HTTPException(status_code=400, detail='Invalid filename')
+    filepath = SCREENSHOTS_DIR / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail='Screenshot not found')
+    return FileResponse(filepath, media_type='image/jpeg')
 
 
 @router.get('')
@@ -200,11 +251,20 @@ async def export_feedback(
                 md_lines.append(f'- **{k}:** {v}')
             md_lines.append('')
 
-        # Screenshot — embedded as Base64 data URI directly in Markdown
-        if item.get('screenshot_data'):
-            screenshots[f'screenshot_{i}'] = item['screenshot_data']
-            md_lines.append(f'### Screenshot')
-            md_lines.append(f'![Bug {i} Screenshot]({item["screenshot_data"]})')
+        # Screenshot — URL statt Base64 (P-15 Nachtrag)
+        screenshot_url = item.get('screenshot_path')
+        if screenshot_url:
+            settings = get_settings()
+            full_url = f'{settings.app_base_url.rstrip("/").replace("app.", "api.")}{screenshot_url}'
+            screenshots[f'screenshot_{i}'] = full_url
+            md_lines.append('### Screenshot')
+            md_lines.append(f'![Bug {i} Screenshot]({full_url})')
+            md_lines.append('')
+        elif item.get('screenshot_data'):
+            # Legacy: alte Base64-Screenshots (vor P-15)
+            screenshots[f'screenshot_{i}'] = '(Base64 — Legacy)'
+            md_lines.append('### Screenshot')
+            md_lines.append('*(Base64-Screenshot — vor P-15, nicht als URL verfuegbar)*')
             md_lines.append('')
 
         md_lines.append('---')
