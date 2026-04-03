@@ -830,6 +830,10 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
     user_id: str = jwt_payload.get('sub', 'unknown')
     tenant_id: str = jwt_payload.get('tid', '')
 
+    # P-19: Token-Tracking Kontext setzen (fuer LiteLLM Callback)
+    from app.token_tracking import set_tracking_context
+    set_tracking_context(tenant_id=tenant_id, agent_id='communicator')
+
     await websocket.accept()
     chat_registry.register(user_id, websocket)
     logger.info('WS chat connected: user=%s tenant=%s', user_id, tenant_id)

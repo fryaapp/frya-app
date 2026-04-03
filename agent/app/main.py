@@ -54,6 +54,7 @@ from app.api.webhooks import router as webhooks_router
 from app.api.ws import router as ws_router
 from app.api.chat_ws import router as chat_ws_router
 from app.api.activity_views import router as activity_router
+from app.api.admin_views import router as admin_router
 from app.approvals.service import ApprovalService
 from app.audit.service import AuditService
 from app.auth.csrf import require_csrf
@@ -110,6 +111,10 @@ async def lifespan(app: FastAPI):
     # P-12b: Initialize global connection pool
     from app.dependencies import init_db_pool, close_db_pool
     await init_db_pool()
+
+    # P-19: Token-Tracking Callback installieren
+    from app.token_tracking import install_litellm_callback
+    install_litellm_callback()
 
     audit_service: AuditService = get_audit_service()
     open_items_service: OpenItemsService = get_open_items_service()
@@ -326,6 +331,7 @@ app.include_router(template_router)
 app.include_router(finance_router)
 app.include_router(activity_router)
 app.include_router(pdf_router)
+app.include_router(admin_router)
 app.include_router(ui_router)
 
 

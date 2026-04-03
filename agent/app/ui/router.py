@@ -2881,11 +2881,37 @@ async def ui_users_invite(request: Request, auth_user: AuthUser = Depends(requir
             if existing:
                 invite_error = f'Benutzername "{username}" ist bereits vergeben.'
             else:
+                # P-20: Auto-Tenant fuer customer (Alpha-Tester)
+                user_tenant_id = None
+                if role == 'customer':
+                    import uuid as _uuid_mod
+                    user_tenant_id = str(_uuid_mod.uuid4())
+                    try:
+                        from app.auth.tenant_repository import TenantRecord
+                        tenant_repo = get_tenant_repository()
+                        await tenant_repo.create_tenant(TenantRecord(
+                            tenant_id=user_tenant_id,
+                            name=f'Tenant {username}',
+                            admin_email=email,
+                        ))
+                    except Exception as _tex:
+                        import logging
+                        logging.getLogger(__name__).warning('Tenant creation failed: %s', _tex)
+
                 record = UserRecord(
                     username=username, email=email, role=role,
-                    tenant_id=None, is_active=True, session_version=1,
+                    tenant_id=user_tenant_id, is_active=True, session_version=1,
                 )
                 await user_repo.create_user(record)
+
+                # P-20: Seed defaults fuer neuen Tenant
+                if role == 'customer' and user_tenant_id:
+                    try:
+                        from app.auth.tenant_seeder import seed_tenant_defaults
+                        await seed_tenant_defaults(settings.database_url, user_tenant_id, username)
+                    except Exception as _sex:
+                        import logging
+                        logging.getLogger(__name__).warning('Tenant seeding failed: %s', _sex)
 
                 # Issue invite token + send mail
                 invite_sent = False
