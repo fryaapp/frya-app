@@ -55,20 +55,33 @@ class FeedbackRepository:
         screenshot_path: str | None = None,
         screenshot_data: str | None = None,
         system_info: dict | None = None,
+        feedback_id: str | None = None,
     ) -> str:
         import json
         conn = await self._conn()
         try:
-            row = await conn.fetchrow(
-                """INSERT INTO frya_alpha_feedback
-                   (tenant_id, user_id, page, description, screenshot_path, screenshot_data, system_info)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-                   RETURNING id::text""",
-                tenant_id, user_id, page, description, screenshot_path,
-                screenshot_data,
-                json.dumps(system_info) if system_info else None,
-            )
-            return row['id']
+            if feedback_id:
+                # Pre-generated ID (fuer Screenshot-Dateiname)
+                await conn.execute(
+                    """INSERT INTO frya_alpha_feedback
+                       (id, tenant_id, user_id, page, description, screenshot_path, screenshot_data, system_info)
+                       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb)""",
+                    feedback_id, tenant_id, user_id, page, description,
+                    screenshot_path, screenshot_data,
+                    json.dumps(system_info) if system_info else None,
+                )
+                return feedback_id
+            else:
+                row = await conn.fetchrow(
+                    """INSERT INTO frya_alpha_feedback
+                       (tenant_id, user_id, page, description, screenshot_path, screenshot_data, system_info)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+                       RETURNING id::text""",
+                    tenant_id, user_id, page, description, screenshot_path,
+                    screenshot_data,
+                    json.dumps(system_info) if system_info else None,
+                )
+                return row['id']
         finally:
             await conn.close()
 
