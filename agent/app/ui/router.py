@@ -2822,7 +2822,7 @@ async def ui_users(request: Request, auth_user: AuthUser = Depends(require_admin
         fb_repo = FeedbackRepository(settings.database_url)
         feedback_items = await fb_repo.list_all()
         for item in feedback_items:
-            uid = getattr(item, 'user_id', '') or ''
+            uid = (item.get('user_id', '') if isinstance(item, dict) else getattr(item, 'user_id', '')) or ''
             feedback_counts[uid] = feedback_counts.get(uid, 0) + 1
     except Exception:
         pass
@@ -2955,7 +2955,7 @@ async def ui_users_invite(request: Request, auth_user: AuthUser = Depends(requir
         fb_repo = FeedbackRepository(settings2.database_url)
         feedback_items = await fb_repo.list_all()
         for item in feedback_items:
-            uid = getattr(item, 'user_id', '') or ''
+            uid = (item.get('user_id', '') if isinstance(item, dict) else getattr(item, 'user_id', '')) or ''
             feedback_counts[uid] = feedback_counts.get(uid, 0) + 1
     except Exception:
         pass
