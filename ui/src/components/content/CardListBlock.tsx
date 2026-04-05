@@ -30,7 +30,11 @@ export function CardListBlock({ data }: { data: CardListBlockData }) {
     const name = item.title || 'Beleg'
     const msg = `Zeig mir ${name}`
     addUserMessage(msg)
-    send({ text: msg })
+    if (item.case_id) {
+      send({ text: msg, quick_action: { type: 'show_case', params: { case_id: item.case_id } } })
+    } else {
+      send({ text: msg })
+    }
   }
 
   return (

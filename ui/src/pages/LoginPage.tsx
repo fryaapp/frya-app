@@ -8,6 +8,12 @@ export function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  // P-23: Show session-expired message if user was auto-logged-out
+  const [sessionExpired] = useState(() => {
+    const flag = localStorage.getItem('frya-session-expired')
+    if (flag) localStorage.removeItem('frya-session-expired')
+    return !!flag
+  })
   const login = useAuthStore((s) => s.login)
   const navigate = useNavigate()
 
@@ -96,6 +102,26 @@ export function LoginPage() {
             Deine KI-Buchhaltungsassistentin
           </p>
         </div>
+
+        {/* P-23: Session expired info banner */}
+        {sessionExpired && !error && (
+          <div
+            style={{
+              background: 'rgba(240,138,58,0.12)',
+              borderRadius: 14,
+              padding: '11px 16px',
+              fontSize: 13,
+              color: 'var(--frya-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: 16 }}>schedule</span>
+            Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* E-Mail */}

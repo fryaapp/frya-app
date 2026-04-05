@@ -84,7 +84,8 @@ _NS_UBL: dict[str, str] = {
 def detect_e_invoice(pdf_bytes: bytes) -> EInvoiceType | None:
     """Detect whether bytes are a ZUGFeRD PDF or XRechnung XML.
 
-    Uses byte-pattern heuristics — no external library required for detection.
+    Uses byte-pattern heuristics first (fast path), then falls back to
+    facturx library for PDFs with compressed XML attachments.
     Returns None when content is not a recognised e-invoice format.
     """
     if not pdf_bytes:
@@ -93,7 +94,7 @@ def detect_e_invoice(pdf_bytes: bytes) -> EInvoiceType | None:
     is_pdf = pdf_bytes[:4] == b'%PDF'
 
     if is_pdf:
-        # Embedded-XML attachment name found in raw PDF stream
+        # Fast path: Embedded-XML attachment name found in raw PDF stream
         if b'factur-x.xml' in pdf_bytes:
             return EInvoiceType.ZUGFERD_V2
         if b'ZUGFeRD-invoice.xml' in pdf_bytes or b'zugferd-invoice.xml' in pdf_bytes:
@@ -104,6 +105,15 @@ def detect_e_invoice(pdf_bytes: bytes) -> EInvoiceType | None:
         # Broader Factur-X / ZUGFeRD v2 detection via profile namespace
         if b'urn:factur-x.eu' in pdf_bytes or b'urn:cen.eu:en16931' in pdf_bytes:
             return EInvoiceType.ZUGFERD_V2
+        # Fallback: XML may be compressed inside PDF streams — use facturx library
+        try:
+            import io as _io
+            import facturx as _fx  # type: ignore[import-untyped]
+            _result = _fx.get_facturx_xml_from_pdf(_io.BytesIO(pdf_bytes), check_xsd=False)
+            if _result:
+                return EInvoiceType.ZUGFERD_V2
+        except Exception:
+            pass
         return None
 
     # Not a PDF → check for raw XML e-invoice

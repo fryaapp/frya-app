@@ -1,5 +1,6 @@
 import React from 'react'
 import { CardBlock } from './CardBlock'
+import { CardGroupBlock } from './CardGroupBlock'
 import { CardListBlock } from './CardListBlock'
 import { TableBlock } from './TableBlock'
 import { ChartBlock } from './ChartBlock'
@@ -50,6 +51,8 @@ function ContentBlockInner({ block, onAction, onSubmit }: ContentBlockProps) {
   switch (block.block_type) {
     case 'card':
       return <CardBlock data={block.data} />
+    case 'card_group':
+      return <CardGroupBlock data={block.data} />
     case 'card_list':
       return <CardListBlock data={block.data} />
     case 'table':

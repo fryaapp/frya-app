@@ -116,17 +116,17 @@ function DatenschutzContent() {
   return (
     <div>
       <h3 style={{ fontSize: 15, fontWeight: 600, marginTop: 0, marginBottom: 12, fontFamily: "'Outfit', sans-serif" }}>
-        Datenschutzerklaerung
+        Datenschutzerkl\u00e4rung
       </h3>
       <p style={{ color: 'var(--frya-on-surface-variant)' }}>
-        Die Datenschutzerklaerung wird aktuell erstellt.
+        Die Datenschutzerkl\u00e4rung wird aktuell erstellt.
         Bei Fragen wende dich an{' '}
         <span style={{ color: 'var(--frya-primary)' }}>datenschutz@myfrya.de</span>.
       </p>
       <p style={{ color: 'var(--frya-on-surface-variant)', marginTop: 16 }}>
-        FRYA verarbeitet deine Daten ausschliesslich zur Bereitstellung der Buchhaltungs-
-        und Rechnungsfunktionen. Alle Daten werden in der EU gespeichert und verschluesselt
-        uebertragen. Eine Weitergabe an Dritte erfolgt nicht ohne deine ausdrueckliche Zustimmung.
+        FRYA verarbeitet deine Daten ausschlie\u00dflich zur Bereitstellung der Buchhaltungs-
+        und Rechnungsfunktionen. Alle Daten werden in der EU gespeichert und verschl\u00fcsselt
+        \u00fcbertragen. Eine Weitergabe an Dritte erfolgt nicht ohne deine ausdr\u00fcckliche Zustimmung.
       </p>
     </div>
   )
@@ -139,7 +139,7 @@ function ImpressumContent() {
         Impressum
       </h3>
       <p style={{ color: 'var(--frya-on-surface-variant)' }}>
-        Angaben gemaess § 5 TMG:
+        Angaben gem\u00e4\u00df \u00a7 5 TMG:
       </p>
       <div style={{
         background: 'var(--frya-surface)', borderRadius: 12, padding: 16,
@@ -152,8 +152,8 @@ function ImpressumContent() {
         </div>
       </div>
       <p style={{ fontSize: 12, color: 'var(--frya-on-surface-variant)' }}>
-        Verantwortlich fuer den Inhalt nach § 55 Abs. 2 RStV:<br />
-        Die vollstaendigen Impressumsdaten werden nach Gruendung der Betreibergesellschaft ergaenzt.
+        Verantwortlich f\u00fcr den Inhalt nach \u00a7 55 Abs. 2 RStV:<br />
+        Die vollst\u00e4ndigen Impressumsdaten werden nach Gr\u00fcndung der Betreibergesellschaft erg\u00e4nzt.
       </p>
     </div>
   )
@@ -163,11 +163,11 @@ function AgbContent() {
   return (
     <div>
       <h3 style={{ fontSize: 15, fontWeight: 600, marginTop: 0, marginBottom: 12, fontFamily: "'Outfit', sans-serif" }}>
-        Allgemeine Geschaeftsbedingungen
+        Allgemeine Gesch\u00e4ftsbedingungen
       </h3>
       <p style={{ color: 'var(--frya-on-surface-variant)' }}>
         Die AGB werden aktuell erstellt. FRYA befindet sich in der Alpha-Phase.
-        Die Nutzung erfolgt auf eigenes Risiko. Eine Haftung fuer die Richtigkeit
+        Die Nutzung erfolgt auf eigenes Risiko. Eine Haftung f\u00fcr die Richtigkeit
         der KI-generierten Buchhaltungsdaten ist ausgeschlossen.
       </p>
       <p style={{ color: 'var(--frya-on-surface-variant)', marginTop: 16, fontSize: 12 }}>

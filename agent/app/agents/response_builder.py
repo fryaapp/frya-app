@@ -2,7 +2,7 @@
 from __future__ import annotations
 from typing import Any
 
-from app.utils.translations import t_doc_type, t_confidence
+from app.utils.translations import t_doc_type, t_confidence, t_status
 
 _CONF_TO_FLOAT = {
     "CERTAIN": 0.95,
@@ -167,18 +167,54 @@ class ResponseBuilder:
         if not items:
             return [{"block_type": "alert", "data": {"severity": "success", "text": "Keine Belege in der Inbox. Alles erledigt!"}}]
 
-        # Aufgabe 4: Send ALL items — frontend handles expand/collapse
-        title = f"{len(items)} Belege warten"
-        blocks: list[dict] = [
-            {
+        # Try grouping by references / vendor
+        references = results.get("references", [])
+        from app.services.grouping_service import group_inbox_items
+        grouped = group_inbox_items(items, references)
+
+        groups = grouped.get('groups', [])
+        ungrouped = grouped.get('ungrouped_items', items)
+
+        blocks: list[dict] = []
+
+        if groups:
+            # Format groups for frontend accordion display
+            formatted_groups = []
+            for g in groups:
+                formatted_groups.append({
+                    'name': g['name'],
+                    'reference': g.get('reference'),
+                    'group_type': g.get('group_type', 'same_vendor'),
+                    'total_amount': self._eur(g.get('total_amount')),
+                    'count': g['count'],
+                    'highest_badge': {
+                        'label': g.get('highest_badge', 'Niedrig'),
+                        'color': self._conf_color(_CONF_TO_FLOAT.get((g.get('highest_badge') or 'Niedrig').upper(), 0.3)),
+                    },
+                    'warning': g.get('warning'),
+                    'items': [self._card(i) for i in g['items']],
+                })
+
+            blocks.append({
+                "block_type": "card_group",
+                "data": {
+                    "groups": formatted_groups,
+                    "ungrouped_items": [self._card(i) for i in ungrouped] if ungrouped else [],
+                },
+            })
+
+        # If no groups found, show all items as card_list (original behavior)
+        if not groups:
+            title = f"{len(items)} Belege warten"
+            blocks.append({
                 "block_type": "card_list",
                 "data": {
                     "title": title,
                     "items": [self._card(i) for i in items],
-                    "initial_count": 5,  # Frontend shows 5 initially, rest expandable
+                    "initial_count": 5,
                 },
-            }
-        ]
+            })
+
         return blocks
 
     def _blocks_approve(self, results: dict) -> list[dict]:
@@ -462,16 +498,55 @@ class ResponseBuilder:
         return self._blocks_settings(results)
 
     def _blocks_show_case(self, results: dict) -> list[dict]:
+        # P-25: Error from get_case?
+        if results.get('error'):
+            return [{"block_type": "alert", "data": {"severity": "warning", "text": str(results['error'])}}]
         case = results.get("case", results)
         if not isinstance(case, dict):
             return []
-        return [{"block_type": "key_value", "data": {"items": [
+        blocks: list[dict] = []
+        # Main info card
+        conf_label = case.get('confidence_label', '')
+        badge_map = {'Sicher': 'success', 'Hoch': 'info', 'Mittel': 'warning', 'Niedrig': 'error'}
+        blocks.append({"block_type": "card", "data": {
+            "title": str(case.get("vendor_name", "\u2014")),
+            "subtitle": t_doc_type(str(case.get("case_type", ""))),
+            "amount": self._eur(case.get("total_amount", 0)),
+            "badge": {"label": conf_label, "color": badge_map.get(conf_label, "info")} if conf_label else None,
+        }})
+        # Key-value details
+        kv_items = [
             {"label": "Vorgang", "value": str(case.get("case_number", case.get("id", "?")))},
-            {"label": "Typ", "value": t_doc_type(str(case.get("case_type", "")))},
-            {"label": "Vendor", "value": str(case.get("vendor_name", "\u2014"))},
-            {"label": "Betrag", "value": self._eur(case.get("total_amount", 0))},
-            {"label": "Status", "value": str(case.get("status", "\u2014"))},
-        ]}}]
+            {"label": "Status", "value": t_status(str(case.get("status", "\u2014")))},
+        ]
+        # Add extracted fields from document_analysis
+        fields = results.get('fields', {})
+        if isinstance(fields, dict):
+            field_labels = {
+                'invoice_number': 'Rechnungsnr.', 'invoice_date': 'Datum',
+                'due_date': 'Faellig am', 'tax_rate': 'MwSt.',
+                'net_amount': 'Netto', 'tax_amount': 'MwSt.-Betrag',
+                'iban': 'IBAN', 'bic': 'BIC',
+                'sender_address': 'Absender', 'recipient_address': 'Empfaenger',
+            }
+            for fkey, flabel in field_labels.items():
+                fval = fields.get(fkey)
+                if fval:
+                    kv_items.append({"label": flabel, "value": str(fval)})
+        # Add references
+        refs = results.get('references', [])
+        for ref in refs[:5]:
+            _ref_type_map = {
+                'other': 'Referenz', 'invoice': 'Rechnungsnr.', 'invoice_number': 'Rechnungsnr.',
+                'contract': 'Vertragsnr.', 'order': 'Bestellnr.', 'customer': 'Kundennr.',
+                'payment': 'Zahlungsreferenz', 'dunning': 'Mahnungsnr.', 'iban': 'IBAN',
+                'bic': 'BIC', 'tax': 'Steuernr.',
+            }
+            _raw_ref_type = str(ref.get('type', 'other')).lower()
+            _ref_label = _ref_type_map.get(_raw_ref_type, _raw_ref_type.replace('_', ' ').title())
+            kv_items.append({"label": _ref_label, "value": str(ref.get('value', ''))})
+        blocks.append({"block_type": "key_value", "data": {"title": "Details", "items": kv_items}})
+        return blocks
 
     def _blocks_show_invoices(self, results: dict) -> list[dict]:
         items = results if isinstance(results, list) else results.get("invoices", results.get("items", []))
@@ -733,7 +808,7 @@ class ResponseBuilder:
         else:
             label = t_confidence(item.get("confidence_label", "?"))
 
-        return {
+        card: dict = {
             "title": vendor,
             "subtitle": t_doc_type(item.get("document_type", "")),
             "amount": self._eur(item.get("amount")) if item.get("amount") else None,
@@ -743,6 +818,10 @@ class ResponseBuilder:
             },
             "ai_label": "KI-Vorschlag \u00b7 bitte pr\u00fcfen",
         }
+        # P-25: Pass case_id for detail-view click handler
+        if item.get("case_id"):
+            card["case_id"] = str(item["case_id"])
+        return card
 
     def _deadline_card(self, dl: dict) -> dict:
         days = dl.get("days_remaining", 0)

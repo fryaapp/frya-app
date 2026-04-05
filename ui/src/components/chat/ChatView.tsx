@@ -82,6 +82,8 @@ export function ChatView() {
     setDragOver(false)
   }, [])
 
+  const addFryaMessage = useFryaStore((s) => s.addFryaMessage)
+
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -90,15 +92,19 @@ export function ChatView() {
     const files = Array.from(e.dataTransfer.files)
     if (files.length === 0) return
 
+    const label = `${files.length} Beleg${files.length > 1 ? 'e' : ''}`
+    addUserMessage(`\u{1F4CE} ${label} hochgeladen`)
+
     try {
       const form = new FormData()
       files.forEach((f) => form.append('files', f))
       await api.postFormData('/documents/bulk-upload', form)
-      addUserMessage(`\u{1F4CE} ${files.length} Beleg${files.length > 1 ? 'e' : ''} hochgeladen`)
-    } catch {
-      // Error handled by API client
+      addFryaMessage({ text: `Alles klar! ${label} empfangen. Ich analysiere das jetzt.` })
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Upload fehlgeschlagen'
+      addFryaMessage({ text: `Upload fehlgeschlagen: ${msg}. Bitte versuche es erneut.` })
     }
-  }, [addUserMessage])
+  }, [addUserMessage, addFryaMessage])
 
   return (
     <div

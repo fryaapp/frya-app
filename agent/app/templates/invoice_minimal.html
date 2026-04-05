@@ -88,11 +88,14 @@ body {
 <div class="separator"></div>
 
 <div class="totals">
+  {% if kleinunternehmer %}
+  {# P-27: Kleinunternehmer — NUR Gesamtbetrag #}
+  <div class="grand-total">Gesamtbetrag: {{ "%.2f"|format(invoice.net_amount) }} &euro;</div>
+  {% else %}
   <div class="line">Netto: {{ "%.2f"|format(invoice.net_amount) }} &euro;</div>
-  {% if not kleinunternehmer %}
   <div class="line">USt {{ invoice.tax_rate }}%: {{ "%.2f"|format(invoice.tax_amount) }} &euro;</div>
+  <div class="grand-total">Brutto: {{ "%.2f"|format(invoice.gross_amount) }} &euro;</div>
   {% endif %}
-  <div class="grand-total">{{ "%.2f"|format(invoice.gross_amount) }} &euro;</div>
 </div>
 
 {% if kleinunternehmer %}

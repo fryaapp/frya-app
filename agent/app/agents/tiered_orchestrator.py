@@ -34,6 +34,8 @@ class TieredOrchestrator:
         r"(?i)(kontakt.*anleg|neuer kontakt|kund.*anleg)": "CREATE_CONTACT",
         r"(?i)(mahnung|mahnen|zahlungserinnerung)": "CREATE_REMINDER",
         r"(?i)(freigeb|buchen|genehmig|bestätig.*buchung|CASE-\d{4}-\d{5}.*freigeb)": "APPROVE",
+        r"(?i)(storniere.*rechnung|rechnung.*storniere|rechnung.*(?:RE-\d+).*(?:storno|storniere|zurueck|cancel))": "CANCEL_INVOICE",
+        r"(?i)(kein\s+kleinunternehmer\s+mehr|nicht\s+mehr\s+kleinunternehmer|bin\s+wieder\s+kleinunternehmer|bin\s+kleinunternehmer|mit\s+(?:umsatz|mwst|mehrwert)steuer)": "CHANGE_KU_STATUS",
     }
 
     DEEP_KEYWORDS = [
@@ -50,6 +52,7 @@ class TieredOrchestrator:
         "SEND_INVOICE", "VOID_INVOICE", "EDIT_INVOICE", "SHOW_INVOICE",
         "CHOOSE_TEMPLATE", "SET_TEMPLATE", "UPLOAD_LOGO",
         "SHOW_EXPENSE_CATEGORIES", "SHOW_PROFIT_LOSS", "SHOW_REVENUE_TREND", "SHOW_FORECAST",
+        "CANCEL_INVOICE", "CHANGE_KU_STATUS",
     }
 
     def __init__(self, action_router=None):
@@ -62,11 +65,17 @@ class TieredOrchestrator:
         conversation_state: dict = None,
     ) -> dict:
         # Ebene 0: Quick Action (Button-Klick)
-        if quick_action and self.action_router:
-            logger.info("Routing via ActionRouter: %s", quick_action.get("type"))
-            result = await self.action_router.execute(quick_action)
-            if result is not None:
-                return result
+        if quick_action:
+            qa_type = quick_action.get("type", "")
+            # P-25: show_case bypasses ActionRouter — handled in Phase 1b via ResponseBuilder
+            if qa_type == "show_case":
+                logger.info("Routing show_case via quick_action (Phase 1b)")
+                return {"intent": "SHOW_CASE", "routing": "quick_action", "params": quick_action.get("params", {})}
+            if self.action_router:
+                logger.info("Routing via ActionRouter: %s", qa_type)
+                result = await self.action_router.execute(quick_action)
+                if result is not None:
+                    return result
 
         # Ebene 1: Regex (<5ms)
         intent = self._regex_match(message)

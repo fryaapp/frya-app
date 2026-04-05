@@ -106,24 +106,169 @@
 <p class="empty-sub">Noch keine Nutzer angelegt.</p>
 {% endif %}
 
-<!-- Token Summary -->
-{% if token_summary %}
-<h2 style="margin-top:24px;">Token-Kosten Uebersicht</h2>
-<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
+<!-- P-19: Token-Usage Detail (API-driven) -->
+<h2 style="margin-top:24px;">Token-Kosten Detail</h2>
+
+<!-- Zeitraum-Filter -->
+<div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
+  <button class="tu-period-btn" data-period="today" style="padding:6px 14px; border:1px solid #ccc; border-radius:6px; background:#fff; font-size:13px; cursor:pointer;">Heute</button>
+  <button class="tu-period-btn" data-period="7d" style="padding:6px 14px; border:1px solid #ccc; border-radius:6px; background:#fff; font-size:13px; cursor:pointer;">7 Tage</button>
+  <button class="tu-period-btn active" data-period="30d" style="padding:6px 14px; border:1px solid #D0601A; border-radius:6px; background:#D0601A; color:#fff; font-size:13px; cursor:pointer;">30 Tage</button>
+  <button class="tu-period-btn" data-period="all" style="padding:6px 14px; border:1px solid #ccc; border-radius:6px; background:#fff; font-size:13px; cursor:pointer;">Gesamt</button>
+  <span style="color:#999; font-size:12px; margin-left:8px;" id="tu-period-label">Lade...</span>
+</div>
+
+<!-- Globale Zusammenfassung -->
+<div id="tu-global" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px;">
   <div style="background:#f0f4ff; border:1px solid #c8d6e5; border-radius:8px; padding:14px 20px; min-width:140px;">
     <div style="font-size:12px; color:#666;">Gesamt-Tokens</div>
-    <div style="font-size:22px; font-weight:700;">{{ '{:,}'.format(token_summary.total_tokens) }}</div>
+    <div style="font-size:22px; font-weight:700;" id="tu-total-tokens">-</div>
+  </div>
+  <div style="background:#e8f0fe; border:1px solid #a8c4e6; border-radius:8px; padding:14px 20px; min-width:140px;">
+    <div style="font-size:12px; color:#666;">IONOS (EUR)</div>
+    <div style="font-size:22px; font-weight:700;" id="tu-ionos-cost">-</div>
   </div>
   <div style="background:#fef9f0; border:1px solid #f0d9a8; border-radius:8px; padding:14px 20px; min-width:140px;">
-    <div style="font-size:12px; color:#666;">Geschaetzte Kosten</div>
-    <div style="font-size:22px; font-weight:700;">{{ '%.4f' | format(token_summary.total_cost) }} EUR</div>
+    <div style="font-size:12px; color:#666;">Bedrock (EUR)</div>
+    <div style="font-size:22px; font-weight:700;" id="tu-bedrock-cost">-</div>
+  </div>
+  <div style="background:#fff0f0; border:1px solid #e8b8b8; border-radius:8px; padding:14px 20px; min-width:140px;">
+    <div style="font-size:12px; color:#666;">Gesamt-Kosten (EUR)</div>
+    <div style="font-size:22px; font-weight:700; color:#c62828;" id="tu-total-cost">-</div>
   </div>
   <div style="background:#f0faf0; border:1px solid #b8e6b8; border-radius:8px; padding:14px 20px; min-width:140px;">
     <div style="font-size:12px; color:#666;">LLM-Aufrufe</div>
-    <div style="font-size:22px; font-weight:700;">{{ token_summary.call_count }}</div>
+    <div style="font-size:22px; font-weight:700;" id="tu-total-calls">-</div>
+  </div>
+  <div style="background:#f5f0ff; border:1px solid #d0c4e8; border-radius:8px; padding:14px 20px; min-width:140px;">
+    <div style="font-size:12px; color:#666;">Aktive Nutzer</div>
+    <div style="font-size:22px; font-weight:700;" id="tu-active-users">-</div>
   </div>
 </div>
-{% endif %}
+
+<!-- User Token-Tabelle -->
+<div id="tu-table-wrap" style="overflow-x:auto;">
+  <table id="tu-user-table">
+    <thead>
+      <tr>
+        <th>Nutzer</th>
+        <th style="text-align:right;">IONOS In</th>
+        <th style="text-align:right;">IONOS Out</th>
+        <th style="text-align:right;">IONOS EUR</th>
+        <th style="text-align:right;">Bedrock In</th>
+        <th style="text-align:right;">Bedrock Out</th>
+        <th style="text-align:right;">Bedrock EUR</th>
+        <th style="text-align:right;">Gesamt EUR</th>
+        <th style="text-align:right;">Aufrufe</th>
+      </tr>
+    </thead>
+    <tbody id="tu-user-tbody">
+      <tr><td colspan="9" style="text-align:center; color:#999; padding:20px;">Lade Token-Daten...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function() {
+  var csrfToken = document.querySelector('meta[name="csrf-token"]');
+  csrfToken = csrfToken ? csrfToken.content : '';
+  var currentPeriod = '30d';
+
+  function fmtNum(n) {
+    if (n == null) return '-';
+    return n.toLocaleString('de-DE');
+  }
+  function fmtEur(n) {
+    if (n == null) return '-';
+    return n.toFixed(4);
+  }
+
+  function loadTokenUsage(period) {
+    currentPeriod = period;
+    // Update button styles
+    var btns = document.querySelectorAll('.tu-period-btn');
+    for (var i = 0; i < btns.length; i++) {
+      var btn = btns[i];
+      if (btn.getAttribute('data-period') === period) {
+        btn.style.background = '#D0601A';
+        btn.style.color = '#fff';
+        btn.style.borderColor = '#D0601A';
+      } else {
+        btn.style.background = '#fff';
+        btn.style.color = '#333';
+        btn.style.borderColor = '#ccc';
+      }
+    }
+
+    document.getElementById('tu-period-label').textContent = 'Lade...';
+
+    fetch('/api/v1/admin/token-usage?period=' + encodeURIComponent(period), {
+      headers: {'X-Frya-CSRF-Token': csrfToken}
+    })
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    })
+    .then(function(data) {
+      // Global
+      var g = data.global;
+      document.getElementById('tu-total-tokens').textContent = fmtNum(g.total_tokens);
+      document.getElementById('tu-ionos-cost').textContent = fmtEur(g.ionos_cost_eur);
+      document.getElementById('tu-bedrock-cost').textContent = fmtEur(g.bedrock_cost_eur);
+      document.getElementById('tu-total-cost').textContent = fmtEur(g.total_cost_eur);
+      document.getElementById('tu-total-calls').textContent = fmtNum(g.total_calls);
+      document.getElementById('tu-active-users').textContent = fmtNum(g.active_users);
+
+      // Period label
+      var pLabels = {today: 'Heute', '7d': 'Letzte 7 Tage', '30d': 'Letzte 30 Tage', all: 'Gesamt'};
+      document.getElementById('tu-period-label').textContent = pLabels[period] || period;
+
+      // User table
+      var tbody = document.getElementById('tu-user-tbody');
+      if (!data.per_user || data.per_user.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:#999; padding:20px;">Keine Token-Daten im Zeitraum.</td></tr>';
+        return;
+      }
+
+      var html = '';
+      for (var j = 0; j < data.per_user.length; j++) {
+        var u = data.per_user[j];
+        html += '<tr>';
+        html += '<td><strong>' + (u.username || '-') + '</strong><br><span style="font-size:11px; color:#888;">' + (u.email || '') + '</span></td>';
+        html += '<td style="text-align:right;">' + fmtNum(u.ionos.input_tokens) + '</td>';
+        html += '<td style="text-align:right;">' + fmtNum(u.ionos.output_tokens) + '</td>';
+        html += '<td style="text-align:right;">' + fmtEur(u.ionos.cost_eur) + '</td>';
+        html += '<td style="text-align:right;">' + fmtNum(u.bedrock.input_tokens + u.anthropic.input_tokens) + '</td>';
+        html += '<td style="text-align:right;">' + fmtNum(u.bedrock.output_tokens + u.anthropic.output_tokens) + '</td>';
+        html += '<td style="text-align:right;">' + fmtEur(u.bedrock.cost_eur + u.anthropic.cost_eur) + '</td>';
+        html += '<td style="text-align:right; font-weight:700; color:#c62828;">' + fmtEur(u.total_cost_eur) + '</td>';
+        html += '<td style="text-align:right;">' + fmtNum(u.total_calls) + '</td>';
+        html += '</tr>';
+      }
+      tbody.innerHTML = html;
+    })
+    .catch(function(err) {
+      console.error('Token-Usage fetch error:', err);
+      document.getElementById('tu-period-label').textContent = 'Fehler beim Laden';
+      document.getElementById('tu-user-tbody').innerHTML =
+        '<tr><td colspan="9" style="text-align:center; color:#c62828; padding:20px;">Fehler: ' + err.message + '</td></tr>';
+    });
+  }
+
+  // Event Listener fuer Filter-Buttons
+  var allBtns = document.querySelectorAll('.tu-period-btn');
+  for (var k = 0; k < allBtns.length; k++) {
+    (function(btn) {
+      btn.addEventListener('click', function() {
+        loadTokenUsage(btn.getAttribute('data-period'));
+      });
+    })(allBtns[k]);
+  }
+
+  // Initial laden
+  loadTokenUsage('30d');
+})();
+</script>
 
 <!-- Recent Feedback -->
 <h2>Neueste Bug-Meldungen</h2>

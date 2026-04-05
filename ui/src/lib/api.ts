@@ -88,7 +88,7 @@ class ApiClient {
 
     let res = await doFetch()
 
-    if (res.status === 401 && this.refreshToken) {
+    if ((res.status === 401 || res.status === 403) && this.refreshToken) {
       try {
         await this.tryRefresh()
         res = await doFetch()

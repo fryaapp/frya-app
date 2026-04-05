@@ -57,21 +57,24 @@ class _InboxService:
                    if r.status == 'PENDING' and r.action_type == 'booking_finalize']
         if not pending:
             # Approvals use doc-{paperless_id} as case_id — resolve via case_documents
+            # P-25b: A case can have multiple document_source_ids — check ALL of them
             try:
                 import asyncpg
                 from app.dependencies import get_settings
                 conn = await asyncpg.connect(get_settings().database_url)
                 try:
-                    doc_row = await conn.fetchrow(
-                        "SELECT document_source_id FROM case_documents WHERE case_id = $1::uuid LIMIT 1",
+                    doc_rows = await conn.fetch(
+                        "SELECT document_source_id FROM case_documents WHERE case_id = $1::uuid ORDER BY document_source_id::int DESC",
                         case_id,
                     )
-                    if doc_row and doc_row['document_source_id']:
-                        doc_case_id = f"doc-{doc_row['document_source_id']}"
-                        pending = [r for r in await approval_svc.list_by_case(doc_case_id)
-                                   if r.status == 'PENDING' and r.action_type == 'booking_finalize']
-                        if pending:
-                            case_id = doc_case_id  # Use doc-X for downstream
+                    for doc_row in doc_rows:
+                        if doc_row['document_source_id']:
+                            doc_case_id = f"doc-{doc_row['document_source_id']}"
+                            pending = [r for r in await approval_svc.list_by_case(doc_case_id)
+                                       if r.status == 'PENDING' and r.action_type == 'booking_finalize']
+                            if pending:
+                                case_id = doc_case_id  # Use doc-X for downstream
+                                break
                 finally:
                     await conn.close()
             except Exception as exc:
@@ -96,23 +99,25 @@ class _InboxService:
         approval_svc = get_approval_service()
         pending = [r for r in await approval_svc.list_by_case(case_id)
                    if r.status == 'PENDING']
-        # P-12: Resolve via doc-X if UUID lookup fails
+        # P-12/P-25b: Resolve via doc-X if UUID lookup fails — check ALL doc IDs
         if not pending:
             try:
                 import asyncpg
                 from app.dependencies import get_settings
                 conn = await asyncpg.connect(get_settings().database_url)
                 try:
-                    doc_row = await conn.fetchrow(
-                        "SELECT document_source_id FROM case_documents WHERE case_id = $1::uuid LIMIT 1",
+                    doc_rows = await conn.fetch(
+                        "SELECT document_source_id FROM case_documents WHERE case_id = $1::uuid ORDER BY document_source_id::int DESC",
                         case_id,
                     )
-                    if doc_row and doc_row['document_source_id']:
-                        doc_case_id = f"doc-{doc_row['document_source_id']}"
-                        pending = [r for r in await approval_svc.list_by_case(doc_case_id)
-                                   if r.status == 'PENDING']
-                        if pending:
-                            case_id = doc_case_id
+                    for doc_row in doc_rows:
+                        if doc_row['document_source_id']:
+                            doc_case_id = f"doc-{doc_row['document_source_id']}"
+                            pending = [r for r in await approval_svc.list_by_case(doc_case_id)
+                                       if r.status == 'PENDING']
+                            if pending:
+                                case_id = doc_case_id
+                                break
                 finally:
                     await conn.close()
             except Exception:
@@ -165,7 +170,64 @@ class _InboxService:
                 'confidence_label': 'Sicher' if (conf or 0) >= 0.85 else 'Hoch' if (conf or 0) >= 0.65 else 'Mittel' if (conf or 0) >= 0.4 else 'Niedrig',
                 'status': c.status,
             })
-        return {'items': items, 'count': len(pending)}
+
+        # P-25: Load references for grouping
+        references = []
+        try:
+            import uuid as _uuid
+            for c in pending[:20]:
+                refs = await repo.get_case_references(_uuid.UUID(str(c.id)))
+                for r in refs:
+                    references.append({
+                        'case_id': str(r.case_id),
+                        'reference_type': r.reference_type,
+                        'reference_value': r.reference_value,
+                    })
+        except Exception as _ref_exc:
+            logger.debug('Could not load case references for grouping: %s', _ref_exc)
+
+        return {'items': items, 'count': len(pending), 'references': references}
+
+    async def get_case(self, case_id: str = '', **kw) -> dict:
+        """Load a single case by case_id for detail view (P-25)."""
+        from app.dependencies import get_case_repository
+        import uuid as _uuid
+        repo = get_case_repository()
+        try:
+            case = await repo.get_case(_uuid.UUID(case_id))
+        except Exception:
+            return {'error': f'Vorgang {case_id} nicht gefunden.'}
+        if not case:
+            return {'error': f'Vorgang {case_id} nicht gefunden.'}
+        meta = case.metadata or {}
+        doc_analysis = meta.get('document_analysis', {})
+        conf = doc_analysis.get('overall_confidence') or meta.get('overall_confidence')
+        fields = doc_analysis.get('fields', {})
+        # Build rich detail response
+        result = {
+            'case': {
+                'id': str(case.id),
+                'case_number': getattr(case, 'case_number', str(case.id)[:13]),
+                'case_type': doc_analysis.get('document_type', ''),
+                'vendor_name': case.vendor_name or '?',
+                'total_amount': float(case.total_amount) if case.total_amount else 0,
+                'status': case.status,
+                'confidence': conf,
+                'confidence_label': 'Sicher' if (conf or 0) >= 0.85 else 'Hoch' if (conf or 0) >= 0.65 else 'Mittel' if (conf or 0) >= 0.4 else 'Niedrig',
+            },
+            'fields': fields,
+            'document_analysis': doc_analysis,
+        }
+        # Load references
+        try:
+            refs = await repo.get_case_references(_uuid.UUID(case_id))
+            result['references'] = [
+                {'type': r.reference_type, 'value': r.reference_value}
+                for r in refs
+            ]
+        except Exception:
+            result['references'] = []
+        return result
 
     async def _get_next_pending(self, skip_case_id: str = '') -> dict | None:
         try:

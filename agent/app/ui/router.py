@@ -130,7 +130,7 @@ def _case_kind(case_id: str) -> str:
     if case_id.startswith('tg-'):
         return 'Telegram'
     if case_id.startswith('rule:'):
-        return 'Rule-Aenderung'
+        return 'Rule-\u00c4nderung'
     if case_id.startswith('system-'):
         return 'System'
     return 'Allgemein'
@@ -2884,8 +2884,11 @@ async def ui_users_invite(request: Request, auth_user: AuthUser = Depends(requir
             settings = get_settings()
 
             existing = await user_repo.find_by_username(username)
+            existing_email = await user_repo.find_by_email(email)
             if existing:
                 invite_error = f'Benutzername "{username}" ist bereits vergeben.'
+            elif existing_email:
+                invite_error = f'E-Mail "{email}" ist bereits registriert (User: {existing_email.username}).'
             else:
                 # P-20: Auto-Tenant fuer customer (Alpha-Tester)
                 user_tenant_id = None

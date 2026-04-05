@@ -1529,3 +1529,33 @@ async def chat_websocket(websocket: WebSocket, token: str = Query(default='')):
     except Exception as exc:
         logger.warning('WebSocket error for user %s: %s', user_id, exc)
         ws_manager.disconnect(user_id)
+
+
+# ---------------------------------------------------------------------------
+# P-31: POST /settings/push-token — FCM-Token speichern
+# ---------------------------------------------------------------------------
+
+class PushTokenRequest(BaseModel):
+    token: str
+    platform: str = 'android'
+
+
+@router.post('/settings/push-token', status_code=200)
+async def save_push_token_endpoint(
+    body: PushTokenRequest,
+    user: AuthUser = Depends(require_authenticated),
+):
+    """Speichert oder aktualisiert den FCM-Push-Token fuer den angemeldeten User.
+
+    Wird von der nativen App aufgerufen, nachdem der User Push-Benachrichtigungen
+    erlaubt hat und die App einen FCM-Token von Firebase empfangen hat.
+    """
+    tenant_id = await _resolve_tenant_uuid(user)
+    try:
+        from app.services.push_service import save_push_token
+        await save_push_token(str(tenant_id), body.token, body.platform)
+        logger.info('[Push] Token gespeichert fuer Tenant %s (platform=%s)', tenant_id, body.platform)
+    except Exception as exc:
+        logger.error('[Push] Token-Speicherung fehlgeschlagen fuer Tenant %s: %s', tenant_id, exc)
+        raise HTTPException(status_code=500, detail='Push-Token konnte nicht gespeichert werden.')
+    return {'status': 'ok', 'platform': body.platform}

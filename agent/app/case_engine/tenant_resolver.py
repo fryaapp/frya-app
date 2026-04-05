@@ -1,11 +1,12 @@
 """Tenant resolution for the CaseEngine integration.
 
-Single-tenant strategy (Staging / MVP):
-  1. ENV:  FRYA_DEFAULT_TENANT_ID  → use directly
-  2. DB:   frya_tenants WHERE status='active' LIMIT 1  → first tenant
-  3. None  → CaseEngine integration is skipped silently
+P-24 SECURITY: This resolver must NEVER return another user's tenant_id.
+In multi-tenant mode the tenant MUST come from the JWT (via _resolve_tenant
+in each API module). This resolver is ONLY a fallback for non-authenticated
+contexts (webhooks, cron jobs, migrations).
 
-Multi-tenant routing (coming later) will replace this with session/JWT lookup.
+WARNING: Do NOT use this function for user-facing API endpoints.
+Use the _resolve_tenant(user) pattern instead which reads from JWT first.
 """
 from __future__ import annotations
 
@@ -17,13 +18,21 @@ _logger = logging.getLogger(__name__)
 async def resolve_tenant_id() -> str | None:
     """Return a tenant_id string, or None if none can be resolved.
 
-    Logs at INFO level when resolved, at DEBUG level when skipped.
+    P-24: In multi-tenant mode this function logs a WARNING because
+    it should NOT be used for user-facing requests. The tenant must
+    come from the JWT token via _resolve_tenant(user).
+
     Never raises — callers treat None as "skip CaseEngine".
     """
-    from app.config import get_settings
-    from app.dependencies import get_tenant_repository
+    _logger.warning(
+        'P-24 SECURITY: resolve_tenant_id() called without JWT context. '
+        'This is only safe for webhooks/cron. If this appears during a '
+        'user request, there is a tenant isolation bug!'
+    )
 
-    # ── 1. Explicit ENV override ───────────────────────────────────────────────
+    from app.config import get_settings
+
+    # ── 1. Explicit ENV override (only for non-user contexts) ─────────────────
     try:
         settings = get_settings()
         if settings.default_tenant_id:
@@ -32,17 +41,8 @@ async def resolve_tenant_id() -> str | None:
     except Exception as exc:
         _logger.warning('CaseEngine: could not read settings: %s', exc)
 
-    # ── 2. First active tenant from DB ────────────────────────────────────────
-    try:
-        repo = get_tenant_repository()
-        tenants = await repo.list_active()
-        if tenants:
-            tid = tenants[0].tenant_id
-            _logger.info('CaseEngine: tenant_id resolved from DB: %s', tid)
-            return tid
-    except Exception as exc:
-        _logger.warning('CaseEngine: tenant DB lookup failed: %s', exc)
-
-    # ── 3. No tenant available ────────────────────────────────────────────────
-    _logger.debug('CaseEngine: skipped, no tenant_id available')
+    # ── 2. P-24: Do NOT fall back to "first active tenant" ────────────────────
+    # This was the root cause of cross-tenant data leaks.
+    # In multi-tenant mode, returning the wrong tenant is a security breach.
+    _logger.warning('CaseEngine: no tenant_id available — returning None (multi-tenant safe)')
     return None

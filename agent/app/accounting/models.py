@@ -14,7 +14,7 @@ BookingType = Literal['INCOME', 'EXPENSE', 'TRANSFER', 'CORRECTION']
 BookingStatus = Literal['DRAFT', 'BOOKED', 'CANCELLED']
 OpenItemType = Literal['RECEIVABLE', 'PAYABLE']
 OpenItemStatus = Literal['OPEN', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED']
-InvoiceStatus = Literal['DRAFT', 'SENT', 'PAID', 'OVERDUE', 'CANCELLED']
+InvoiceStatus = Literal['DRAFT', 'SENT', 'PAID', 'OVERDUE', 'CANCELLED', 'REVERSED', 'VOID']
 
 
 class Account(BaseModel):

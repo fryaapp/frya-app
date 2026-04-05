@@ -107,7 +107,7 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
             hint = f'\n(Noch {remaining} kurze Frage{"n" if remaining > 1 else ""} danach.)'
         else:
             hint = ''
-        intro = 'Gerne! Fuer deine erste Rechnung brauche ich ein paar Angaben ueber dein Unternehmen. Das machen wir einmal und dann nie wieder.\n\n' if not profile else ''
+        intro = 'Gerne! Für deine erste Rechnung brauche ich ein paar Angaben ueber dein Unternehmen. Das machen wir einmal und dann nie wieder.\n\n' if not profile else ''
         # Buttons for Kleinunternehmer question
         actions: list[dict] = []
         if 'Kleinunternehmer' in first_question:
@@ -122,9 +122,10 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
             'context_type': 'none',
             '_pending_intent': 'CREATE_INVOICE',
             '_pending_data': invoice_data,
+            '_waiting_for': 'company_profile_wizard',
         }
 
-    # --- Empfaenger-Adresse Compliance-Gate ---
+    # --- Empfänger-Adresse Compliance-Gate ---
     # §14 Abs.4 UStG: Vollstaendige Anschrift des Leistungsempfaengers erforderlich
     contact_address = invoice_data.get('contact_address') or {}
     contact_name = invoice_data.get('contact_name', '')
@@ -163,16 +164,64 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
         _addr_zip = invoice_data.get('contact_zip', '')
         _addr_city = invoice_data.get('contact_city', '')
 
-    # --- HARTER COMPLIANCE-GATE (P-05): Reine Code-Validierung ---
-    # Merged data: Absender (profile) + Empfaenger + Dokument
+    # --- P-27: Zentrale Steuer-Entscheidung via invoice_type.py ---
     from app.services.compliance_gate import validate as _gate_validate
-    from app.services.invoice_type import determine_invoice_type
+    from app.services.invoice_type import (
+        InvoiceType, determine_invoice_type, calculate_invoice_amounts,
+        determine_tax_rate_from_items,
+    )
+    from decimal import Decimal as _Dec
 
-    # Rechnungstyp bestimmen (Kleinunternehmer, etc.)
+    # is_kleinunternehmer aus Business-Profil (Default TRUE für Alpha)
+    _is_ku = bool((profile or {}).get('is_kleinunternehmer', True))
+    _items_for_calc = invoice_data.get('items', [])
+    _net_total_dec = _Dec(str(sum(
+        float(i.get('quantity', 1)) * float(i.get('unit_price', 0))
+        for i in _items_for_calc
+    )))
+    _tax_rate_from_items = determine_tax_rate_from_items(
+        _items_for_calc, (profile or {}).get('default_tax_rate') or 19,
+    )
+    _explicit_rate = invoice_data.get('explicit_tax_rate')
+    _is_rc = bool(invoice_data.get('reverse_charge'))
+    _recipient = invoice_data.get('recipient', {})
+    _recip_country = _recipient.get('country', 'DE')
+    _recip_ust_id = _recipient.get('ust_id')
+
+    # Rechnungstyp bestimmen (EINZIGE Stelle)
     try:
-        _pre_inv_type = determine_invoice_type(profile or {}, invoice_data)
+        _inv_type_enum = determine_invoice_type(
+            is_kleinunternehmer=_is_ku,
+            net_amount=_net_total_dec,
+            tax_rate=_tax_rate_from_items,
+            is_reverse_charge=_is_rc,
+            recipient_country=_recip_country,
+            recipient_ust_id=_recip_ust_id,
+            explicit_tax_rate=int(_explicit_rate) if _explicit_rate is not None else None,
+        )
     except Exception:
-        _pre_inv_type = {'type': 'STANDARD_B2B', 'tax_rate': 19, 'show_tax_line': True}
+        _inv_type_enum = InvoiceType.REGULAR_19
+
+    # Betraege berechnen (EINZIGE Stelle)
+    _amounts = calculate_invoice_amounts(_inv_type_enum, _net_total_dec, _tax_rate_from_items)
+
+    # P-27 COMPLIANCE CHECK: KU + MwSt = BLOCKIERT
+    if _inv_type_enum == InvoiceType.KLEINUNTERNEHMER:
+        if _amounts.get('tax_amount', 0) > 0 or _amounts.get('tax_rate', 0) > 0:
+            return {
+                'text': 'FEHLER: Kleinunternehmer-Rechnung darf keine MwSt ausweisen (\u00a719 UStG). Interner Fehler — bitte Support kontaktieren.',
+                'content_blocks': [],
+                'actions': [],
+                'context_type': 'none',
+            }
+
+    # Legacy-kompatibles dict für compliance_gate.validate()
+    _pre_inv_type = {
+        'type': _inv_type_enum.value.upper(),
+        'tax_rate': _amounts['tax_rate'],
+        'tax_note': _amounts.get('tax_hint'),
+        'show_tax_line': _amounts['show_tax_line'],
+    }
 
     _gate_data: dict[str, Any] = {}
     # Absender aus Profil
@@ -185,7 +234,7 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
             'tax_number': profile.get('tax_number', ''),
             'ust_id': profile.get('ust_id', ''),
         })
-    # Empfaenger
+    # Empfänger
     _gate_data['contact_name'] = contact_name
     _gate_data['contact_street'] = _addr_street
     _gate_data['contact_zip'] = _addr_zip
@@ -205,17 +254,18 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
         if _gate_result.missing_sender:
             # Absender-Daten fehlen -> Onboarding-Flow (Legacy)
             return {
-                'text': f'Fuer die Rechnung fehlen noch Angaben zu deinem Unternehmen: {", ".join(_gate_result.missing_sender)}',
+                'text': f'Für die Rechnung fehlen noch Angaben zu deinem Unternehmen: {", ".join(_gate_result.missing_sender)}',
                 'content_blocks': [],
                 'actions': [],
                 'context_type': 'none',
                 '_pending_intent': 'CREATE_INVOICE',
                 '_pending_data': invoice_data,
+                '_waiting_for': 'company_profile_wizard',
             }
         if _gate_result.missing_recipient:
             return {
                 'text': (
-                    f'Fuer die Rechnung an {contact_name} brauche ich noch: '
+                    f'Für die Rechnung an {contact_name} brauche ich noch: '
                     f'{", ".join(_gate_result.missing_recipient)}. '
                     f'Das ist gesetzlich vorgeschrieben (§14 UStG).'
                 ),
@@ -227,7 +277,7 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
             }
         if _gate_result.missing_document:
             return {
-                'text': f'Fuer die Rechnung fehlt noch: {", ".join(_gate_result.missing_document)}',
+                'text': f'Für die Rechnung fehlt noch: {", ".join(_gate_result.missing_document)}',
                 'content_blocks': [],
                 'actions': [],
                 'context_type': 'none',
@@ -286,25 +336,34 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
     due_days = int(invoice_data.get('payment_terms_days', 14))
     due_date = date.today() + timedelta(days=due_days)
 
+    # P-27: Items mit korrektem Steuersatz aus invoice_type vorbereiten
+    _draft_items = []
+    for _it in invoice_data.get('items', []):
+        _it_copy = dict(_it)
+        _it_copy['tax_rate'] = int(_amounts['tax_rate'])  # EINZIGE Quelle
+        _draft_items.append(_it_copy)
+
     invoice = await svc.create_invoice(
         tenant_id=tid,
         contact_id=contact.id,
-        items=invoice_data.get('items', []),
+        items=_draft_items,
         due_date=due_date,
         header_text=None,
         footer_text=invoice_data.get('notes'),
     )
 
-    # 3. Rechnungstyp — FESTER Wert aus _pre_inv_type (schon vor Gate bestimmt)
+    # 3. Rechnungstyp — FESTER Wert aus P-27 calculate_invoice_amounts
     inv_type_info = _pre_inv_type
 
-    # 4. Berechne Vorschau-Werte mit FESTEM Steuersatz (P-05: keine Division!)
+    # 4. Berechne Vorschau-Werte (P-27: EINZIGE Stelle = calculate_invoice_amounts)
     items = invoice_data.get('items', [])
-    total_net = sum(i.get('quantity', 1) * i.get('unit_price', 0) for i in items)
-    # FESTER Steuersatz aus invoice_type.py — NICHT aus Items oder Berechnung
-    tax_rate = int(inv_type_info.get('tax_rate', 19))
-    total_tax = total_net * tax_rate / 100
-    total_gross = total_net + total_tax
+    total_net = float(_amounts['net_amount'])
+    tax_rate = int(_amounts['tax_rate'])
+    total_tax = float(_amounts['tax_amount'])
+    total_gross = float(_amounts['gross_amount'])
+    _show_tax_line = _amounts['show_tax_line']
+    _show_netto_brutto = _amounts['show_net_gross_split']
+    _tax_hint_text = _amounts.get('tax_hint')
 
     # 5. PDF-URL
     pdf_url = f'/api/v1/invoices/{invoice.id}/pdf'
@@ -320,7 +379,7 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
 
     # Build preview items — must match PDF content exactly
     preview_items = [
-        {'label': 'Empfaenger', 'value': contact_name},
+        {'label': 'Empfänger', 'value': contact_name},
     ]
     if _preview_addr:
         preview_items.append({'label': 'Adresse', 'value': _preview_addr})
@@ -337,32 +396,25 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
             'value': f'{qty_str} x {_eur(up)}',
         })
 
-    preview_items.append({'label': 'Netto', 'value': _eur(total_net)})
-    if inv_type_info.get('show_tax_line', True):
-        preview_items.append({'label': f'MwSt ({tax_rate}%)', 'value': _eur(total_tax)})
-    preview_items.append({'label': 'Brutto', 'value': _eur(total_gross)})
-    preview_items.append({'label': 'Zahlungsziel', 'value': due_date.strftime('%d.%m.%Y')})
-    # Invoice type hint
-    _type_labels = {
-        'KLEINUNTERNEHMER': 'Kleinunternehmer §19',
-        'KLEINBETRAG': 'Kleinbetragsrechnung §33',
-        'INNERGEMEINSCHAFTLICH': 'Innergemeinschaftlich (0% MwSt)',
-        'REVERSE_CHARGE': 'Reverse Charge §13b',
-        'STANDARD_B2B': 'Standard B2B',
-        'STANDARD_B2C': 'Standard B2C',
-    }
-    inv_type_label = _type_labels.get(inv_type_info.get('type', ''), '')
-    if inv_type_label:
-        preview_items.append({'label': 'Rechnungstyp', 'value': inv_type_label})
+    # P-27: Vorschau Netto/MwSt/Brutto NUR für regulaere Rechnungen
+    if _show_netto_brutto:
+        preview_items.append({'label': 'Netto', 'value': _eur(total_net)})
+        if _show_tax_line:
+            preview_items.append({'label': f'MwSt ({tax_rate}%)', 'value': _eur(total_tax)})
+        preview_items.append({'label': 'Brutto', 'value': _eur(total_gross)})
+    else:
+        # Kleinunternehmer / Reverse Charge: NUR Gesamtbetrag
+        preview_items.append({'label': 'Gesamtbetrag', 'value': _eur(total_gross)})
 
-    # Tax note (e.g. Kleinunternehmer §19 hint) — show in BOTH text and preview
-    tax_note = inv_type_info.get('tax_note')
-    if tax_note:
-        preview_items.append({'label': 'Hinweis', 'value': tax_note})
-    text_suffix = f'\n\n_Hinweis: {tax_note}_' if tax_note else ''
+    preview_items.append({'label': 'Zahlungsziel', 'value': due_date.strftime('%d.%m.%Y')})
+
+    # P-27: tax_hint als Hinweis in Vorschau + Text
+    if _tax_hint_text:
+        preview_items.append({'label': 'Hinweis', 'value': _tax_hint_text})
+    text_suffix = f'\n\n_Hinweis: {_tax_hint_text}_' if _tax_hint_text else ''
 
     return {
-        'text': f'Rechnung {invoice.invoice_number} fuer {contact_name} erstellt (Entwurf).{text_suffix}',
+        'text': f'Rechnung {invoice.invoice_number} für {contact_name} erstellt (Entwurf).{text_suffix}',
         'content_blocks': [
             {
                 'block_type': 'key_value',
@@ -687,7 +739,7 @@ async def archive_outgoing_invoice(
             if doc_id:
                 # Set document type
                 doc_type_id = await connector.find_or_create_document_type('Ausgangsrechnung')
-                # Set correspondent (= Empfaenger/Kunde)
+                # Set correspondent (= Empfänger/Kunde)
                 corr_id = await connector.find_or_create_correspondent(contact_name)
                 # Set tag
                 tag_id = await connector.find_or_create_tag('frya:gebucht', '#4CAF50')
@@ -899,9 +951,25 @@ async def _generate_invoice_pdf(
             await _conn.close()
 
         template_key = get_template_name(_tpl_prefs.get('invoice_template'))
-        kleinunternehmer = _tpl_prefs.get('kleinunternehmer') == 'true'
         skonto_pct = float(_tpl_prefs['default_skonto_percent']) if _tpl_prefs.get('default_skonto_percent') else None
         skonto_days = int(_tpl_prefs['default_skonto_days']) if _tpl_prefs.get('default_skonto_days') else None
+
+        # P-27: is_kleinunternehmer aus frya_business_profile (NICHT user_preferences)
+        kleinunternehmer = False
+        try:
+            _bp_row = await _conn.fetchrow(
+                "SELECT is_kleinunternehmer FROM frya_business_profile "
+                "WHERE tenant_id IN ($1, 'default', '') "
+                "ORDER BY CASE WHEN tenant_id = $1 THEN 0 ELSE 1 END LIMIT 1",
+                _tid_str,
+            )
+            if _bp_row:
+                kleinunternehmer = bool(_bp_row.get('is_kleinunternehmer', True))
+            else:
+                kleinunternehmer = True  # Default TRUE für Alpha
+        except Exception as _ku_exc:
+            logger.warning('KU-Flag load failed: %s', _ku_exc)
+            kleinunternehmer = True  # Safe default
 
     except Exception as exc:
         logger.warning('Template-aware PDF setup failed, using legacy: %s', exc)
@@ -1000,3 +1068,204 @@ async def _generate_invoice_pdf(
         logger.warning('ZUGFeRD embedding failed: %s', exc)
 
     return pdf_bytes
+
+
+# ---------------------------------------------------------------------------
+# P-27 Aufgabe 6: Stornorechnung / Rechnung zurueckziehen
+# ---------------------------------------------------------------------------
+
+async def handle_cancel_invoice(params: dict, user_id: str, tenant_id: str | None = None) -> dict:
+    """Rechnung stornieren.
+
+    Logik:
+      1. DRAFT -> CANCELLED (einfache Statusaenderung)
+      2. SENT ohne Buchung -> CANCELLED
+      3. SENT/PAID mit Buchung -> REVERSED + Stornorechnung + Gegenbuchung
+    GoBD: Originalrechnung wird NICHT geloescht, nur Status.
+    """
+    invoice_id = params.get('invoice_id')
+    if not invoice_id:
+        return {
+            'text': 'Fehler: Keine Rechnungs-ID angegeben.',
+            'content_blocks': [],
+            'actions': [],
+        }
+
+    tid = await _resolve_tenant(tenant_id)
+
+    try:
+        import asyncpg
+        from app.dependencies import get_settings
+        conn = await asyncpg.connect(get_settings().database_url)
+    except Exception as exc:
+        logger.error('DB connection failed: %s', exc)
+        return {'text': f'Datenbankfehler: {exc}', 'content_blocks': [], 'actions': []}
+
+    try:
+        # 1. Rechnung laden
+        row = await conn.fetchrow(
+            "SELECT id, invoice_number, status, contact_id, net_total, tax_total, "
+            "gross_total, tenant_id, booking_id, invoice_date "
+            "FROM frya_invoices WHERE id = $1::uuid AND tenant_id = $2::uuid",
+            invoice_id, str(tid),
+        )
+        if not row:
+            return {'text': 'Rechnung nicht gefunden.', 'content_blocks': [], 'actions': []}
+
+        row = dict(row)
+        inv_number = row.get('invoice_number', '?')
+        status = row.get('status', 'DRAFT')
+        booking_id = row.get('booking_id')
+        gross = float(row.get('gross_total', 0))
+
+        # Kontakt-Name laden
+        _contact_name = ''
+        _cid = row.get('contact_id')
+        if _cid:
+            _c_row = await conn.fetchrow(
+                "SELECT name FROM frya_contacts WHERE id = $1::uuid", str(_cid),
+            )
+            if _c_row:
+                _contact_name = _c_row['name'] or ''
+
+        # 2. Status pruefen
+        if status in ('CANCELLED', 'REVERSED', 'VOID'):
+            return {
+                'text': f'Rechnung {inv_number} ist bereits storniert/verworfen.',
+                'content_blocks': [],
+                'actions': [],
+            }
+
+        if status == 'PAID' and not booking_id:
+            # Bezahlt aber keine Buchung — behandeln wie SENT ohne Buchung
+            booking_id = None
+
+        # 3a. DRAFT oder SENT ohne Buchung -> einfach CANCELLED
+        if status == 'DRAFT' or (status == 'SENT' and not booking_id):
+            await conn.execute(
+                "UPDATE frya_invoices SET status = 'CANCELLED' WHERE id = $1::uuid",
+                invoice_id,
+            )
+            # Offenen Posten stornieren
+            await conn.execute(
+                "UPDATE frya_open_items SET status = 'CANCELLED' "
+                "WHERE document_ref = $1 AND tenant_id = $2 AND status IN ('OPEN', 'OVERDUE')",
+                inv_number, str(tid),
+            )
+            logger.info('Invoice %s cancelled (was %s) by %s', inv_number, status, user_id)
+            return {
+                'text': f'Rechnung {inv_number} wurde storniert.',
+                'content_blocks': [{
+                    'block_type': 'alert',
+                    'data': {'severity': 'success', 'text': f'Rechnung {inv_number} storniert.'},
+                }],
+                'actions': [
+                    {'label': 'Neue Rechnung', 'chat_text': 'Rechnung erstellen', 'style': 'secondary'},
+                ],
+                'context_type': 'none',
+            }
+
+        # 3b. SENT/PAID mit Buchung -> Stornorechnung erstellen
+        net = float(row.get('net_total', 0))
+        tax = float(row.get('tax_total', 0))
+        inv_date = row.get('invoice_date')
+
+        # Stornorechnung-Nummer generieren
+        storno_nr = f'STORNO-{inv_number}'
+
+        # Stornorechnung in DB anlegen (negativer Betrag)
+        storno_id = str(uuid.uuid4())
+        await conn.execute(
+            "INSERT INTO frya_invoices "
+            "(id, tenant_id, contact_id, invoice_number, invoice_date, due_date, "
+            "net_total, tax_total, gross_total, status, header_text, footer_text) "
+            "VALUES ($1::uuid, $2::uuid, $3::uuid, $4, NOW()::date, NOW()::date, "
+            "$5, $6, $7, 'SENT', $8, NULL)",
+            storno_id, str(tid), str(_cid) if _cid else None,
+            storno_nr, -net, -tax, -gross,
+            f'Stornierung der Rechnung {inv_number} vom {inv_date.strftime("%d.%m.%Y") if inv_date else "?"}',
+        )
+
+        # Gegenbuchung erstellen (GoBD-konform, Hash-Chain)
+        try:
+            _prev_hash = ''
+            _prev_row = await conn.fetchrow(
+                "SELECT booking_hash FROM frya_bookings "
+                "WHERE tenant_id = $1::uuid ORDER BY created_at DESC LIMIT 1",
+                str(tid),
+            )
+            if _prev_row:
+                _prev_hash = _prev_row['booking_hash'] or ''
+
+            _cancel_booking_id = str(uuid.uuid4())
+            _bn_row = await conn.fetchrow(
+                "SELECT COALESCE(MAX(booking_number), 0) + 1 AS next_bn "
+                "FROM frya_bookings WHERE tenant_id = $1::uuid",
+                str(tid),
+            )
+            _next_bn = _bn_row['next_bn'] if _bn_row else 1
+
+            _hash_data = f'{_cancel_booking_id}|{storno_nr}|{-gross}|{_prev_hash}'
+            import hashlib
+            _booking_hash = hashlib.sha256(_hash_data.encode()).hexdigest()
+
+            await conn.execute(
+                "INSERT INTO frya_bookings "
+                "(id, tenant_id, booking_number, booking_date, description, "
+                "account_soll, account_haben, gross_amount, net_amount, tax_rate, tax_amount, "
+                "document_number, booking_type, status, cancelled_booking_id, cancel_reason, "
+                "previous_hash, booking_hash, created_by, source) "
+                "VALUES ($1::uuid, $2::uuid, $3, NOW()::date, $4, "
+                "'1200', '8400', $5, $6, $7, $8, "
+                "$9, 'CORRECTION', 'BOOKED', $10::uuid, $11, "
+                "$12, $13, $14, 'frya-storno')",
+                _cancel_booking_id, str(tid), _next_bn,
+                f'Storno: {inv_number} ({_contact_name})',
+                -gross, -net, tax / net * 100 if net else 0, -tax,
+                storno_nr, str(booking_id),
+                f'Stornierung Rechnung {inv_number}',
+                _prev_hash, _booking_hash, user_id,
+            )
+        except Exception as _bk_exc:
+            logger.warning('Gegenbuchung für Storno %s failed: %s', inv_number, _bk_exc)
+
+        # Original auf REVERSED setzen
+        await conn.execute(
+            "UPDATE frya_invoices SET status = 'REVERSED' WHERE id = $1::uuid",
+            invoice_id,
+        )
+        # Offenen Posten stornieren
+        await conn.execute(
+            "UPDATE frya_open_items SET status = 'CANCELLED' "
+            "WHERE document_ref = $1 AND tenant_id = $2 AND status IN ('OPEN', 'OVERDUE', 'PARTIALLY_PAID')",
+            inv_number, str(tid),
+        )
+        # Originalbuchung als CANCELLED markieren
+        if booking_id:
+            await conn.execute(
+                "UPDATE frya_bookings SET status = 'CANCELLED', cancelled_at = NOW(), "
+                "cancelled_by = $2, cancel_reason = 'Stornierung' WHERE id = $1::uuid",
+                str(booking_id), user_id,
+            )
+
+        logger.info('Invoice %s reversed (Storno: %s) by %s', inv_number, storno_nr, user_id)
+        return {
+            'text': f'Rechnung {inv_number} wurde storniert. Stornorechnung {storno_nr} erstellt.',
+            'content_blocks': [{
+                'block_type': 'alert',
+                'data': {
+                    'severity': 'success',
+                    'text': f'Rechnung {inv_number} storniert. Gegenbuchung {storno_nr} ({_eur(-gross)}) erstellt.',
+                },
+            }],
+            'actions': [
+                {'label': 'Neue Rechnung', 'chat_text': 'Rechnung erstellen', 'style': 'secondary'},
+            ],
+            'context_type': 'none',
+        }
+
+    except Exception as exc:
+        logger.error('Cancel invoice %s failed: %s', invoice_id, exc)
+        return {'text': f'Stornierung fehlgeschlagen: {exc}', 'content_blocks': [], 'actions': []}
+    finally:
+        await conn.close()

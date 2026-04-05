@@ -65,7 +65,9 @@ export const useAuthStore = create<AuthState>((set, get) => {
   }
 
   // Register the logout callback with api client (handles refresh failures)
+  // P-23: Set session-expired flag so LoginPage shows friendly message
   api.onUnauthorized(() => {
+    localStorage.setItem('frya-session-expired', '1')
     get().logout()
   })
 

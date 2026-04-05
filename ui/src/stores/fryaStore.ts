@@ -111,7 +111,7 @@ interface FryaStore {
 const REFRESH_MARGIN_MS = 5 * 60 * 1000
 const PING_INTERVAL_MS = 30_000
 const WS_RECONNECT_DELAY_MS = 2_000
-const WS_MAX_RETRIES = 3
+const WS_MAX_RETRIES = 10
 
 // ---------------------------------------------------------------------------
 // Module-level state (not serialisable, lives outside Zustand)
@@ -137,10 +137,15 @@ function clearReconnectTimer() {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build the WebSocket URL. For local dev (5173) connect to staging API. */
+/** Build the WebSocket URL.
+ *  - Vite dev (port 5173) → direct to staging (Vite WS proxy is unreliable)
+ *  - Capacitor native (localhost, no port) → direct to staging
+ *  - Production web (real domain) → same-origin wss
+ */
 function buildWsUrl(token: string): string {
   const loc = window.location
-  if (loc.hostname === 'localhost' && loc.port === '5173') {
+  if (loc.hostname === 'localhost') {
+    // Both Vite dev (:5173) and Capacitor native (:443) → staging backend
     return `wss://api.staging.myfrya.de/api/v1/chat/stream?token=${token}`
   }
   const proto = loc.protocol === 'https:' ? 'wss' : 'ws'
@@ -192,7 +197,11 @@ export const useFryaStore = create<FryaStore>((set, get) => {
   }
 
   // Register the logout callback with api client (handles refresh failures)
-  api.onUnauthorized(() => { get().logout() })
+  // P-23: Set session-expired flag so LoginPage shows friendly message
+  api.onUnauthorized(() => {
+    localStorage.setItem('frya-session-expired', '1')
+    get().logout()
+  })
 
   // -- WebSocket helpers ---------------------------------------------------
 
@@ -346,13 +355,26 @@ export const useFryaStore = create<FryaStore>((set, get) => {
 
     ws.onmessage = (event) => { handleWsMessage(event.data as string) }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       set({ wsConnected: false, ws: null })
       clearPingTimer()
-      // Auto-reconnect with limit
-      if (reconnectCount < WS_MAX_RETRIES && get().isAuthenticated) {
-        reconnectCount++
-        reconnectTimer = setTimeout(() => { connectWs() }, WS_RECONNECT_DELAY_MS)
+      // P-23: On 4001/4003 (token expired) or generic close — refresh token first, then reconnect
+      if (!get().isAuthenticated) return
+      if (reconnectCount >= WS_MAX_RETRIES) return
+
+      reconnectCount++
+      const isTokenError = event.code === 4001 || event.code === 4003 || event.code === 1008 || event.code === 403
+      if (isTokenError) {
+        // Token expired — refresh first, then reconnect with new token
+        refreshNow().then(() => {
+          if (get().isAuthenticated) {
+            reconnectTimer = setTimeout(() => { connectWs() }, 500)
+          }
+        }).catch(() => { /* refreshNow handles logout */ })
+      } else {
+        // Normal reconnect (network glitch etc.) with exponential backoff
+        const delay = Math.min(WS_RECONNECT_DELAY_MS * Math.pow(1.5, reconnectCount - 1), 30_000)
+        reconnectTimer = setTimeout(() => { connectWs() }, delay)
       }
     }
 

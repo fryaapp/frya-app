@@ -135,11 +135,14 @@ table.totals .total td { font-weight: 700; font-size: 13pt; color: #2d3748; bord
 
   <div class="totals-wrapper">
     <table class="totals">
+      {% if kleinunternehmer %}
+      {# P-27: Kleinunternehmer — NUR Gesamtbetrag #}
+      <tr class="total"><td>Gesamtbetrag</td><td class="amount">{{ "%.2f"|format(invoice.net_amount) }} &euro;</td></tr>
+      {% else %}
       <tr class="subtotal"><td>Netto</td><td class="amount">{{ "%.2f"|format(invoice.net_amount) }} &euro;</td></tr>
-      {% if not kleinunternehmer %}
       <tr class="subtotal"><td>USt {{ invoice.tax_rate }}%</td><td class="amount">{{ "%.2f"|format(invoice.tax_amount) }} &euro;</td></tr>
+      <tr class="total"><td>Brutto</td><td class="amount">{{ "%.2f"|format(invoice.gross_amount) }} &euro;</td></tr>
       {% endif %}
-      <tr class="total"><td>Gesamtbetrag</td><td class="amount">{{ "%.2f"|format(invoice.gross_amount) }} &euro;</td></tr>
     </table>
   </div>
 

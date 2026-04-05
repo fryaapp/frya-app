@@ -1,4 +1,4 @@
-"""Compliance-Gate: HARTE CODE-VALIDIERUNG fuer alle Dokumente.
+"""Compliance-Gate: HARTE CODE-VALIDIERUNG für alle Dokumente.
 
 Architektur-Regel (P-05):
   - Reine Python-Validierung. Kein LLM. Kein Override.
@@ -7,8 +7,8 @@ Architektur-Regel (P-05):
   - Exakte Fehlermeldungen pro fehlendem Feld.
 
 Geprueft werden:
-  1. Absender-Daten (aus frya_business_profile) — fuer §14 UStG
-  2. Empfaenger-Daten (aus invoice_data) — fuer §14 UStG
+  1. Absender-Daten (aus frya_business_profile) — für §14 UStG
+  2. Empfänger-Daten (aus invoice_data) — für §14 UStG
   3. Dokumentdaten (line_items, Steuersatz, etc.)
   4. Typ-spezifische Pruefungen (Kleinunternehmer, Reverse Charge, etc.)
 """
@@ -52,10 +52,10 @@ REQUIRED_FIELDS: dict[str, dict[str, Any]] = {
             'ust_id': 'USt-IdNr',
         },
         'recipient': {
-            'contact_name': 'Empfaenger-Name',
-            'contact_street': 'Empfaenger-Adresse (Strasse)',
-            'contact_zip': 'Empfaenger-Adresse (PLZ)',
-            'contact_city': 'Empfaenger-Adresse (Ort)',
+            'contact_name': 'Empfänger-Name',
+            'contact_street': 'Empfänger-Adresse (Straße)',
+            'contact_zip': 'Empfänger-Adresse (PLZ)',
+            'contact_city': 'Empfänger-Adresse (Ort)',
         },
         'document': {
             'line_items': 'Mindestens eine Rechnungsposition',
@@ -73,14 +73,14 @@ REQUIRED_FIELDS: dict[str, dict[str, Any]] = {
             'ust_id': 'USt-IdNr',
         },
         'recipient': {
-            'contact_name': 'Empfaenger-Name',
-            'contact_street': 'Empfaenger-Adresse (Strasse)',
-            'contact_zip': 'Empfaenger-Adresse (PLZ)',
-            'contact_city': 'Empfaenger-Adresse (Ort)',
+            'contact_name': 'Empfänger-Name',
+            'contact_street': 'Empfänger-Adresse (Straße)',
+            'contact_zip': 'Empfänger-Adresse (PLZ)',
+            'contact_city': 'Empfänger-Adresse (Ort)',
         },
         'document': {
             'original_invoice_number': 'Bezug auf Originalrechnung',
-            'due_date': 'Faelligkeitsdatum der Originalrechnung',
+            'due_date': 'Fälligkeitsdatum der Originalrechnung',
             'outstanding_amount': 'Offener Betrag',
         },
     },
@@ -96,10 +96,10 @@ REQUIRED_FIELDS: dict[str, dict[str, Any]] = {
             'ust_id': 'USt-IdNr',
         },
         'recipient': {
-            'contact_name': 'Empfaenger-Name',
-            'contact_street': 'Empfaenger-Adresse (Strasse)',
-            'contact_zip': 'Empfaenger-Adresse (PLZ)',
-            'contact_city': 'Empfaenger-Adresse (Ort)',
+            'contact_name': 'Empfänger-Name',
+            'contact_street': 'Empfänger-Adresse (Straße)',
+            'contact_zip': 'Empfänger-Adresse (PLZ)',
+            'contact_city': 'Empfänger-Adresse (Ort)',
         },
         'document': {
             'original_invoice_number': 'Bezug auf Originalrechnung',
@@ -109,24 +109,24 @@ REQUIRED_FIELDS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Erlaubte feste Steuersaetze (§12 UStG)
+# Erlaubte feste Steuersätze (§12 UStG)
 VALID_TAX_RATES = frozenset({0, 7, 19})
 
 
 # ---------------------------------------------------------------------------
-# Feld -> menschliche Frage (fuer portionsweises Abfragen von Sender-Daten)
+# Feld -> menschliche Frage (für portionsweises Abfragen von Sender-Daten)
 # ---------------------------------------------------------------------------
 
 FIELD_QUESTIONS: dict[str, str] = {
-    'company_name': 'Wie heisst dein Unternehmen? (z.B. "Max Mustermann Coaching" oder "Mustermann GmbH")',
-    'company_street': 'Deine Geschaeftsadresse — Strasse und Hausnummer?',
+    'company_name': 'Wie heißt dein Unternehmen? (z.B. "Max Mustermann Coaching" oder "Mustermann GmbH")',
+    'company_street': 'Deine Geschäftsadresse — Straße und Hausnummer?',
     'company_zip': 'PLZ und Ort?',
     'company_city': 'PLZ und Ort?',
     'tax_number': 'Deine Steuernummer oder USt-Identifikationsnummer? (z.B. "236/5478/1234" oder "DE123456789")',
     'ust_id': 'Deine Steuernummer oder USt-Identifikationsnummer?',
-    'company_iban': 'Deine IBAN fuer die Bankverbindung auf Rechnungen?',
-    'company_email': 'Deine geschaeftliche E-Mail-Adresse?',
-    'company_phone': 'Deine geschaeftliche Telefonnummer? (optional)',
+    'company_iban': 'Deine IBAN für die Bankverbindung auf Rechnungen?',
+    'company_email': 'Deine geschäftliche E-Mail-Adresse?',
+    'company_phone': 'Deine geschäftliche Telefonnummer? (optional)',
     'is_kleinunternehmer': 'Bist du Kleinunternehmer nach §19 UStG? (Dann wird auf deinen Rechnungen keine MwSt ausgewiesen.)',
 }
 
@@ -145,7 +145,7 @@ def validate(doc_type: str, data: dict) -> ComplianceResult:
     Args:
         doc_type: 'invoice', 'dunning', 'credit_note'
         data: Merged dict mit Absender-Daten (from business profile)
-              UND Empfaenger/Dokument-Daten (from invoice_data).
+              UND Empfänger/Dokument-Daten (from invoice_data).
               Keys: company_name, company_street, ..., contact_name,
               contact_street, ..., line_items, tax_rate, etc.
 
@@ -178,7 +178,7 @@ def validate(doc_type: str, data: dict) -> ComplianceResult:
         ):
             missing_sender.append('Steuernummer oder USt-IdNr')
 
-    # --- Empfaenger-Felder pruefen ---
+    # --- Empfänger-Felder pruefen ---
     for fld, label in fields.get('recipient', {}).items():
         val = data.get(fld)
         if not val or (isinstance(val, str) and val.strip() in ('', 'None', 'null')):
@@ -197,7 +197,7 @@ def validate(doc_type: str, data: dict) -> ComplianceResult:
             if not val or (isinstance(val, str) and val.strip() in ('', 'None', 'null')):
                 missing_document.append(label)
 
-    # --- Steuersatz-Pruefung (nur fuer Rechnungen) ---
+    # --- Steuersatz-Pruefung (nur für Rechnungen) ---
     if doc_type == 'invoice':
         tax_rate = data.get('tax_rate')
         if tax_rate is not None and int(tax_rate) not in VALID_TAX_RATES:
@@ -213,7 +213,7 @@ def validate(doc_type: str, data: dict) -> ComplianceResult:
                 missing_document.append('Kleinunternehmer: §19-Hinweis fehlt')
 
         if data.get('is_innergemeinschaftlich') and not data.get('recipient_ust_id'):
-            missing_recipient.append('Innergemeinschaftlich: USt-IdNr des Empfaengers')
+            missing_recipient.append('Innergemeinschaftlich: USt-IdNr des Empfängers')
 
         if data.get('is_reverse_charge') and not data.get('reverse_charge_note'):
             missing_document.append(
@@ -250,7 +250,7 @@ def _validate_line_items(items: list, missing: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Legacy API (Absender-Pruefung fuer portionsweises Onboarding)
+# Legacy API (Absender-Pruefung für portionsweises Onboarding)
 # ---------------------------------------------------------------------------
 
 # §14 UStG + GoBD: Was braucht welche Felder?
@@ -325,8 +325,8 @@ async def check_compliance(
 ) -> tuple[bool, list[str], dict | None]:
     """Legacy: Prueft ob eine Aktion erlaubt ist (nur Absender-Daten).
 
-    Wird weiterhin fuer portionsweises Onboarding genutzt.
-    Fuer die harte Gesamtvalidierung: validate() verwenden.
+    Wird weiterhin für portionsweises Onboarding genutzt.
+    Für die harte Gesamtvalidierung: validate() verwenden.
 
     Returns: (erlaubt, fehlende_fragen, profil)
     """
@@ -357,7 +357,7 @@ async def check_compliance(
 
 
 async def count_missing_fields(user_id: str, tenant_id: str, action: str) -> int:
-    """Zaehlt fehlende Felder fuer eine Aktion."""
+    """Zaehlt fehlende Felder für eine Aktion."""
     req = COMPLIANCE_REQUIREMENTS.get(action)
     if not req:
         return 0

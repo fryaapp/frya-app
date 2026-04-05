@@ -87,7 +87,7 @@ function KpiChart({ data }: { data: ChartBlockData }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'Plus Jakarta Sans, sans-serif', marginBottom: 2 }}>
                   <span style={{ color: 'var(--frya-on-surface-variant)' }}>{s.label}</span>
                   <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
-                    {s.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} \u20ac
+                    {s.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
                   </span>
                 </div>
                 <div style={{ height: 5, borderRadius: 3, background: 'var(--frya-surface-container-high)', overflow: 'hidden' }}>

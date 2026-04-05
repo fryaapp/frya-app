@@ -404,14 +404,10 @@ async def run_document_analyst(state: AgentState) -> AgentState:
         except Exception as exc:
             fetch_warning = str(exc)
 
-    # ── Stage 1: LightOnOCR (AUGE) — ALWAYS run for non-e-invoice documents ──
-    # P-13b: Every document that is NOT XRechnung/ZUGFeRD MUST go through
-    # AUGE (LightOnOCR) + STIRN (Mistral semantic).  Previously this stage
-    # was skipped when Paperless Tesseract had already produced >= 80 chars
-    # of text.  LightOnOCR produces significantly better results than
-    # Tesseract for handwriting, low-quality scans, and complex layouts.
-    # Tesseract text is kept ONLY as a last-resort fallback when LightOnOCR
-    # is unavailable (no API key / no PDF bytes).
+    # ── Stage 1: LightOnOCR (AUGE) — Primärer OCR-Weg ────────────────
+    # Jedes Dokument (außer ZUGFeRD/XRechnung) geht durch AUGE (LightOnOCR)
+    # + STIRN (Mistral semantic).  Tesseract nur als Fallback wenn AUGE
+    # nicht verfügbar (kein API-Key, kein PDF, API-Fehler).
     from app.document_analysis.ocr_service import MIN_OCR_CHARS, read_pdf_from_local_path, run_lightocr
     _ocr_text: str | None = state.get('ocr_text')
     _pdf_bytes_ocr: bytes | None = None
@@ -431,8 +427,7 @@ async def run_document_analyst(state: AgentState) -> AgentState:
         except Exception as _dl_exc:
             _logger.debug('Paperless PDF download failed for %s: %s', document_ref, _dl_exc)
 
-    # ALWAYS run LightOnOCR when PDF bytes and API key are available —
-    # regardless of whether Tesseract text already exists.
+    # AUGE (LightOnOCR) ist der primäre OCR-Weg — Tesseract nur als Fallback.
     if _pdf_bytes_ocr and _da_config and _da_repo:
         _ocr_model = (_da_config.get('model') or '').strip()
         _ocr_api_key = _da_repo.decrypt_key_for_call(_da_config)
@@ -457,8 +452,8 @@ async def run_document_analyst(state: AgentState) -> AgentState:
                     state.get('case_id'), _ocr_exc,
                 )
 
-    # Fallback: use Paperless Tesseract content ONLY when LightOnOCR is
-    # unavailable (no PDF bytes, no API key, or LightOnOCR failed).
+    # Fallback: Paperless-Tesseract-Content NUR wenn AUGE (LightOnOCR)
+    # nicht verfügbar war (kein PDF, kein API-Key, oder API-Fehler).
     if not state.get('ocr_text'):
         _paperless_content = (metadata.get('content') or '').strip()
         if _paperless_content:

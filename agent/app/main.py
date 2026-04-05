@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -171,6 +172,14 @@ async def lifespan(app: FastAPI):
                 'llm_output': {'username': _boot_username},
             })
 
+    # P-31: Firebase Admin SDK + Push-Token-Tabelle
+    try:
+        from app.services.push_service import init_firebase, ensure_push_tokens_table
+        init_firebase()
+        await ensure_push_tokens_table()
+    except Exception as _push_exc:
+        _logger.warning('Firebase/Push init failed (non-fatal): %s', _push_exc)
+
     tenant_repo = get_tenant_repository()
     await tenant_repo.initialize()
 
@@ -242,6 +251,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title='FRYA Agent Backend', version='0.3.0', lifespan=lifespan)
 settings = get_settings()
 
+# P-30: CORS for Capacitor mobile app (Android: https://localhost, iOS: capacitor://localhost)
+_CORS_ORIGINS = [
+    'https://localhost',        # Capacitor Android WebView
+    'capacitor://localhost',    # Capacitor iOS
+    'http://localhost',
+    'https://app.myfrya.de',
+    'https://www.myfrya.de',
+    'https://staging.myfrya.de',
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*'],
+)
 app.add_middleware(
     SessionMiddleware,
     secret_key=settings.auth_session_secret,

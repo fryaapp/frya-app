@@ -229,6 +229,14 @@ _NEIN_KLEINUNTERNEHMER_PATTERNS = [
     re.compile(r'(?:nein|nicht|kein).*kleinunternehmer', re.IGNORECASE),
     re.compile(r'(?:nein|nicht).*§\s*19', re.IGNORECASE),
     re.compile(r'ganz\s+normal\s+mit\s+mwst', re.IGNORECASE),
+    re.compile(r'bin\s+kein\s+kleinunternehmer\s+mehr', re.IGNORECASE),
+    re.compile(r'nicht\s+mehr\s+kleinunternehmer', re.IGNORECASE),
+    re.compile(r'mit\s+(?:umsatz|mwst|mehrwert)steuer', re.IGNORECASE),
+]
+
+_WIEDER_KLEINUNTERNEHMER_PATTERNS = [
+    re.compile(r'(?:wieder|jetzt|ab\s+jetzt|bin)\s+kleinunternehmer', re.IGNORECASE),
+    re.compile(r'bin\s+wieder\s+kleinunternehmer', re.IGNORECASE),
 ]
 
 
@@ -930,6 +938,23 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         _pf_invoice_id = _pending_flow.get('invoice_id')
                         _pf_data = _pending_flow.get('pending_data', {})
 
+                        # Cancel-Check: User m\u00f6chte den laufenden Flow abbrechen
+                        _cancel_keywords = ('abbrech', 'vergiss', 'nein', 'stop', 'cancel', 'aufh\u00f6ren', 'nicht mehr', 'lass es', 'skip', 'ignorier')
+                        if any(kw in text.lower() for kw in _cancel_keywords):
+                            websocket._frya_pending_flow = None
+                            await websocket.send_json({'type': 'typing', 'active': False})
+                            await websocket.send_json({
+                                'type': 'message_complete',
+                                'text': 'Alles klar, ich habe den Vorgang abgebrochen. Was kann ich sonst f\u00fcr dich tun?',
+                                'case_ref': None,
+                                'context_type': 'none',
+                                'suggestions': _DEFAULT_SUGGESTIONS,
+                                'content_blocks': [],
+                                'actions': [],
+                                'routing': 'cancel',
+                            })
+                            continue
+
                         # Clear pending before processing
                         websocket._frya_pending_flow = None
 
@@ -952,6 +977,36 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 'suggestions': [a['chat_text'] for a in _send_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
                                 'content_blocks': _send_result.get('content_blocks', []),
                                 'actions': _send_result.get('actions', []),
+                                'routing': 'pending_flow',
+                            })
+                            continue
+
+                        elif _pf_type == 'company_profile_wizard' and _pf_data:
+                            # User responded to company profile wizard question — save it, then retry
+                            await _extract_and_persist_business_info(text, user_id, tenant_id)
+                            from app.services.invoice_pipeline import handle_create_invoice as _hci_cpw
+                            _cpw_result = await _hci_cpw(_pf_data, user_id, tenant_id=tenant_id)
+                            # Re-set pending if still waiting for more company data
+                            if _cpw_result.get('_waiting_for') == 'company_profile_wizard':
+                                websocket._frya_pending_flow = {
+                                    'waiting_for': 'company_profile_wizard',
+                                    'pending_data': _cpw_result.get('_pending_data', _pf_data),
+                                }
+                            elif _cpw_result.get('awaiting_email_for_invoice'):
+                                websocket._frya_pending_flow = {
+                                    'waiting_for': 'recipient_email',
+                                    'invoice_id': _cpw_result['awaiting_email_for_invoice'],
+                                    'pending_data': _pf_data,
+                                }
+                            await websocket.send_json({'type': 'typing', 'active': False})
+                            await websocket.send_json({
+                                'type': 'message_complete',
+                                'text': _cpw_result.get('text', ''),
+                                'case_ref': None,
+                                'context_type': _cpw_result.get('context_type', 'none'),
+                                'suggestions': [a['chat_text'] for a in _cpw_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
+                                'content_blocks': _cpw_result.get('content_blocks', []),
+                                'actions': _cpw_result.get('actions', []),
                                 'routing': 'pending_flow',
                             })
                             continue
@@ -1186,6 +1241,132 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 _shortcircuit_reply = f'Design auf "{_label}" umgestellt.'
                                 break
 
+                    # --- P-27: CHANGE_KU_STATUS: Kleinunternehmer via Chat aendern ---
+                    if tier_intent == 'CHANGE_KU_STATUS':
+                        _ku_text_lower = text.lower()
+                        _ku_nein = any(p.search(text) for p in _NEIN_KLEINUNTERNEHMER_PATTERNS)
+                        if _ku_nein:
+                            # Kein KU mehr -> is_kleinunternehmer = FALSE
+                            try:
+                                from app.services.business_profile_service import BusinessProfileService as _BPS27
+                                await _BPS27().upsert_field(user_id, tenant_id, 'is_kleinunternehmer', False)
+                                await _persist_preference(user_id, tenant_id, 'kleinunternehmer', 'false')
+                                _shortcircuit_reply = (
+                                    'Verstanden. Ab jetzt erstelle ich Rechnungen mit Umsatzsteuer (19%). '
+                                    'Bestehende Rechnungen bleiben unveraendert.'
+                                )
+                            except Exception as _ku_exc:
+                                logger.warning('KU-Status change failed: %s', _ku_exc)
+                                _shortcircuit_reply = 'KU-Status konnte nicht geaendert werden.'
+                        else:
+                            # Ja KU -> is_kleinunternehmer = TRUE
+                            try:
+                                from app.services.business_profile_service import BusinessProfileService as _BPS27b
+                                await _BPS27b().upsert_field(user_id, tenant_id, 'is_kleinunternehmer', True)
+                                await _persist_preference(user_id, tenant_id, 'kleinunternehmer', 'true')
+                                _shortcircuit_reply = (
+                                    'Verstanden. Ab jetzt erstelle ich Rechnungen ohne Umsatzsteuer '
+                                    '(\u00a719 UStG). Bestehende Rechnungen bleiben unveraendert.'
+                                )
+                            except Exception as _ku_exc:
+                                logger.warning('KU-Status change failed: %s', _ku_exc)
+                                _shortcircuit_reply = 'KU-Status konnte nicht geaendert werden.'
+
+                    # --- P-27: CANCEL_INVOICE: Rechnung stornieren ---
+                    if tier_intent == 'CANCEL_INVOICE':
+                        import re as _re_cancel
+                        _cancel_match = _re_cancel.search(r'RE-\d+-\d+', text)
+                        if _cancel_match:
+                            _cancel_inv_nr = _cancel_match.group(0)
+                            try:
+                                import asyncpg as _apg_cancel
+                                from app.dependencies import get_settings as _gs_cancel
+                                _cancel_conn = await _apg_cancel.connect(_gs_cancel().database_url)
+                                try:
+                                    _cancel_row = await _cancel_conn.fetchrow(
+                                        "SELECT id, invoice_number, status, gross_total, contact_id "
+                                        "FROM frya_invoices WHERE invoice_number = $1 AND tenant_id = $2::uuid",
+                                        _cancel_inv_nr, tenant_id,
+                                    )
+                                    if _cancel_row:
+                                        _cancel_row = dict(_cancel_row)
+                                        # Prüfe ob bereits storniert
+                                        if _cancel_row.get('status') in ('CANCELLED', 'VOID', 'REVERSED'):
+                                            _shortcircuit_reply = f'Rechnung {_cancel_inv_nr} ist bereits storniert.'
+                                            _shortcircuit_data = {'actions': [], 'content_blocks': []}
+                                        else:
+                                            # Kontakt-Name laden
+                                            _cc_name = ''
+                                            if _cancel_row.get('contact_id'):
+                                                _cc_r = await _cancel_conn.fetchrow(
+                                                    "SELECT name FROM frya_contacts WHERE id = $1::uuid",
+                                                    str(_cancel_row['contact_id']),
+                                                )
+                                                if _cc_r:
+                                                    _cc_name = _cc_r['name'] or ''
+                                            from app.services.invoice_pipeline import _eur as _eur_c
+                                            _cc_gross = float(_cancel_row.get('gross_total', 0))
+                                            _shortcircuit_reply = (
+                                                f'Rechnung {_cancel_inv_nr} ({_cc_name}, {_eur_c(_cc_gross)}) stornieren?'
+                                            )
+                                            _shortcircuit_data = {
+                                                'actions': [
+                                                    {
+                                                        'label': 'Ja, stornieren',
+                                                        'chat_text': f'Ja, Rechnung {_cancel_inv_nr} stornieren',
+                                                        'style': 'primary',
+                                                        'quick_action': {
+                                                            'type': 'cancel_invoice',
+                                                            'params': {
+                                                                'invoice_id': str(_cancel_row['id']),
+                                                                'tenant_id': tenant_id,
+                                                                'user_id': user_id,
+                                                            },
+                                                        },
+                                                    },
+                                                    {
+                                                        'label': 'Abbrechen',
+                                                        'chat_text': 'Nein, nicht stornieren',
+                                                        'style': 'text',
+                                                    },
+                                                ],
+                                            }
+                                    else:
+                                        _shortcircuit_reply = f'Rechnung {_cancel_inv_nr} nicht gefunden.'
+                                finally:
+                                    await _cancel_conn.close()
+                            except Exception as _ce:
+                                logger.warning('CANCEL_INVOICE lookup failed: %s', _ce)
+                                _shortcircuit_reply = None
+                        else:
+                            _shortcircuit_reply = 'Welche Rechnung soll storniert werden? (z.B. RE-2026-054)'
+
+                    # --- P-25: SHOW_CASE: Load case detail by case_id ---
+                    if tier_intent == 'SHOW_CASE':
+                        try:
+                            from app.agents.service_registry import _InboxService
+                            _case_svc = _InboxService()
+                            _sc_case_id = None
+                            if isinstance(routing_result.get('params'), dict):
+                                _sc_case_id = routing_result['params'].get('case_id')
+                            if not _sc_case_id and quick_action:
+                                _sc_case_id = (quick_action.get('params') or {}).get('case_id')
+                            if _sc_case_id:
+                                _case_data = await _case_svc.get_case(case_id=_sc_case_id)
+                                if _case_data.get('error'):
+                                    _shortcircuit_reply = _case_data['error']
+                                else:
+                                    _case_info = _case_data.get('case', {})
+                                    _shortcircuit_reply = (
+                                        f'Hier ist der Beleg von {_case_info.get("vendor_name", "unbekannt")}.'
+                                    )
+                                    _shortcircuit_data = _case_data
+                            else:
+                                _shortcircuit_reply = None  # Fall through to communicator
+                        except Exception as _sc_exc:
+                            logger.warning('SHOW_CASE shortcircuit failed: %s', _sc_exc)
+                            _shortcircuit_reply = None
+
                     # --- SHOW_INVOICE: Load and display specific invoice ---
                     if tier_intent == 'SHOW_INVOICE':
                         import re as _re_inv
@@ -1207,7 +1388,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
 
                                 if _inv_row:
                                     from app.services.invoice_pipeline import _eur
-                                    _inv_status_map = {'DRAFT': 'Entwurf', 'SENT': 'Versendet', 'PAID': 'Bezahlt', 'VOID': 'Storniert'}
+                                    _inv_status_map = {'DRAFT': 'Entwurf', 'SENT': 'Versendet', 'PAID': 'Bezahlt', 'VOID': 'Storniert', 'CANCELLED': 'Storniert', 'REVERSED': 'Storniert (Gegenbuchung)', 'OVERDUE': 'Ueberfaellig'}
                                     _inv_blocks = [{
                                         'block_type': 'key_value',
                                         'data': {'items': [
@@ -1287,8 +1468,8 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                         # Build reply text from data
                                         _texts = {
                                             'SHOW_INBOX': f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
-                                            'SHOW_FINANCE': 'Hier ist deine Finanzuebersicht.',
-                                            'SHOW_FINANCIAL_OVERVIEW': 'Hier ist deine Finanzuebersicht.',
+                                            'SHOW_FINANCE': 'Hier ist deine Finanz\u00fcbersicht.',
+                                            'SHOW_FINANCIAL_OVERVIEW': 'Hier ist deine Finanz\u00fcbersicht.',
                                             'SHOW_BOOKINGS': f'Hier sind deine letzten Buchungen.',
                                             'SHOW_OPEN_ITEMS': 'Hier sind deine offenen Posten.',
                                             'SHOW_DEADLINES': 'Hier sind deine anstehenden Fristen.',
@@ -1323,6 +1504,12 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 _sc_actions = _sc_result.get('actions', [])
                             except Exception:
                                 pass
+                            # P-27: If _shortcircuit_data has explicit actions with quick_action
+                            # (e.g. CANCEL_INVOICE confirm/abort buttons), prefer them over
+                            # generic ResponseBuilder fallback suggestions.
+                            _raw_actions = _shortcircuit_data.get('actions', [])
+                            if _raw_actions and any(a.get('quick_action') for a in _raw_actions):
+                                _sc_actions = _raw_actions
 
                         response_payload: dict[str, Any] = {
                             'type': 'message_complete',
@@ -1462,6 +1649,11 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                     websocket._frya_pending_flow = {
                                         'waiting_for': 'recipient_email',
                                         'invoice_id': pipeline_result['awaiting_email_for_invoice'],
+                                        'pending_data': _pending_data,
+                                    }
+                                elif pipeline_result.get('_waiting_for') == 'company_profile_wizard':
+                                    websocket._frya_pending_flow = {
+                                        'waiting_for': 'company_profile_wizard',
                                         'pending_data': _pending_data,
                                     }
                                 else:

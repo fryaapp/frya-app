@@ -370,7 +370,7 @@ async def bulk_upload(
 async def list_batches(
     limit: int = 20,
     offset: int = 0,
-    current_user: AuthUser = Depends(require_operator),
+    current_user: AuthUser = Depends(require_authenticated),
 ) -> dict[str, Any]:
     """List recent batches for the tenant, paginated."""
     if limit > 100:
@@ -401,7 +401,7 @@ async def list_batches(
 @router.get('/batches/{batch_id}')
 async def get_batch(
     batch_id: str,
-    current_user: AuthUser = Depends(require_operator),
+    current_user: AuthUser = Depends(require_authenticated),
 ) -> dict[str, Any]:
     """Get batch detail with all items, enriched with case info."""
     tenant_id = await _get_tenant_id(current_user)
@@ -425,11 +425,10 @@ async def get_batch(
 
 @router.post(
     '/batches/{batch_id}/refresh',
-    dependencies=[Depends(require_csrf)],
 )
 async def refresh_batch(
     batch_id: str,
-    current_user: AuthUser = Depends(require_operator),
+    current_user: AuthUser = Depends(require_authenticated),
 ) -> dict[str, Any]:
     """Refresh batch status: poll Paperless, run Bridge 1, check Bridge 2, trigger re-evaluate.
 

@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 class ActionRouter:
     # Invoice pipeline actions handled by invoice_pipeline module
-    _PIPELINE_ACTIONS = frozenset({'send_invoice', 'void_invoice', 'edit_invoice'})
+    _PIPELINE_ACTIONS = frozenset({'send_invoice', 'void_invoice', 'edit_invoice', 'cancel_invoice'})
     _TEMPLATE_ACTIONS = frozenset({'set_template'})
 
     def __init__(self, services: dict[str, Any] | None = None):
@@ -58,7 +58,7 @@ class ActionRouter:
         """Delegate to invoice_pipeline handlers."""
         try:
             from app.services.invoice_pipeline import (
-                handle_send_invoice, handle_void_invoice,
+                handle_send_invoice, handle_void_invoice, handle_cancel_invoice,
             )
             user_id = params.pop('user_id', 'system')
             _ar_tenant_id = params.pop('tenant_id', None)
@@ -67,6 +67,8 @@ class ActionRouter:
                 result = await handle_send_invoice(params, user_id, tenant_id=_ar_tenant_id)
             elif action_type == 'void_invoice':
                 result = await handle_void_invoice(params, user_id)
+            elif action_type == 'cancel_invoice':
+                result = await handle_cancel_invoice(params, user_id, tenant_id=_ar_tenant_id)
             elif action_type == 'edit_invoice':
                 # Edit returns to form — just return invoice_id
                 return {

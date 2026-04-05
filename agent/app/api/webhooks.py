@@ -675,6 +675,26 @@ async def paperless_document_webhook(
     from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_tenant
     _tenant_id = await _resolve_tenant()
 
+    # P-26: If tenant_id is None (multi-tenant mode), look up from document_upload_items
+    # by paperless task_id included in webhook payload.
+    if not _tenant_id:
+        _task_id = str(payload.get('task_id') or '')
+        if _task_id:
+            try:
+                from app.dependencies import get_db_pool as _get_pool
+                _pool = _get_pool()
+                if _pool:
+                    async with _pool.acquire() as _conn:
+                        _row = await _conn.fetchrow(
+                            'SELECT tenant_id FROM document_upload_items'
+                            ' WHERE paperless_task_id = $1 LIMIT 1',
+                            _task_id,
+                        )
+                        if _row and _row['tenant_id']:
+                            _tenant_id = str(_row['tenant_id'])
+            except Exception:
+                pass  # proceed with None tenant_id
+
     try:
         result = await request.app.state.graph.ainvoke(
             {

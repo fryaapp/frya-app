@@ -62,9 +62,13 @@ td { padding: 8px; border-bottom: 1px solid #eee; }
 </table>
 
 <table class="totals">
+  {% if kleinunternehmer %}
+  <tr class="total"><td>Gesamtbetrag</td><td class="amount">{{ "%.2f"|format(invoice.net_amount) }} &euro;</td></tr>
+  {% else %}
   <tr><td>Netto</td><td class="amount">{{ "%.2f"|format(invoice.net_amount) }} &euro;</td></tr>
   <tr><td>USt {{ invoice.tax_rate }}%</td><td class="amount">{{ "%.2f"|format(invoice.tax_amount) }} &euro;</td></tr>
   <tr class="total"><td>Brutto</td><td class="amount">{{ "%.2f"|format(invoice.gross_amount) }} &euro;</td></tr>
+  {% endif %}
 </table>
 
 <div style="clear:both;"></div>
