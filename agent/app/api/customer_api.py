@@ -18,14 +18,27 @@ router = APIRouter(prefix='/api/v1', tags=['customer'])
 
 
 async def _resolve_tenant_uuid(user=None) -> uuid.UUID:
-    """Resolve tenant UUID from authenticated user or DB fallback."""
-    if user and getattr(user, 'tenant_id', None):
-        return uuid.UUID(str(user.tenant_id))
+    """Resolve tenant UUID from authenticated user or DB fallback.
+
+    P-33 FIX: Mirrors bulk_upload._get_tenant_id() logic so that
+    admin/users with tenant_id='default' (non-UUID string) get the
+    same deterministic uuid5 UUID that the bulk_upload uses.
+    """
+    tid = getattr(user, 'tenant_id', None) or '' if user else ''
+    if tid:
+        try:
+            return uuid.UUID(str(tid))
+        except ValueError:
+            # tid is a non-UUID string like 'default' — compute deterministic UUID
+            # same as bulk_upload._get_tenant_id() last-resort fallback
+            return uuid.uuid5(uuid.NAMESPACE_DNS, str(tid))
     from app.case_engine.tenant_resolver import resolve_tenant_id
-    tid = await resolve_tenant_id()
-    if not tid:
-        raise HTTPException(status_code=503, detail='tenant_unavailable')
-    return uuid.UUID(tid)
+    resolved = await resolve_tenant_id()
+    if resolved:
+        return uuid.UUID(resolved)
+    # Last resort: derive from username so admin always gets consistent tenant
+    seed = user.username if user and getattr(user, 'username', None) else 'default'
+    return uuid.uuid5(uuid.NAMESPACE_DNS, seed)
 
 
 _TRANSLATIONS: dict | None = None
