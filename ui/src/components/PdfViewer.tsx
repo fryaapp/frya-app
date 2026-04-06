@@ -88,6 +88,7 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
   const [zoom, setZoom] = useState(1)
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
   const renderTaskRef = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // ── Load PDF ──────────────────────────────────────────────────────────────
 
@@ -182,7 +183,9 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
 
   const handleDownload = useCallback(() => {
     if (!pdfBytes) return
-    const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' })
+    // new Uint8Array(pdfBytes) creates a copy bounded to the view's range
+    // so the Blob only contains the actual PDF bytes (not the entire ArrayBuffer)
+    const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -202,7 +205,15 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
     const now = Date.now()
     if (now - lastTapRef.current < 300) {
       // Double tap: cycle 1× → 2× → 1×
-      setZoom(z => (z === 1 ? 2 : 1))
+      setZoom(z => {
+        const next = z === 1 ? 2 : 1
+        // Zoom zurück auf 1: Container-Scroll auf Anfang zurücksetzen
+        if (next === 1 && containerRef.current) {
+          containerRef.current.scrollLeft = 0
+          containerRef.current.scrollTop = 0
+        }
+        return next
+      })
     }
     lastTapRef.current = now
   }, [])
@@ -217,10 +228,12 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
     if (touchStartX.current === null) return
     const dx = e.changedTouches[0].clientX - touchStartX.current
     touchStartX.current = null
+    // Im Zoom-Modus: Wischen scrollt den Canvas, keine Seitennavigation
+    if (zoom > 1) return
     if (Math.abs(dx) < 50) return // ignore small movements (tap / scroll)
     if (dx < 0) setCurrentPage(p => Math.min(totalPages, p + 1)) // swipe left → next
     if (dx > 0) setCurrentPage(p => Math.max(1, p - 1))           // swipe right → prev
-  }, [totalPages])
+  }, [totalPages, zoom])
 
   // ── Keyboard navigation (desktop/WebView with keyboard) ──────────────────
 
@@ -305,13 +318,16 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
 
       {/* ── PDF canvas area ───────────────────────────────────────────────── */}
       <div
+        ref={containerRef}
         onClick={handleTap}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
         style={{
           flex: 1, overflow: 'auto',
           display: 'flex', flexDirection: 'column',
-          alignItems: 'center',
+          // Zoom > 1: links-ausrichten damit der Canvas nach rechts scrollbar ist
+          // Zoom = 1: zentriert
+          alignItems: zoom > 1 ? 'flex-start' : 'center',
           background: 'var(--frya-surface-container)',
           position: 'relative',
           WebkitOverflowScrolling: 'touch',
@@ -334,10 +350,12 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
               ref={canvasRef}
               style={{
                 display: 'block',
-                margin: '12px auto',
+                // Zoom > 1: kein auto-margin (Canvas links-bündig, nach rechts scrollbar)
+                margin: zoom > 1 ? '12px 0' : '12px auto',
                 boxShadow: '0 2px 16px rgba(0,0,0,0.2)',
                 borderRadius: 4,
-                maxWidth: '100%',
+                // maxWidth nur bei zoom=1 (sonst wird der Canvas unnötig beschnitten)
+                maxWidth: zoom > 1 ? 'none' : '100%',
               }}
             />
           </>
