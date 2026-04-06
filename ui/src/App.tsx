@@ -17,16 +17,6 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { initPush } from './plugins/push'
 import './index.css'
 
-// Android Back-Button Handler (einmalig registrieren)
-if (Capacitor.isNativePlatform()) {
-  CapApp.addListener('backButton', ({ canGoBack }) => {
-    if (canGoBack) {
-      window.history.back()
-    } else {
-      CapApp.exitApp()
-    }
-  })
-}
 
 /**
  * App -- single-screen architecture (no route-based navigation).
@@ -70,6 +60,26 @@ function AppContent() {
       initPush()
     }
   }, [isAuthenticated])
+
+  // Android Zurück-Taste: kontextabhängig statt immer exitApp()
+  // Priorität: PDF-Viewer → Settings → Chat→Home → exitApp
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    let handle: { remove: () => void } | null = null
+    CapApp.addListener('backButton', () => {
+      const s = useFryaStore.getState()
+      if (s.pdfViewer) {
+        s.closePdfViewer()
+      } else if (s.showSettings) {
+        s.goHome()
+      } else if (!s.showGreeting) {
+        s.goHome()
+      } else {
+        CapApp.exitApp()
+      }
+    }).then(h => { handle = h })
+    return () => { handle?.remove() }
+  }, [])
 
   if (!isRestored) return null
 
