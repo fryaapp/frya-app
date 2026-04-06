@@ -89,6 +89,12 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
   const renderTaskRef = useRef<any>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Gespeicherte Tipp-Koordinaten für zoom-zentriertes Scrollen nach dem Render
+  const pendingZoomScrollRef = useRef<{
+    newZoom: number; oldZoom: number
+    tapX: number; tapY: number
+    scrollLeft: number; scrollTop: number
+  } | null>(null)
 
   // ── Load PDF ──────────────────────────────────────────────────────────────
 
@@ -168,7 +174,28 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
         const task = page.render({ canvasContext: ctx, viewport })
         renderTaskRef.current = task
         await task.promise
-        if (!cancelled) setRendering(false)
+        if (!cancelled) {
+          setRendering(false)
+          // Zoom-zentriertes Scrollen: Canvas ist jetzt in der neuen Größe gerendert
+          const pending = pendingZoomScrollRef.current
+          if (pending && containerRef.current) {
+            const { newZoom, oldZoom, tapX, tapY, scrollLeft: sl, scrollTop: st } = pending
+            const c = containerRef.current
+            if (newZoom > 1) {
+              // Zoom-In: Tipp-Punkt soll am gleichen Bildschirm-Ort bleiben
+              // Content-Position bei zoom=1: (scroll + tap) / oldZoom
+              const cx = (sl + tapX) / oldZoom
+              const cy = (st + tapY) / oldZoom
+              c.scrollLeft = Math.max(0, cx * newZoom - tapX)
+              c.scrollTop  = Math.max(0, cy * newZoom - tapY)
+            } else {
+              // Zoom-Out: zurück zur Seitenanfang
+              c.scrollLeft = 0
+              c.scrollTop  = 0
+            }
+            pendingZoomScrollRef.current = null
+          }
+        }
       } catch (err: any) {
         if (!cancelled && err?.name !== 'RenderingCancelledException') {
           setRendering(false)
@@ -216,18 +243,25 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
   // ── Double-tap zoom ───────────────────────────────────────────────────────
 
   const lastTapRef = useRef(0)
-  const handleTap = useCallback(() => {
+  const handleTap = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const now = Date.now()
     if (now - lastTapRef.current < 300) {
-      // Double tap: cycle 1× → 2× → 1×
-      setZoom(z => {
-        const next = z === 1 ? 2 : 1
-        // Zoom zurück auf 1: Container-Scroll auf Anfang zurücksetzen
-        if (next === 1 && containerRef.current) {
-          containerRef.current.scrollLeft = 0
-          containerRef.current.scrollTop = 0
+      if (!containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      // Tipp-Position relativ zum sichtbaren Container-Bereich
+      const tapX = e.clientX - rect.left
+      const tapY = e.clientY - rect.top
+      const sl = containerRef.current.scrollLeft
+      const st = containerRef.current.scrollTop
+
+      setZoom(currentZoom => {
+        const nextZoom = currentZoom === 1 ? 2 : 1
+        // Scroll-Daten für den Render-Effect speichern
+        pendingZoomScrollRef.current = {
+          newZoom: nextZoom, oldZoom: currentZoom,
+          tapX, tapY, scrollLeft: sl, scrollTop: st,
         }
-        return next
+        return nextZoom
       })
     }
     lastTapRef.current = now
