@@ -242,10 +242,17 @@ def build_llm_context_payload(
             parts.append(f'intent={conversation_memory.last_intent}')
         if conversation_memory.last_case_ref:
             parts.append(f'case_ref={conversation_memory.last_case_ref}')
+        if conversation_memory.last_search_ref and not conversation_memory.last_case_ref:
+            parts.append(f'search_ref={conversation_memory.last_search_ref}')
         if conversation_memory.last_context_resolution_status:
             parts.append(f'resolution={conversation_memory.last_context_resolution_status}')
         if parts:
             lines.append(f'letzte_turns: [{", ".join(parts)}]')
+            # RC-3 Fix: wenn context_resolution None, trotzdem last_case_ref
+            # explizit als resolved_case_ref nennen fuer Folgefragen.
+            if context_resolution is None and conversation_memory.last_case_ref:
+                lines.append(f'resolved_case_ref: {conversation_memory.last_case_ref}')
+                lines.append('context_from: conversation_memory')
         else:
             lines.append('letzte_turns: keine')
     else:

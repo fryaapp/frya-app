@@ -23,6 +23,12 @@ export interface DuplicateData {
   paperless_id: number
 }
 
+export interface UploadProgressData {
+  filename: string
+  stage: 'uploading' | 'ocr' | 'analysis' | 'done'
+  percent: number
+}
+
 export interface ChatMessage {
   id: string
   role: MessageRole
@@ -38,6 +44,7 @@ export interface ChatMessage {
   duplicate?: DuplicateData
   notificationType?: string
   approvalAction?: string
+  uploadProgress?: UploadProgressData
 }
 
 interface LoginResponse {
@@ -56,6 +63,7 @@ type WsMessageIncoming =
   | { type: 'duplicate'; original_title: string; paperless_id: number }
   | { type: 'ui_hint'; action: string; context_type?: string }
   | { type: 'error'; message: string }
+  | { type: 'upload_progress'; filename: string; stage: 'uploading' | 'ocr' | 'analysis' | 'done'; percent: number }
   | { type: string; text?: string; reply?: string; message?: string; content_blocks?: any[]; actions?: any[]; [key: string]: any }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +109,8 @@ interface FryaStore {
   addDuplicate: (data: DuplicateData) => void
   setApprovalAction: (messageId: string, action: string) => void
   clearChat: () => void
+  addUploadProgress: (data: UploadProgressData) => string
+  updateUploadProgress: (messageId: string, data: Partial<UploadProgressData>) => void
 
   // WebSocket
   ws: WebSocket | null
@@ -289,6 +299,16 @@ export const useFryaStore = create<FryaStore>((set, get) => {
         if (msg.notification_type === 'document_processed' && state.showGreeting) {
           updates.showGreeting = false
         }
+        // Mark any pending upload-progress cards as done
+        if (msg.notification_type === 'document_processed') {
+          const updatedMessages = (updates.messages ?? state.messages).map(m => {
+            if (m.uploadProgress && m.uploadProgress.stage !== 'done') {
+              return { ...m, uploadProgress: { ...m.uploadProgress, stage: 'done' as const, percent: 100 } }
+            }
+            return m
+          })
+          updates.messages = updatedMessages
+        }
         set(updates)
         break
       }
@@ -309,6 +329,23 @@ export const useFryaStore = create<FryaStore>((set, get) => {
           streamingId: null,
           messages: [...state.messages, { id, role: 'frya', text: msg.message || 'Ein Fehler ist aufgetreten.', timestamp: Date.now() }],
         })
+        break
+      }
+
+      case 'upload_progress': {
+        // Update existing upload progress card or ignore if not found
+        const progressMsg = state.messages.find(
+          m => m.uploadProgress && m.uploadProgress.filename === msg.filename
+        )
+        if (progressMsg) {
+          set({
+            messages: state.messages.map(m =>
+              m.id === progressMsg.id
+                ? { ...m, uploadProgress: { filename: msg.filename, stage: msg.stage, percent: msg.percent } }
+                : m
+            ),
+          })
+        }
         break
       }
 
@@ -519,6 +556,24 @@ export const useFryaStore = create<FryaStore>((set, get) => {
     },
 
     clearChat: () => set({ messages: [], isTyping: false, typingHint: null, streamingId: null }),
+
+    addUploadProgress: (data) => {
+      const id = `upload-${++msgCounter}`
+      set(s => ({
+        messages: [...s.messages, { id, role: 'system', text: '', timestamp: Date.now(), uploadProgress: data }],
+      }))
+      return id
+    },
+
+    updateUploadProgress: (messageId, data) => {
+      set(s => ({
+        messages: s.messages.map(m =>
+          m.id === messageId && m.uploadProgress
+            ? { ...m, uploadProgress: { ...m.uploadProgress, ...data } }
+            : m
+        ),
+      }))
+    },
 
     // WebSocket state
     ws: null,

@@ -1524,6 +1524,18 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         if _theme_changed:
                             response_payload['settings_changed'] = {'theme': _theme_changed}
 
+                        # RC-4 Fix: Chat-History auch bei Shortcircuit speichern,
+                        # damit nachfolgende LLM-Turns den Kontext sehen.
+                        try:
+                            _hist_store = get_chat_history_store()
+                            _sc_hist_reply = _shortcircuit_reply or ''
+                            if _sc_hist_reply:
+                                await _hist_store.append(
+                                    f'web-{user_id}', text, _sc_hist_reply,
+                                )
+                        except Exception as _hist_exc:
+                            logger.debug('Shortcircuit history append failed: %s', _hist_exc)
+
                         await websocket.send_json(response_payload)
                         continue
 

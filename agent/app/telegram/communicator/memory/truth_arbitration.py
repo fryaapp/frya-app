@@ -11,6 +11,15 @@ _CONTEXT_INTENTS = frozenset({
     'LAST_CASE_EXPLANATION',
 })
 
+# RC-2 Fix: Diese Intents nutzen ebenfalls ConversationMemory als Kontext-Fallback,
+# damit Folgefragen ("Ja", "Den buche") den letzten case_ref sehen.
+_CONV_MEMORY_INTENTS = frozenset({
+    'GENERAL_CONVERSATION',
+    'BOOKING_REQUEST',
+    'FINANCIAL_QUERY',
+    'REMINDER_PERSONAL',
+})
+
 
 class TruthArbitrator:
     """Determines the authoritative truth basis for a communicator turn.
@@ -28,8 +37,26 @@ class TruthArbitrator:
         conv_memory: ConversationMemory | None,
         intent: str | None,
     ) -> tuple[CommunicatorContextResolution | None, TruthAnnotation]:
-        # Non-context intents: no memory lookup
+        # Non-context intents: no memory lookup for DB-context,
+        # but for conversation-memory intents still return last_case_ref so
+        # the LLM can resolve follow-up messages like "Ja", "Den", "Ok".
         if intent not in _CONTEXT_INTENTS:
+            if intent in _CONV_MEMORY_INTENTS and conv_memory is not None:
+                has_useful = bool(
+                    conv_memory.last_case_ref
+                    or conv_memory.last_document_ref
+                    or conv_memory.last_open_item_id
+                )
+                if has_useful:
+                    mem_ctx = CommunicatorContextResolution(
+                        resolution_status='FOUND',
+                        resolved_case_ref=conv_memory.last_case_ref,
+                        resolved_document_ref=conv_memory.last_document_ref,
+                        resolved_clarification_ref=conv_memory.last_clarification_ref,
+                        resolved_open_item_id=conv_memory.last_open_item_id,
+                        context_reason='Aus Konversationsgedaechtnis (Follow-up).',
+                    )
+                    return mem_ctx, TruthAnnotation.from_conv_memory()
             return None, TruthAnnotation.unknown()
 
         # Core DB context FOUND → highest trust

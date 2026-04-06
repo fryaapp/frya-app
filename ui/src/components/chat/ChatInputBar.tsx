@@ -27,6 +27,8 @@ export function ChatInputBar({ onSend, placeholder, disabled }: ChatInputBarProp
   const addUserMessage = useFryaStore((s) => s.addUserMessage)
   const send = useFryaStore((s) => s.send)
   const addFryaMessage = useFryaStore((s) => s.addFryaMessage)
+  const addUploadProgress = useFryaStore((s) => s.addUploadProgress)
+  const updateUploadProgress = useFryaStore((s) => s.updateUploadProgress)
 
   const handleSend = () => {
     const trimmed = text.trim()
@@ -55,17 +57,24 @@ export function ChatInputBar({ onSend, placeholder, disabled }: ChatInputBarProp
     }
 
     const label = `${fileArray.length} Beleg${fileArray.length > 1 ? 'e' : ''}`
+    const firstFileName = fileArray[0].name
     setUploading(true)
     addUserMessage(`${label} hochgeladen`)
     useFryaStore.getState().startChat()
+
+    // Show upload progress card immediately
+    const progressId = addUploadProgress({ filename: firstFileName, stage: 'uploading', percent: 30 })
+
     try {
       const form = new FormData()
       fileArray.forEach((f) => form.append('files', f))
       await api.postFormData('/documents/bulk-upload', form)
-      addFryaMessage({ text: `Alles klar! ${label} empfangen. Ich analysiere das jetzt.` })
+      // File is at Paperless — now OCR runs in background
+      updateUploadProgress(progressId, { stage: 'ocr', percent: 60 })
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      // Specific error messages for common problems
+      // Remove progress card on error, show error message instead
+      updateUploadProgress(progressId, { stage: 'done', percent: 0 })
       if (errMsg.includes('413')) {
         addFryaMessage({ text: `Datei zu groß fuer den Upload. Bitte nutze Dateien unter 20 MB.` })
       } else if (errMsg.includes('fetch') || errMsg.includes('network') || errMsg.toLowerCase().includes('failed')) {
@@ -89,21 +98,23 @@ export function ChatInputBar({ onSend, placeholder, disabled }: ChatInputBarProp
     setScanning(true)
     addUserMessage('Beleg wird gescannt…')
     useFryaStore.getState().startChat()
+    const scanFileName = `scan-${Date.now()}.pdf`
+    const scanProgressId = addUploadProgress({ filename: scanFileName, stage: 'uploading', percent: 30 })
     try {
       const result = await FryaScanner.scan({ pageLimit: 20, enableGalleryImport: true })
       if (result.pdfBase64) {
         const blob = base64ToBlob(result.pdfBase64, 'application/pdf')
         const form = new FormData()
-        form.append('files', blob, `scan-${Date.now()}.pdf`)
+        form.append('files', blob, scanFileName)
         await api.postFormData('/documents/bulk-upload', form)
-        addFryaMessage({
-          text: `Scan erfolgreich! ${result.pageCount} Seite${result.pageCount !== 1 ? 'n' : ''} empfangen. Ich analysiere das jetzt.`,
-        })
+        updateUploadProgress(scanProgressId, { stage: 'ocr', percent: 60 })
       } else {
+        updateUploadProgress(scanProgressId, { stage: 'done', percent: 0 })
         addFryaMessage({ text: 'Scan abgeschlossen, aber kein PDF erhalten.' })
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
+      updateUploadProgress(scanProgressId, { stage: 'done', percent: 0 })
       if (msg.includes('abgebrochen')) {
         addFryaMessage({ text: 'Scan abgebrochen.' })
       } else {
