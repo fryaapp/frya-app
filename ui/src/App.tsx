@@ -11,6 +11,7 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { GreetingScreen } from './components/GreetingScreen'
 import { ChatView } from './components/chat/ChatView'
 import { SettingsScreen } from './components/SettingsScreen'
+import { PdfViewer } from './components/PdfViewer'
 import { BugReportFAB } from './components/layout/BugReportOverlay'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { initPush } from './plugins/push'
@@ -46,6 +47,8 @@ function AppContent() {
   const isRestored = useFryaStore(s => s.isRestored)
   const showGreeting = useFryaStore(s => s.showGreeting)
   const showSettings = useFryaStore(s => s.showSettings)
+  const pdfViewer = useFryaStore(s => s.pdfViewer)
+  const closePdfViewer = useFryaStore(s => s.closePdfViewer)
   const restore = useFryaStore(s => s.restore)
   useTheme()
 
@@ -88,10 +91,24 @@ function AppContent() {
   }
 
   if (showGreeting) {
-    return <GreetingScreen />
+    return (
+      <>
+        <GreetingScreen />
+        {pdfViewer && (
+          <PdfViewer caseId={pdfViewer.caseId} title={pdfViewer.title} onClose={closePdfViewer} />
+        )}
+      </>
+    )
   }
 
-  return <ChatView />
+  return (
+    <>
+      <ChatView />
+      {pdfViewer && (
+        <PdfViewer caseId={pdfViewer.caseId} title={pdfViewer.title} onClose={closePdfViewer} />
+      )}
+    </>
+  )
 }
 
 export default function App() {

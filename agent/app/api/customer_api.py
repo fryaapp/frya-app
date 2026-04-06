@@ -18,13 +18,17 @@ router = APIRouter(prefix='/api/v1', tags=['customer'])
 
 
 async def _ensure_tenant_uuid(username: str, raw_tid: str | None) -> uuid.UUID:
-    """P-33: Ensure every user has a valid, persistent UUID tenant.
+    """P-33/P-35: Ensure every user has a valid, persistent UUID tenant.
 
     1. If raw_tid is already a valid UUID → return it.
-    2. Otherwise compute deterministic uuid5 from the raw string (or username).
-    3. Auto-provision: create row in frya_tenants + update frya_users if missing.
+    2. Otherwise compute deterministic uuid5 from the raw string.
+    3. If raw_tid is None/empty, use 'default' as seed (single-tenant legacy mode).
+       This matches bulk_upload._get_tenant_id() which also falls through to 'default'.
+    4. Auto-provision: create row in frya_tenants + update frya_users if missing.
 
     This is idempotent — safe to call on every login/refresh.
+    P-35 FIX: Use 'default' (not username) as seed when raw_tid is None, to stay
+    consistent with the uuid5(NAMESPACE_DNS, 'default') = 916180a7... used by uploads.
     """
     # Determine the UUID we want to use
     if raw_tid:
@@ -32,7 +36,8 @@ async def _ensure_tenant_uuid(username: str, raw_tid: str | None) -> uuid.UUID:
             return uuid.UUID(str(raw_tid))
         except ValueError:
             pass
-    seed = raw_tid if raw_tid else username
+    # P-35: Use 'default' as fallback seed (not username) — matches bulk_upload logic
+    seed = raw_tid if raw_tid else 'default'
     tenant_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, seed)
 
     # Auto-provision: create tenant row if it doesn't exist
@@ -593,6 +598,103 @@ async def get_document_thumbnail(
     except Exception:
         raise HTTPException(status_code=404, detail='thumbnail_not_found')
     return Response(content=thumb_bytes, media_type='image/png')
+
+
+# ---------------------------------------------------------------------------
+# P-35: GET /cases/{case_id}/document — PDF proxy from Paperless (tenant-isolated)
+# ---------------------------------------------------------------------------
+
+@router.get('/cases/{case_id}/document')
+async def get_case_document(
+    case_id: str,
+    user: AuthUser = Depends(require_authenticated),
+):
+    """Return the original PDF for a case, fetched from Paperless.
+
+    Tenant-isolated: the case must belong to the requesting user's tenant.
+    The document is found by searching Paperless with vendor name + amount.
+    """
+    from fastapi.responses import Response as FastResponse
+    from app.dependencies import get_case_repository, get_paperless_connector
+
+    # 1. Tenant isolation: load case and verify ownership
+    tenant_id = await _resolve_tenant_uuid(user)
+    repo = get_case_repository()
+    try:
+        case = await repo.get_case(uuid.UUID(case_id))
+    except Exception:
+        raise HTTPException(status_code=404, detail='case_not_found')
+
+    if not case or case.tenant_id != tenant_id:
+        raise HTTPException(status_code=404, detail='case_not_found')
+
+    pc = get_paperless_connector()
+
+    # 2. Check case metadata for a stored Paperless document ID (fast path)
+    meta = case.metadata or {}
+    paperless_id: str | int | None = (
+        meta.get('paperless_id')
+        or meta.get('paperless_document_id')
+        or meta.get('document_analysis', {}).get('paperless_id')
+    )
+
+    # 3. If no stored ID, search Paperless by vendor name + amount (slow path)
+    if not paperless_id:
+        vendor = (case.vendor_name or '').strip()
+        amount = float(case.total_amount) if case.total_amount else None
+        search_term = vendor.split()[0] if vendor else ''
+
+        if not search_term:
+            raise HTTPException(status_code=404, detail='document_not_found')
+
+        try:
+            docs = await pc.search_documents(search_term) or []
+        except Exception as exc:
+            logger.warning('Paperless search failed for case %s: %s', case_id, exc)
+            raise HTTPException(status_code=503, detail='paperless_unavailable')
+
+        # Match by amount in Paperless title (format: "Vendor — X.XXEUR — Mon YYYY")
+        for doc in docs:
+            title = doc.get('title', '')
+            if amount and (
+                f'{amount:.2f}' in title
+                or f'{amount:.0f}' in title
+                or str(int(amount)) in title
+            ):
+                paperless_id = doc['id']
+                break
+        # Fallback: first result with matching vendor name fragment
+        if not paperless_id:
+            vendor_lower = vendor.lower()
+            for doc in docs:
+                if vendor_lower[:6] in (doc.get('title') or '').lower():
+                    paperless_id = doc['id']
+                    break
+        if not paperless_id and docs:
+            paperless_id = docs[0]['id']
+
+    if not paperless_id:
+        raise HTTPException(status_code=404, detail='document_not_found_in_paperless')
+
+    # 4. Download PDF bytes from Paperless
+    try:
+        pdf_bytes = await pc.download_document_bytes(str(paperless_id))
+    except Exception as exc:
+        logger.warning('Paperless PDF download failed for doc %s: %s', paperless_id, exc)
+        raise HTTPException(status_code=503, detail='pdf_download_failed')
+
+    # Safe filename from vendor name
+    safe_vendor = ''.join(c for c in (case.vendor_name or 'dokument') if c.isalnum() or c in ' -')[:40].strip()
+    filename = f'{safe_vendor}.pdf' if safe_vendor else 'dokument.pdf'
+
+    return FastResponse(
+        content=pdf_bytes,
+        media_type='application/pdf',
+        headers={
+            'Content-Disposition': f'inline; filename="{filename}"',
+            'Cache-Control': 'private, max-age=300',
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

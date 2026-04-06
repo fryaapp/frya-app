@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { CardBlock } from './CardBlock'
 import { useFryaStore } from '../../stores/fryaStore'
 
@@ -14,6 +14,54 @@ interface CardListBlockData {
     ai_label?: string
     case_id?: string
   }>
+}
+
+function PdfButton({ caseId, title }: { caseId: string; title: string }) {
+  const openPdfViewer = useFryaStore(s => s.openPdfViewer)
+
+  const handlePdf = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    openPdfViewer(caseId, title)
+  }, [caseId, title, openPdfViewer])
+
+  return (
+    <button
+      onClick={handlePdf}
+      title="PDF anzeigen"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '4px 10px',
+        fontSize: 11,
+        fontWeight: 600,
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        borderRadius: 8,
+        border: '1px solid var(--frya-outline-variant)',
+        background: 'transparent',
+        color: 'var(--frya-primary)',
+        cursor: 'pointer',
+        transition: 'background 150ms, border-color 150ms',
+        flexShrink: 0,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = 'var(--frya-surface-container)'
+        e.currentTarget.style.borderColor = 'var(--frya-primary)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent'
+        e.currentTarget.style.borderColor = 'var(--frya-outline-variant)'
+      }}
+    >
+      <span
+        className="material-symbols-rounded"
+        style={{ fontSize: 13, fontVariationSettings: "'FILL' 0, 'wght' 400" }}
+      >
+        picture_as_pdf
+      </span>
+      PDF
+    </button>
+  )
 }
 
 export function CardListBlock({ data }: { data: CardListBlockData }) {
@@ -53,8 +101,16 @@ export function CardListBlock({ data }: { data: CardListBlockData }) {
         </div>
       )}
       {visibleItems.map((item, i) => (
-        <div key={i} onClick={() => handleCardClick(item)} style={{ cursor: 'pointer' }}>
-          <CardBlock data={item} />
+        <div key={i} style={{ position: 'relative' }}>
+          <div onClick={() => handleCardClick(item)} style={{ cursor: 'pointer' }}>
+            <CardBlock data={{ ...item, hasPdfButton: !!item.case_id }} />
+          </div>
+          {/* PDF button — shown bottom-right of card when case_id is available */}
+          {item.case_id && (
+            <div style={{ position: 'absolute', bottom: 10, right: 10 }}>
+              <PdfButton caseId={item.case_id} title={item.title || 'Dokument'} />
+            </div>
+          )}
         </div>
       ))}
       {!expanded && hiddenCount > 0 && (

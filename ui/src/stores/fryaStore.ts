@@ -62,6 +62,11 @@ type WsMessageIncoming =
 // Store interface
 // ---------------------------------------------------------------------------
 
+interface PdfViewerState {
+  caseId: string
+  title: string
+}
+
 interface FryaStore {
   // Auth
   token: string | null
@@ -76,9 +81,12 @@ interface FryaStore {
   // UI
   showGreeting: boolean
   showSettings: boolean
+  pdfViewer: PdfViewerState | null
   startChat: (initialMessage?: string) => void
   goHome: () => void
   openSettings: () => void
+  openPdfViewer: (caseId: string, title: string) => void
+  closePdfViewer: () => void
 
   // Chat
   messages: ChatMessage[]
@@ -440,6 +448,7 @@ export const useFryaStore = create<FryaStore>((set, get) => {
     // UI
     showGreeting: true,
     showSettings: false,
+    pdfViewer: null,
 
     startChat: (initialMessage?: string) => {
       set({ showGreeting: false, showSettings: false })
@@ -457,6 +466,14 @@ export const useFryaStore = create<FryaStore>((set, get) => {
 
     openSettings: () => {
       set({ showSettings: true, showGreeting: false })
+    },
+
+    openPdfViewer: (caseId: string, title: string) => {
+      set({ pdfViewer: { caseId, title } })
+    },
+
+    closePdfViewer: () => {
+      set({ pdfViewer: null })
     },
 
     // Chat state

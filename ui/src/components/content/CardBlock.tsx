@@ -17,6 +17,8 @@ interface CardBlockData {
   badge?: CardBadge
   fields?: CardField[]
   ai_label?: string
+  /** When true, extra bottom padding is added so PDF button doesn't overlap content */
+  hasPdfButton?: boolean
 }
 
 export function CardBlock({ data }: { data: CardBlockData }) {
@@ -41,7 +43,7 @@ export function CardBlock({ data }: { data: CardBlockData }) {
           ? 'var(--frya-surface-container)'
           : 'var(--frya-surface-container-low)',
         borderRadius: 12,
-        padding: '12px 14px',
+        padding: data.hasPdfButton ? '12px 14px 36px' : '12px 14px',
         transition: 'background 0.15s ease',
       }}
     >
