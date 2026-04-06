@@ -181,17 +181,32 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
 
   // ── Download ──────────────────────────────────────────────────────────────
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = useCallback(async () => {
     if (!pdfBytes) return
-    // new Uint8Array(pdfBytes) creates a copy bounded to the view's range
-    // so the Blob only contains the actual PDF bytes (not the entire ArrayBuffer)
     const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
+    const safeName = title.replace(/[^a-zA-Z0-9\u00C0-\u024F\s-]/g, '').trim() || 'dokument'
+    const filename = `${safeName}.pdf`
+
+    // Primär: Web Share API mit File — funktioniert in Capacitor WebView (Android/iOS)
+    // und zeigt das native Share-Sheet zum Speichern / Weiterleiten
+    if (typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+      try {
+        const file = new File([blob], filename, { type: 'application/pdf' })
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: safeName })
+          return
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return  // Nutzer hat abgebrochen
+        // anderer Fehler → Fallback
+      }
+    }
+
+    // Fallback: <a download> für Desktop-Browser (Chrome, Firefox, Safari Desktop)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    // Safe filename
-    const safeName = title.replace(/[^a-zA-Z0-9\u00C0-\u024F\s-]/g, '').trim() || 'dokument'
-    a.download = `${safeName}.pdf`
+    a.download = filename
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
