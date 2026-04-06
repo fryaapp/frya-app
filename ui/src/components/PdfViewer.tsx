@@ -11,6 +11,7 @@
  *   • Works in Capacitor WebView on Android and iOS
  */
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { api } from '../lib/api'
 
 // Worker URL — Vite bundles this as a separate asset, accessible in Capacitor WebView
@@ -210,26 +211,59 @@ export function PdfViewer({ caseId, title, onClose }: PdfViewerProps) {
 
   const handleDownload = useCallback(async () => {
     if (!pdfBytes) return
-    const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
     const safeName = title.replace(/[^a-zA-Z0-9\u00C0-\u024F\s-]/g, '').trim() || 'dokument'
     const filename = `${safeName}.pdf`
 
-    // Primär: Web Share API mit File — funktioniert in Capacitor WebView (Android/iOS)
-    // und zeigt das native Share-Sheet zum Speichern / Weiterleiten
-    if (typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+    if (Capacitor.isNativePlatform()) {
+      // ── Native Android/iOS: @capacitor/filesystem + @capacitor/share ────────
+      // Einziger zuverlässiger Weg — <a download> + Web Share API haben keine
+      // DownloadListener-Unterstützung in Capacitor's WebView Bridge
+      try {
+        const { Filesystem, Directory } = await import('@capacitor/filesystem')
+        const { Share } = await import('@capacitor/share')
+
+        // Uint8Array → base64 via FileReader (effizient, kein btoa-Loop)
+        const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve((reader.result as string).split(',')[1])
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        })
+
+        // In den App-Cache schreiben (kein WRITE_EXTERNAL_STORAGE-Permission nötig)
+        const result = await Filesystem.writeFile({
+          path: filename,
+          data: base64,
+          directory: Directory.Cache,
+          recursive: true,
+        })
+
+        // Native Share-Sheet öffnen → User wählt: "Dateien speichern", Drive, WhatsApp…
+        await Share.share({ title: safeName, files: [result.uri] })
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') console.error('[PdfViewer] native share failed:', err)
+      }
+      return
+    }
+
+    // ── Web-Browser: Web Share API → <a download> Fallback ───────────────────
+    const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' })
+    if (typeof navigator.share === 'function') {
       try {
         const file = new File([blob], filename, { type: 'application/pdf' })
-        if (navigator.canShare({ files: [file] })) {
+        const canShare = typeof navigator.canShare === 'function'
+          ? navigator.canShare({ files: [file] })
+          : true  // wenn canShare nicht da: trotzdem versuchen
+        if (canShare) {
           await navigator.share({ files: [file], title: safeName })
           return
         }
       } catch (err: any) {
-        if (err?.name === 'AbortError') return  // Nutzer hat abgebrochen
-        // anderer Fehler → Fallback
+        if (err?.name === 'AbortError') return
       }
     }
-
-    // Fallback: <a download> für Desktop-Browser (Chrome, Firefox, Safari Desktop)
+    // Letzter Fallback: <a download> (Chrome/Firefox Desktop)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
