@@ -147,7 +147,7 @@ function GroupAccordion({
       style={{
         borderRadius: 12,
         border: open
-          ? '1px solid #F08A3A'
+          ? '1px solid var(--frya-primary)'
           : '1px solid var(--frya-outline-variant)',
         background: 'var(--frya-surface)',
         overflow: 'hidden',
@@ -188,7 +188,7 @@ function GroupAccordion({
           <span
             style={{
               fontSize: 11,
-              color: open ? '#F08A3A' : 'var(--frya-on-surface-variant)',
+              color: open ? 'var(--frya-primary)' : 'var(--frya-on-surface-variant)',
               transition: 'transform 200ms ease, color 200ms ease',
               display: 'inline-block',
               transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
@@ -202,7 +202,7 @@ function GroupAccordion({
               fontSize: 13,
               fontWeight: 600,
               color: 'var(--frya-on-surface)',
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
               lineHeight: 1.3,
             }}
           >
@@ -213,7 +213,7 @@ function GroupAccordion({
               style={{
                 fontSize: 11,
                 color: 'var(--frya-on-surface-variant)',
-                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                fontFamily: "'Inter Variable', 'Inter', sans-serif",
               }}
             >
               {group.reference}
@@ -235,7 +235,7 @@ function GroupAccordion({
             style={{
               fontSize: 11,
               color: 'var(--frya-on-surface-variant)',
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
             }}
           >
             {group.count} {group.count === 1 ? 'Beleg' : 'Belege'}
@@ -261,7 +261,7 @@ function GroupAccordion({
                 borderRadius: 6,
                 fontSize: 10,
                 fontWeight: 600,
-                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                fontFamily: "'Inter Variable', 'Inter', sans-serif",
                 background: badgeColor.bg,
                 color: badgeColor.fg,
               }}
@@ -287,8 +287,8 @@ function GroupAccordion({
               style={{
                 fontSize: 11,
                 fontWeight: 500,
-                color: '#E67E22',
-                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                color: 'var(--frya-warning)',
+                fontFamily: "'Inter Variable', 'Inter', sans-serif",
               }}
             >
               {group.warning}
@@ -332,20 +332,20 @@ function GroupAccordion({
                 padding: '8px 16px',
                 marginTop: 4,
                 fontSize: 12,
-                fontFamily: "'Plus Jakarta Sans', sans-serif",
+                fontFamily: "'Inter Variable', 'Inter', sans-serif",
                 fontWeight: 600,
                 color: '#FFFFFF',
-                background: '#F08A3A',
+                background: 'var(--frya-primary)',
                 border: 'none',
                 borderRadius: 10,
                 cursor: 'pointer',
                 transition: 'background 150ms ease, transform 100ms ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#D97A2F'
+                e.currentTarget.style.background = 'var(--frya-primary-hover)'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#F08A3A'
+                e.currentTarget.style.background = 'var(--frya-primary)'
               }}
               onMouseDown={(e) => {
                 e.currentTarget.style.transform = 'scale(0.97)'
@@ -403,7 +403,7 @@ export function CardGroupBlock({ data }: { data: CardGroupBlockData }) {
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
-        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        fontFamily: "'Inter Variable', 'Inter', sans-serif",
       }}
     >
       {/* Grouped items */}

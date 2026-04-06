@@ -34,7 +34,7 @@ export function ExportBlock({
           style={{
             fontSize: 11,
             color: 'var(--frya-on-surface-variant)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             fontWeight: 500,
             paddingLeft: 2,
             marginBottom: 2,
@@ -103,7 +103,7 @@ function ExportItemRow({
             fontSize: 12,
             fontWeight: 600,
             color: 'var(--frya-on-surface)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
           }}
         >
           {item.label}
@@ -113,7 +113,7 @@ function ExportItemRow({
             style={{
               fontSize: 10,
               color: 'var(--frya-on-surface-variant)',
-              fontFamily: 'Plus Jakarta Sans, sans-serif',
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
               marginTop: 1,
             }}
           >

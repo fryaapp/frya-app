@@ -43,7 +43,7 @@ function ActionButton({
     borderRadius: 18,
     fontSize: 11,
     fontWeight: 500,
-    fontFamily: 'Plus Jakarta Sans, sans-serif',
+    fontFamily: "'Inter Variable', 'Inter', sans-serif",
     padding: '6px 13px',
     cursor: 'pointer',
     transition: 'opacity 0.15s ease, background 0.15s ease',

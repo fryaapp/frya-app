@@ -56,7 +56,7 @@ export function CardBlock({ data }: { data: CardBlockData }) {
                 fontSize: 13,
                 fontWeight: 600,
                 color: 'var(--frya-on-surface)',
-                fontFamily: 'Plus Jakarta Sans, sans-serif',
+                fontFamily: "'Inter Variable', 'Inter', sans-serif",
                 lineHeight: 1.3,
               }}
             >
@@ -68,7 +68,7 @@ export function CardBlock({ data }: { data: CardBlockData }) {
               style={{
                 fontSize: 11,
                 color: 'var(--frya-on-surface-variant)',
-                fontFamily: 'Plus Jakarta Sans, sans-serif',
+                fontFamily: "'Inter Variable', 'Inter', sans-serif",
                 marginTop: 2,
                 lineHeight: 1.3,
               }}
@@ -103,7 +103,7 @@ export function CardBlock({ data }: { data: CardBlockData }) {
             borderRadius: 6,
             fontSize: 10,
             fontWeight: 600,
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             background: badgeColors.bg,
             color: badgeColors.fg,
           }}
@@ -124,7 +124,7 @@ export function CardBlock({ data }: { data: CardBlockData }) {
                 alignItems: 'center',
                 padding: '4px 0',
                 fontSize: 11,
-                fontFamily: 'Plus Jakarta Sans, sans-serif',
+                fontFamily: "'Inter Variable', 'Inter', sans-serif",
                 borderBottom:
                   i < data.fields!.length - 1
                     ? '1px solid var(--frya-outline-variant)'
@@ -147,7 +147,7 @@ export function CardBlock({ data }: { data: CardBlockData }) {
             marginTop: 8,
             fontSize: 10,
             color: 'var(--frya-primary)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             fontStyle: 'italic',
           }}
         >

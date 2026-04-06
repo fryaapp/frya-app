@@ -34,7 +34,7 @@ export function ProgressBlock({ data }: { data: ProgressBlockData }) {
               fontSize: 13,
               fontWeight: 600,
               color: 'var(--frya-on-surface)',
-              fontFamily: 'Plus Jakarta Sans, sans-serif',
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
             }}
           >
             {data.title}
@@ -99,7 +99,7 @@ export function ProgressBlock({ data }: { data: ProgressBlockData }) {
                 style={{
                   fontSize: 9,
                   color: 'var(--frya-on-surface-variant)',
-                  fontFamily: 'Plus Jakarta Sans, sans-serif',
+                  fontFamily: "'Inter Variable', 'Inter', sans-serif",
                   marginTop: 2,
                 }}
               >

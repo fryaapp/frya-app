@@ -41,7 +41,7 @@ function BarChart({ data }: { data: ChartBlockData }) {
         const pct = maxVal > 0 ? (s.value / maxVal) * 100 : 0
         return (
           <div key={i} style={{ marginBottom: 6 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: 'Plus Jakarta Sans, sans-serif', marginBottom: 3 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: "'Inter Variable', 'Inter', sans-serif", marginBottom: 3 }}>
               <span style={{ color: 'var(--frya-on-surface-variant)' }}>{s.label}</span>
               <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
                 {typeof s.value === 'number' ? s.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20ac' : s.value}
@@ -65,13 +65,13 @@ function KpiChart({ data }: { data: ChartBlockData }) {
       <div style={{ textAlign: 'center', padding: '12px 0' }}>
         <div style={{
           fontSize: 28, fontWeight: 700, fontFamily: 'Outfit, sans-serif',
-          color: isPositive ? '#66E07A' : '#FF8A80',
+          color: isPositive ? 'var(--frya-success)' : 'var(--frya-error)',
           lineHeight: 1.2,
         }}>
           {data.kpi_trend === 'up' ? '\u25B2 ' : data.kpi_trend === 'down' ? '\u25BC ' : ''}{data.kpi_value}
         </div>
         {data.kpi_label && (
-          <div style={{ fontSize: 11, color: 'var(--frya-on-surface-variant)', fontFamily: 'Plus Jakarta Sans, sans-serif', marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: 'var(--frya-on-surface-variant)', fontFamily: "'Inter Variable', 'Inter', sans-serif", marginTop: 4 }}>
             {data.kpi_label}
           </div>
         )}
@@ -84,7 +84,7 @@ function KpiChart({ data }: { data: ChartBlockData }) {
             const pct = maxVal > 0 ? (s.value / maxVal) * 100 : 0
             return (
               <div key={i} style={{ marginBottom: 5 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'Plus Jakarta Sans, sans-serif', marginBottom: 2 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: "'Inter Variable', 'Inter', sans-serif", marginBottom: 2 }}>
                   <span style={{ color: 'var(--frya-on-surface-variant)' }}>{s.label}</span>
                   <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
                     {s.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
@@ -142,7 +142,7 @@ function LineChart({ data }: { data: ChartBlockData }) {
           <g key={i}>
             <circle cx={p.x} cy={p.y} r={3} fill={p.color || '#F08A3A'} />
             <text x={p.x} y={height - 5} textAnchor="middle" fill="var(--frya-on-surface-variant)"
-              fontSize={9} fontFamily="Plus Jakarta Sans, sans-serif">{p.label}</text>
+              fontSize={9} fontFamily="Inter Variable, Inter, sans-serif">{p.label}</text>
             <text x={p.x} y={p.y - 8} textAnchor="middle" fill="var(--frya-on-surface)"
               fontSize={8} fontFamily="Outfit, sans-serif" fontWeight={600}>
               {p.value.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
@@ -190,7 +190,7 @@ function DonutChart({ data }: { data: ChartBlockData }) {
               </div>
             )}
             {data.center_label && (
-              <div style={{ fontSize: 9, color: 'var(--frya-on-surface-variant)', fontFamily: 'Plus Jakarta Sans, sans-serif', marginTop: 2 }}>
+              <div style={{ fontSize: 9, color: 'var(--frya-on-surface-variant)', fontFamily: "'Inter Variable', 'Inter', sans-serif", marginTop: 2 }}>
                 {data.center_label}
               </div>
             )}
@@ -199,7 +199,7 @@ function DonutChart({ data }: { data: ChartBlockData }) {
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 10 }}>
         {(data?.series || []).map((s, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontFamily: "'Inter Variable', 'Inter', sans-serif" }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
             <span style={{ color: 'var(--frya-on-surface-variant)' }}>{s.label}</span>
             <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
@@ -222,6 +222,6 @@ const titleStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   color: 'var(--frya-on-surface)',
-  fontFamily: 'Plus Jakarta Sans, sans-serif',
+  fontFamily: "'Inter Variable', 'Inter', sans-serif",
   marginBottom: 10,
 }

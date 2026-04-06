@@ -35,7 +35,7 @@ function PdfButton({ caseId, title }: { caseId: string; title: string }) {
         padding: '4px 10px',
         fontSize: 11,
         fontWeight: 600,
-        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        fontFamily: "'Inter Variable', 'Inter', sans-serif",
         borderRadius: 8,
         border: '1px solid var(--frya-outline-variant)',
         background: 'transparent',
@@ -85,6 +85,32 @@ export function CardListBlock({ data }: { data: CardListBlockData }) {
     }
   }
 
+  if (items.length === 0) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 8,
+          padding: '24px 16px',
+          color: 'var(--frya-on-surface-variant)',
+          fontFamily: "'Inter Variable', 'Inter', sans-serif",
+        }}
+      >
+        <span
+          className="material-symbols-rounded"
+          style={{ fontSize: 36, opacity: 0.4, fontVariationSettings: "'FILL' 0, 'wght' 300" }}
+        >
+          inbox
+        </span>
+        <span style={{ fontSize: 13, opacity: 0.6 }}>
+          {data.title ? `Keine Eintraege in "${data.title}"` : 'Keine Dokumente vorhanden'}
+        </span>
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {data.title && (
@@ -92,7 +118,7 @@ export function CardListBlock({ data }: { data: CardListBlockData }) {
           style={{
             fontSize: 11,
             color: 'var(--frya-on-surface-variant)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             fontWeight: 500,
             paddingLeft: 2,
           }}
@@ -123,7 +149,7 @@ export function CardListBlock({ data }: { data: CardListBlockData }) {
             gap: 6,
             padding: '8px 16px',
             fontSize: 12,
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             fontWeight: 500,
             color: 'var(--frya-primary)',
             background: 'transparent',
@@ -154,7 +180,7 @@ export function CardListBlock({ data }: { data: CardListBlockData }) {
             gap: 6,
             padding: '6px 16px',
             fontSize: 11,
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             color: 'var(--frya-on-surface-variant)',
             background: 'transparent',
             border: 'none',

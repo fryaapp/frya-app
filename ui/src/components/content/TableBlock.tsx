@@ -19,7 +19,7 @@ export function TableBlock({ data }: { data: TableBlockData }) {
             fontSize: 13,
             fontWeight: 600,
             color: 'var(--frya-on-surface)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             padding: '12px 14px 8px',
           }}
         >
@@ -33,7 +33,7 @@ export function TableBlock({ data }: { data: TableBlockData }) {
             width: '100%',
             borderCollapse: 'collapse',
             fontSize: 11,
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
           }}
         >
           <thead>

@@ -134,7 +134,7 @@ export function DocumentBlock({ data }: { data: DocumentBlockData }) {
             fontSize: 12,
             fontWeight: 600,
             color: 'var(--frya-on-surface)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -147,7 +147,7 @@ export function DocumentBlock({ data }: { data: DocumentBlockData }) {
             style={{
               fontSize: 10,
               color: 'var(--frya-on-surface-variant)',
-              fontFamily: 'Plus Jakarta Sans, sans-serif',
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
               marginTop: 1,
             }}
           >

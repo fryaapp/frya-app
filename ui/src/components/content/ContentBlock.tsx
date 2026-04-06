@@ -96,7 +96,7 @@ function ActionButton({ data }: { data: { label: string; chat_text: string; styl
         padding: '10px 16px',
         fontSize: 12,
         fontWeight: 600,
-        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        fontFamily: "'Inter Variable', 'Inter', sans-serif",
         borderRadius: 10,
         border: '1px solid var(--frya-outline-variant)',
         background: 'var(--frya-surface-container-low)',

@@ -51,7 +51,7 @@ export function AlertBlock({ data }: { data: AlertBlockData }) {
         style={{
           fontSize: 12,
           color: colors.fg,
-          fontFamily: 'Plus Jakarta Sans, sans-serif',
+          fontFamily: "'Inter Variable', 'Inter', sans-serif",
           lineHeight: 1.5,
         }}
       >

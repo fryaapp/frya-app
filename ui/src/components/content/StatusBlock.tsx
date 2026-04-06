@@ -53,7 +53,7 @@ export function StatusBlock({ data }: { data: StatusBlockData }) {
         style={{
           fontSize: 12,
           color: 'var(--frya-on-surface-variant)',
-          fontFamily: 'Plus Jakarta Sans, sans-serif',
+          fontFamily: "'Inter Variable', 'Inter', sans-serif",
           textAlign: 'center',
         }}
       >

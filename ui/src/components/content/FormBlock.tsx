@@ -33,7 +33,7 @@ const inputStyle: React.CSSProperties = {
   borderRadius: 8,
   padding: '8px 10px',
   fontSize: 12,
-  fontFamily: 'Plus Jakarta Sans, sans-serif',
+  fontFamily: "'Inter Variable', 'Inter', sans-serif",
   color: 'var(--frya-on-surface)',
   outline: 'none',
   boxSizing: 'border-box',
@@ -45,7 +45,7 @@ const labelStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 500,
   color: 'var(--frya-on-surface-variant)',
-  fontFamily: 'Plus Jakarta Sans, sans-serif',
+  fontFamily: "'Inter Variable', 'Inter', sans-serif",
   marginBottom: 4,
 }
 
@@ -94,7 +94,7 @@ export function FormBlock({
             fontSize: 13,
             fontWeight: 700,
             color: 'var(--frya-on-surface)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             marginBottom: 12,
           }}
         >
@@ -138,7 +138,7 @@ export function FormBlock({
               padding: '6px 14px',
               fontSize: 11,
               fontWeight: 500,
-              fontFamily: 'Plus Jakarta Sans, sans-serif',
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
               color: 'var(--frya-on-surface-variant)',
               cursor: 'pointer',
             }}
@@ -155,7 +155,7 @@ export function FormBlock({
             padding: '6px 16px',
             fontSize: 11,
             fontWeight: 600,
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             color: 'var(--frya-on-primary)',
             cursor: 'pointer',
           }}
@@ -327,7 +327,7 @@ function LineItemsField({
     fontSize: 10,
     fontWeight: 600,
     color: 'var(--frya-on-surface-variant)',
-    fontFamily: 'Plus Jakarta Sans, sans-serif',
+    fontFamily: "'Inter Variable', 'Inter', sans-serif",
     padding: '0 2px 4px',
   }
 
@@ -421,7 +421,7 @@ function LineItemsField({
           borderRadius: 8,
           padding: '5px 10px',
           fontSize: 11,
-          fontFamily: 'Plus Jakarta Sans, sans-serif',
+          fontFamily: "'Inter Variable', 'Inter', sans-serif",
           color: 'var(--frya-primary)',
           cursor: 'pointer',
           width: '100%',
@@ -454,7 +454,7 @@ function LineItemsField({
               display: 'flex',
               gap: 12,
               fontSize: row.label === 'Brutto' ? 13 : 11,
-              fontFamily: 'Plus Jakarta Sans, sans-serif',
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
               fontWeight: row.label === 'Brutto' ? 700 : 400,
             }}
           >

@@ -40,7 +40,7 @@ export function KeyValueBlock({ data }: { data: KeyValueBlockData }) {
             fontSize: 13,
             fontWeight: 600,
             color: 'var(--frya-on-surface)',
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             marginBottom: 8,
           }}
         >
@@ -57,7 +57,7 @@ export function KeyValueBlock({ data }: { data: KeyValueBlockData }) {
             alignItems: 'center',
             padding: '6px 0',
             fontSize: 12,
-            fontFamily: 'Plus Jakarta Sans, sans-serif',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             borderBottom:
               i < rows.length - 1
                 ? '1px solid var(--frya-outline-variant)'
