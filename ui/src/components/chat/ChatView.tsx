@@ -2,14 +2,12 @@ import { useState, useCallback } from 'react'
 import { ChatHistory } from './ChatHistory'
 import { ChatInputBar } from './ChatInputBar'
 import { useFryaStore } from '../../stores/fryaStore'
-import { useTheme } from '../../hooks/useTheme'
 import { BugReportOverlay } from '../layout/BugReportOverlay'
 import { api } from '../../lib/api'
 
 function ChatTopBar() {
   const goHome = useFryaStore((s) => s.goHome)
   const openSettings = useFryaStore((s) => s.openSettings)
-  const { theme, setTheme } = useTheme()
   const [bugOpen, setBugOpen] = useState(false)
   const [screenshot, setScreenshot] = useState<string | null>(null)
 
@@ -65,31 +63,6 @@ function ChatTopBar() {
         </button>
 
         <div style={{ flex: 1 }} />
-
-        {/* Theme — 3-Tasten Segmented Control */}
-        <div style={{ display: 'flex', gap: 1, background: 'var(--frya-surface-container)', borderRadius: 10, padding: 2 }}>
-          {([
-            ['dark', 'dark_mode', 'Dunkel'],
-            ['light', 'light_mode', 'Hell'],
-            ['system', 'brightness_auto', 'Auto'],
-          ] as const).map(([val, icon, label]) => (
-            <button
-              key={val}
-              onClick={() => setTheme(val)}
-              title={label}
-              style={{
-                width: 28, height: 26, borderRadius: 8, border: 'none',
-                background: theme === val ? 'var(--frya-primary-container)' : 'transparent',
-                color: theme === val ? 'var(--frya-on-primary-container)' : 'var(--frya-on-surface-variant)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', transition: 'all 0.15s',
-              }}
-              aria-label={label}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{icon}</span>
-            </button>
-          ))}
-        </div>
 
         {/* Bug Report */}
         <button onClick={handleBugReport} style={btnStyle} onMouseEnter={onEnter} onMouseLeave={onLeave} aria-label="Problem melden">

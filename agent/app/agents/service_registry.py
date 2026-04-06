@@ -15,19 +15,25 @@ logger = logging.getLogger(__name__)
 
 
 async def _resolve_tenant(tenant_id: str | None = None) -> uuid.UUID:
-    """Resolve tenant UUID. P-17: Prefer explicit tenant_id from caller (JWT)."""
+    """Resolve tenant UUID. P-17: Prefer explicit tenant_id from caller (JWT).
+
+    P-34 FIX: Non-UUID strings like 'default' are converted via uuid5
+    (same logic as bulk_upload._get_tenant_id) instead of raising RuntimeError.
+    """
     if tenant_id:
         try:
             return uuid.UUID(str(tenant_id))
         except ValueError:
-            pass
+            # Non-UUID string (e.g. 'default') — deterministic UUID, consistent
+            # with bulk_upload._get_tenant_id() last-resort fallback
+            return uuid.uuid5(uuid.NAMESPACE_DNS, str(tenant_id))
     # Fallback for non-authenticated contexts (webhooks, cron)
     from app.case_engine.tenant_resolver import resolve_tenant_id
     logger.warning('P-17: service_registry using resolve_tenant_id() fallback — no tenant_id in caller context')
     tid = await resolve_tenant_id()
-    if not tid:
-        raise RuntimeError('tenant_unavailable')
-    return uuid.UUID(tid)
+    if tid:
+        return uuid.UUID(tid)
+    raise RuntimeError('tenant_unavailable')
 
 
 def _get_repo():

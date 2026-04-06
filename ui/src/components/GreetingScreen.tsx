@@ -70,6 +70,21 @@ export function GreetingScreen() {
         background: 'var(--frya-surface)',
       }}
     >
+      {/* Top bar — Settings + BugReport rechts */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '8px 12px', gap: 4, flexShrink: 0 }}>
+        <button
+          onClick={() => useFryaStore.getState().openSettings()}
+          style={{
+            width: 32, height: 32, borderRadius: 8, border: 'none',
+            background: 'transparent', color: 'var(--frya-on-surface-variant)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+          aria-label="Einstellungen"
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>settings</span>
+        </button>
+      </div>
+
       {/* Center content */}
       <div
         style={{
@@ -78,7 +93,7 @@ export function GreetingScreen() {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '32px 20px 0',
+          padding: '0 20px 0',
           overflow: 'auto',
         }}
       >
@@ -238,23 +253,6 @@ export function GreetingScreen() {
           </div>
         </div>
       </div>
-
-      {/* Settings button — fixed bottom-left */}
-      <button
-        onClick={() => useFryaStore.getState().openSettings()}
-        style={{
-          position: 'fixed', bottom: 18, left: 18,
-          width: 34, height: 34, borderRadius: 12,
-          border: '1px solid var(--frya-outline-variant)',
-          background: 'var(--frya-surface-container-low)',
-          color: 'var(--frya-on-surface-variant)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', zIndex: 100,
-        }}
-        aria-label="Einstellungen"
-      >
-        <span className="material-symbols-rounded" style={{ fontSize: 16 }}>settings</span>
-      </button>
 
       {/* Input bar at bottom */}
       <ChatInputBar onSend={handleSend} placeholder="Nachricht an Frya…" />

@@ -279,12 +279,19 @@ async def send_chat_message(
                     }
                     si = _i2s.get(tier_intent)
                     if si:
+                        # P-34 FIX: Always pass tenant_id so service_registry
+                        # doesn't fall back to resolve_tenant_id() → None → empty inbox
+                        _svc_tenant_id: str | None = None
+                        try:
+                            _svc_tenant_id = str(await _resolve_tenant_uuid(user))
+                        except Exception:
+                            pass
                         reg = build_service_registry()
                         svc = reg.get(si[0])
                         if svc:
                             m = getattr(svc, si[1], None)
                             if m:
-                                agent_results = await m() or {}
+                                agent_results = await m(tenant_id=_svc_tenant_id) or {}
                 except Exception:
                     pass
 
