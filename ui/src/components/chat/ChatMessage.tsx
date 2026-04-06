@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { FryaAvatar } from './FryaAvatar'
 import { ContentBlock } from '../content/ContentBlock'
+import type { UploadProgressData } from '../../stores/fryaStore'
 
 function Timestamp({ ts, visible }: { ts?: number; visible: boolean }) {
   if (!ts) return null
@@ -13,7 +14,7 @@ function Timestamp({ ts, visible }: { ts?: number; visible: boolean }) {
         fontSize: 10,
         color: 'var(--frya-on-surface-variant)',
         opacity: visible ? 0.5 : 0,
-        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        fontFamily: "'Inter Variable', 'Inter', sans-serif",
         marginTop: 2,
         userSelect: 'none',
         transition: 'opacity 0.15s ease',
@@ -52,6 +53,117 @@ function cleanText(text: string, blocks?: any[]): string {
   return t
 }
 
+const STAGE_LABELS: Record<string, string> = {
+  uploading: 'Wird hochgeladen...',
+  ocr: 'OCR liest den Beleg...',
+  analysis: 'Analysiere Inhalt...',
+  booking: 'Erstelle Buchungsvorschlag...',
+  done: 'Fertig',
+}
+
+function UploadProgressCard({ data }: { data: UploadProgressData }) {
+  const isDone = data.stage === 'done'
+  // percent=0 on done means error/cancelled — hide the card
+  if (isDone && data.percent === 0) return null
+
+  const label = STAGE_LABELS[data.stage] ?? data.stage
+  const percent = isDone ? 100 : data.percent
+  const barColor = isDone ? 'var(--frya-primary)' : 'var(--frya-primary)'
+  const trackColor = 'var(--frya-surface-container-high)'
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 8,
+        marginBottom: 12,
+        animation: 'frya-fade-up 300ms ease both',
+      }}
+    >
+      <FryaAvatar size={22} style={{ marginTop: 2 }} />
+      <div
+        style={{
+          background: 'var(--frya-surface-container-low)',
+          border: '1px solid var(--frya-outline-variant)',
+          borderRadius: 12,
+          padding: '12px 14px',
+          minWidth: 220,
+          maxWidth: 320,
+        }}
+      >
+        {/* Filename */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: 8,
+          }}
+        >
+          <span
+            className="material-symbols-rounded"
+            style={{
+              fontSize: 16,
+              color: 'var(--frya-primary)',
+              fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+            }}
+          >
+            {isDone ? 'check_circle' : 'description'}
+          </span>
+          <span
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--frya-on-surface)',
+              fontFamily: "'Inter Variable', 'Inter', sans-serif",
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 220,
+            }}
+            title={data.filename}
+          >
+            {data.filename}
+          </span>
+        </div>
+
+        {/* Progress bar */}
+        <div
+          style={{
+            height: 6,
+            borderRadius: 3,
+            background: trackColor,
+            overflow: 'hidden',
+            marginBottom: 6,
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width: `${percent}%`,
+              background: barColor,
+              borderRadius: 3,
+              transition: 'width 600ms ease',
+            }}
+          />
+        </div>
+
+        {/* Stage label */}
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--frya-on-surface-variant)',
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
+          }}
+        >
+          {isDone ? `${label} \u2713` : label}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface ChatMessageData {
   id: string
   role: 'user' | 'frya' | 'assistant' | 'system'
@@ -59,6 +171,7 @@ interface ChatMessageData {
   content_blocks?: Array<{ block_type: string; data: any }>
   actions?: Array<{ label: string; action: string; icon?: string; variant?: string }>
   timestamp?: number
+  uploadProgress?: UploadProgressData
 }
 
 interface ChatMessageProps {
@@ -71,6 +184,11 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
   const isUser = message.role === 'user'
 
   const [hovered, setHovered] = useState(false)
+
+  // Upload progress card
+  if (message.uploadProgress) {
+    return <UploadProgressCard data={message.uploadProgress} />
+  }
 
   if (isUser) {
     return (
@@ -91,10 +209,10 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
             background: 'var(--frya-primary-container)',
             color: 'var(--frya-on-primary-container)',
             borderRadius: '18px 18px 4px 18px',
-            padding: '10px 16px',
-            fontSize: 13,
-            lineHeight: 1.55,
-            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            padding: '11px 16px',
+            fontSize: 15,
+            lineHeight: 1.6,
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
           }}
@@ -124,10 +242,10 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
       <div style={{ flex: 1, minWidth: 0, maxWidth: '75%' }}>
         <span
           style={{
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: 600,
             color: 'var(--frya-on-surface-variant)',
-            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
             display: 'block',
             marginBottom: 4,
           }}
@@ -137,10 +255,10 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
 
         <div
           style={{
-            fontSize: 13,
+            fontSize: 15,
             lineHeight: 1.65,
             color: 'var(--frya-on-surface)',
-            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            fontFamily: "'Inter Variable', 'Inter', sans-serif",
           }}
         >
           <ReactMarkdown
@@ -238,7 +356,7 @@ export function ChatMessage({ message, onAction, onSubmit }: ChatMessageProps) {
                   padding: '6px 14px',
                   fontSize: 12,
                   fontWeight: 500,
-                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  fontFamily: "'Inter Variable', 'Inter', sans-serif",
                   borderRadius: 18,
                   border: act.variant === 'filled'
                     ? 'none'

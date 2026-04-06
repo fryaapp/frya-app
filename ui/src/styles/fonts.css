@@ -1,4 +1,13 @@
-/* FRYA Fonts — via npm packages, bundled at build time */
+/* FRYA Fonts — via npm/fontsource, build-time bundled, KEIN CDN-Request
+   → vollständig DSGVO-konform (keine IP-Übertragung an Dritte) */
+
+/* Inter Variable — Standardschrift (identisch mit Claude-UI-Ästhetik) */
+@import '@fontsource-variable/inter';
+
+/* Outfit — nur noch für Display/Headings wo explizit angegeben */
 @import '@fontsource-variable/outfit';
+
+/* Plus Jakarta Sans — Fallback für ältere Inline-Stile im Code */
 @import '@fontsource-variable/plus-jakarta-sans';
+
 @import 'material-symbols/rounded.css';

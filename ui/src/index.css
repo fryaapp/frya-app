@@ -31,8 +31,8 @@
   --color-info-container: var(--frya-info-container);
   --color-page-bg: var(--frya-page-bg);
 
-  --font-display: 'Outfit', sans-serif;
-  --font-body: 'Plus Jakarta Sans', sans-serif;
+  --font-display: 'Outfit Variable', 'Outfit', sans-serif;
+  --font-body: 'Inter Variable', 'Inter', sans-serif;
 
   --radius-m3-sm: 8px;
   --radius-m3: 12px;
@@ -50,7 +50,9 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;          /* Basis-Größe: verhindert iOS-Zoom bei Input-Fokus */
+  font-feature-settings: 'cv01', 'cv03', 'cv04'; /* Inter optische Varianten */
   background-color: var(--frya-surface);
   color: var(--frya-on-surface);
   -webkit-font-smoothing: antialiased;
@@ -59,7 +61,8 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Outfit', sans-serif;
+  font-family: 'Inter Variable', 'Inter', sans-serif;
+  font-weight: 600;
 }
 
 /* ── Material Symbols Rounded ── */
