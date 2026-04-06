@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { BugReportOverlay } from './layout/BugReportOverlay'
 import { FryaAvatar } from './chat/FryaAvatar'
 import { ChatInputBar } from './chat/ChatInputBar'
 import { useFryaStore } from '../stores/fryaStore'
@@ -28,6 +29,20 @@ export function GreetingScreen() {
   const messageCount = useFryaStore((s) => s.messages.length)
   const [data, setData] = useState<GreetingResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [bugOpen, setBugOpen] = useState(false)
+  const [bugShot, setBugShot] = useState<string | null>(null)
+
+  const handleBugReport = useCallback(async () => {
+    try {
+      const el = document.getElementById('root')
+      if (el) {
+        const { default: html2canvas } = await import('html2canvas')
+        const canvas = await html2canvas(el, { backgroundColor: null, scale: 1, logging: false, useCORS: true })
+        setBugShot(canvas.toDataURL('image/jpeg', 0.7))
+      }
+    } catch { setBugShot(null) }
+    setBugOpen(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -70,8 +85,19 @@ export function GreetingScreen() {
         background: 'var(--frya-surface)',
       }}
     >
-      {/* Top bar — Settings + BugReport rechts */}
+      {/* Top bar — BugReport + Settings oben rechts */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '8px 12px', gap: 4, flexShrink: 0 }}>
+        <button
+          onClick={handleBugReport}
+          style={{
+            width: 32, height: 32, borderRadius: 8, border: 'none',
+            background: 'transparent', color: 'var(--frya-on-surface-variant)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+          }}
+          aria-label="Problem melden"
+        >
+          <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>bug_report</span>
+        </button>
         <button
           onClick={() => useFryaStore.getState().openSettings()}
           style={{
@@ -256,6 +282,7 @@ export function GreetingScreen() {
 
       {/* Input bar at bottom */}
       <ChatInputBar onSend={handleSend} placeholder="Nachricht an Frya…" />
+      <BugReportOverlay open={bugOpen} onClose={() => { setBugOpen(false); setBugShot(null) }} screenshot={bugShot} />
 
 
       <style>{`

@@ -88,12 +88,7 @@ function AppContent() {
   }
 
   if (showGreeting) {
-    return (
-      <>
-        <GreetingScreen />
-        <BugReportFAB />
-      </>
-    )
+    return <GreetingScreen />
   }
 
   return <ChatView />
