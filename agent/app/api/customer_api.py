@@ -17,28 +17,62 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/v1', tags=['customer'])
 
 
-async def _resolve_tenant_uuid(user=None) -> uuid.UUID:
-    """Resolve tenant UUID from authenticated user or DB fallback.
+async def _ensure_tenant_uuid(username: str, raw_tid: str | None) -> uuid.UUID:
+    """P-33: Ensure every user has a valid, persistent UUID tenant.
 
-    P-33 FIX: Mirrors bulk_upload._get_tenant_id() logic so that
-    admin/users with tenant_id='default' (non-UUID string) get the
-    same deterministic uuid5 UUID that the bulk_upload uses.
+    1. If raw_tid is already a valid UUID → return it.
+    2. Otherwise compute deterministic uuid5 from the raw string (or username).
+    3. Auto-provision: create row in frya_tenants + update frya_users if missing.
+
+    This is idempotent — safe to call on every login/refresh.
     """
-    tid = getattr(user, 'tenant_id', None) or '' if user else ''
-    if tid:
+    # Determine the UUID we want to use
+    if raw_tid:
         try:
-            return uuid.UUID(str(tid))
+            return uuid.UUID(str(raw_tid))
         except ValueError:
-            # tid is a non-UUID string like 'default' — compute deterministic UUID
-            # same as bulk_upload._get_tenant_id() last-resort fallback
-            return uuid.uuid5(uuid.NAMESPACE_DNS, str(tid))
-    from app.case_engine.tenant_resolver import resolve_tenant_id
-    resolved = await resolve_tenant_id()
-    if resolved:
-        return uuid.UUID(resolved)
-    # Last resort: derive from username so admin always gets consistent tenant
-    seed = user.username if user and getattr(user, 'username', None) else 'default'
-    return uuid.uuid5(uuid.NAMESPACE_DNS, seed)
+            pass
+    seed = raw_tid if raw_tid else username
+    tenant_uuid = uuid.uuid5(uuid.NAMESPACE_DNS, seed)
+
+    # Auto-provision: create tenant row if it doesn't exist
+    try:
+        from app.dependencies import get_db_pool as _get_pool
+        pool = _get_pool()
+        if pool:
+            async with pool.acquire() as conn:
+                tid_str = str(tenant_uuid)
+                # Insert tenant row (idempotent)
+                await conn.execute(
+                    """INSERT INTO frya_tenants (tenant_id, name, status)
+                       VALUES ($1, $2, 'active')
+                       ON CONFLICT (tenant_id) DO NOTHING""",
+                    tid_str,
+                    f'Tenant {username}',
+                )
+                # Update user record so next login skips this path
+                await conn.execute(
+                    """UPDATE frya_users SET tenant_id = $1
+                       WHERE username = $2 AND (tenant_id IS NULL OR tenant_id = $3)""",
+                    tid_str,
+                    username,
+                    raw_tid or '',
+                )
+    except Exception as _e:
+        logger.warning('P-33: auto-provision tenant failed for %s: %s', username, _e)
+
+    return tenant_uuid
+
+
+async def _resolve_tenant_uuid(user=None) -> uuid.UUID:
+    """Resolve tenant UUID from authenticated user.
+
+    Delegates to _ensure_tenant_uuid so every account always gets
+    a consistent, valid UUID — even if tenant_id is missing or non-UUID.
+    """
+    username = getattr(user, 'username', None) or 'unknown' if user else 'unknown'
+    raw_tid = getattr(user, 'tenant_id', None) if user else None
+    return await _ensure_tenant_uuid(username, str(raw_tid) if raw_tid else None)
 
 
 _TRANSLATIONS: dict | None = None
@@ -816,8 +850,9 @@ async def login(body: LoginRequest) -> LoginResponse:
     if not verify_password(body.password, record.password_hash or ''):
         raise HTTPException(status_code=401, detail='invalid_credentials')
 
-    tenant_id = record.tenant_id or 'default'
-    access = create_access_token(record.username, tenant_id, record.role)
+    # P-33: Ensure every user has a valid UUID tenant (auto-provisions if needed)
+    tenant_uuid = await _ensure_tenant_uuid(record.username, record.tenant_id or None)
+    access = create_access_token(record.username, str(tenant_uuid), record.role)
     refresh = create_refresh_token(record.username)
 
     return LoginResponse(access_token=access, refresh_token=refresh)
@@ -846,8 +881,9 @@ async def refresh_token(body: RefreshRequest) -> RefreshResponse:
     if record is None or not record.is_active:
         raise HTTPException(status_code=401, detail='user_not_found')
 
-    tenant_id = record.tenant_id or 'default'
-    access = create_access_token(record.username, tenant_id, record.role)
+    # P-33: Same auto-provision logic as login
+    tenant_uuid = await _ensure_tenant_uuid(record.username, record.tenant_id or None)
+    access = create_access_token(record.username, str(tenant_uuid), record.role)
     return RefreshResponse(access_token=access)
 
 
