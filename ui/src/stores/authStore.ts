@@ -80,6 +80,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     login: async (email, password) => {
       const data = await api.post<LoginResponse>('/auth/login', { email, password })
+      // Persist email for Settings screen + Google Password Manager
+      localStorage.setItem('frya-email', email)
       applyTokens(data.access_token, data.refresh_token, data.expires_in)
     },
 

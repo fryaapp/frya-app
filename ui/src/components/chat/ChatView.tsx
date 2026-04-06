@@ -3,66 +3,107 @@ import { ChatHistory } from './ChatHistory'
 import { ChatInputBar } from './ChatInputBar'
 import { useFryaStore } from '../../stores/fryaStore'
 import { useTheme } from '../../hooks/useTheme'
+import { BugReportOverlay } from '../layout/BugReportOverlay'
 import { api } from '../../lib/api'
-
-const _THEME_CYCLE: Record<string, { next: 'light' | 'dark' | 'system'; icon: string; label: string }> = {
-  dark: { next: 'light', icon: 'light_mode', label: 'Light Mode' },
-  light: { next: 'system', icon: 'brightness_auto', label: 'Auto Mode' },
-  system: { next: 'dark', icon: 'dark_mode', label: 'Dark Mode' },
-}
 
 function ChatTopBar() {
   const goHome = useFryaStore((s) => s.goHome)
+  const openSettings = useFryaStore((s) => s.openSettings)
   const { theme, setTheme } = useTheme()
-  const cycle = _THEME_CYCLE[theme] || _THEME_CYCLE.dark
+  const [bugOpen, setBugOpen] = useState(false)
+  const [screenshot, setScreenshot] = useState<string | null>(null)
+
+  const handleBugReport = useCallback(async () => {
+    try {
+      const el = document.getElementById('root')
+      if (el) {
+        const { default: html2canvas } = await import('html2canvas')
+        const canvas = await html2canvas(el, {
+          backgroundColor: null, scale: 1, logging: false, useCORS: true,
+          ignoreElements: (e) => e.getAttribute('data-bug-fab') === 'true',
+        })
+        setScreenshot(canvas.toDataURL('image/jpeg', 0.7))
+      }
+    } catch { setScreenshot(null) }
+    setBugOpen(true)
+  }, [])
+
+  const btnStyle: React.CSSProperties = {
+    width: 32, height: 32, borderRadius: 8,
+    border: 'none', background: 'transparent',
+    color: 'var(--frya-on-surface-variant)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', flexShrink: 0,
+    transition: 'color 0.15s, background 0.15s',
+  }
+
+  const onEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.color = 'var(--frya-primary)'
+    e.currentTarget.style.background = 'var(--frya-surface-container)'
+  }
+  const onLeave = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.style.color = 'var(--frya-on-surface-variant)'
+    e.currentTarget.style.background = 'transparent'
+  }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '8px 16px',
-        background: 'var(--frya-surface)',
-        flexShrink: 0,
-      }}
-    >
-      <button
-        onClick={goHome}
+    <>
+      <div
         style={{
-          width: 28, height: 28, borderRadius: 8,
-          border: 'none', background: 'transparent',
-          color: 'var(--frya-on-surface-variant)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', flexShrink: 0,
-          transition: 'color 0.15s, background 0.15s',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '6px 12px',
+          background: 'var(--frya-surface)',
+          borderBottom: '1px solid var(--frya-outline-variant)',
+          flexShrink: 0,
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--frya-primary)'; e.currentTarget.style.background = 'var(--frya-surface-container)' }}
-        onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--frya-on-surface-variant)'; e.currentTarget.style.background = 'transparent' }}
-        aria-label="Zur Startseite"
       >
-        <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>arrow_back</span>
-      </button>
+        {/* Back */}
+        <button onClick={goHome} style={btnStyle} onMouseEnter={onEnter} onMouseLeave={onLeave} aria-label="Zur Startseite">
+          <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>arrow_back</span>
+        </button>
 
-      <div style={{ flex: 1 }} />
+        <div style={{ flex: 1 }} />
 
-      {/* Theme toggle */}
-      <button
-        onClick={() => setTheme(cycle.next)}
-        title={cycle.label}
-        style={{
-          width: 28, height: 28, borderRadius: 8,
-          border: 'none', background: 'transparent',
-          color: 'var(--frya-on-surface-variant)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', flexShrink: 0,
-          transition: 'color 0.15s',
-        }}
-        aria-label={cycle.label}
-      >
-        <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>{cycle.icon}</span>
-      </button>
-    </div>
+        {/* Theme — 3-Tasten Segmented Control */}
+        <div style={{ display: 'flex', gap: 1, background: 'var(--frya-surface-container)', borderRadius: 10, padding: 2 }}>
+          {([
+            ['dark', 'dark_mode', 'Dunkel'],
+            ['light', 'light_mode', 'Hell'],
+            ['system', 'brightness_auto', 'Auto'],
+          ] as const).map(([val, icon, label]) => (
+            <button
+              key={val}
+              onClick={() => setTheme(val)}
+              title={label}
+              style={{
+                width: 28, height: 26, borderRadius: 8, border: 'none',
+                background: theme === val ? 'var(--frya-primary-container)' : 'transparent',
+                color: theme === val ? 'var(--frya-on-primary-container)' : 'var(--frya-on-surface-variant)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}
+              aria-label={label}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 15 }}>{icon}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Bug Report */}
+        <button onClick={handleBugReport} style={btnStyle} onMouseEnter={onEnter} onMouseLeave={onLeave} aria-label="Problem melden">
+          <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>bug_report</span>
+        </button>
+
+        {/* Settings */}
+        <button onClick={openSettings} style={btnStyle} onMouseEnter={onEnter} onMouseLeave={onLeave} aria-label="Einstellungen">
+          <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>settings</span>
+        </button>
+      </div>
+
+      <BugReportOverlay open={bugOpen} onClose={() => { setBugOpen(false); setScreenshot(null) }} screenshot={screenshot} />
+    </>
   )
 }
 

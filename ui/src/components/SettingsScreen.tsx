@@ -1,9 +1,16 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useFryaStore } from '../stores/fryaStore'
 import { useTheme } from '../hooks/useTheme'
 import { LegalModal } from './LegalModal'
 
 type LegalTab = 'datenschutz' | 'impressum' | 'agb'
+
+function decodeJwt(token: string | null): { sub?: string; role?: string; email?: string } {
+  if (!token) return {}
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+  } catch { return {} }
+}
 
 export function SettingsScreen() {
   const [legalTab, setLegalTab] = useState<LegalTab | null>(null)
@@ -12,6 +19,16 @@ export function SettingsScreen() {
   const logout = useFryaStore((s) => s.logout)
   const messageCount = useFryaStore((s) => s.messages.length)
   const startChat = useFryaStore((s) => s.startChat)
+
+  const { displayName, displayEmail, displayRole } = useMemo(() => {
+    const token = localStorage.getItem('frya-token')
+    const jwt = decodeJwt(token)
+    const storedEmail = localStorage.getItem('frya-email') || ''
+    const username = jwt.sub || localStorage.getItem('frya-username') || 'Benutzer'
+    const email = storedEmail || jwt.email || ''
+    const role = jwt.role === 'admin' ? 'Administrator' : jwt.role === 'operator' ? 'Operator' : 'Alpha-Tester'
+    return { displayName: username, displayEmail: email, displayRole: role }
+  }, [])
 
   const handleLogout = () => {
     // Clear old authStore too
@@ -73,18 +90,24 @@ export function SettingsScreen() {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
             <div style={{
-              width: 40, height: 40, borderRadius: '50%',
+              width: 44, height: 44, borderRadius: '50%',
               background: 'var(--frya-primary-container)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
             }}>
-              <span className="material-symbols-rounded" style={{ fontSize: 20, color: 'var(--frya-on-primary-container)' }}>person</span>
+              <span className="material-symbols-rounded" style={{ fontSize: 22, color: 'var(--frya-on-primary-container)', fontVariationSettings: "'FILL' 1" }}>person</span>
             </div>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--frya-on-surface)', fontFamily: "'Outfit', sans-serif" }}>
-                Mein Konto
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--frya-on-surface)', fontFamily: "'Outfit', sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {displayName}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--frya-on-surface-variant)' }}>
-                Alpha-Tester
+              {displayEmail && (
+                <div style={{ fontSize: 12, color: 'var(--frya-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {displayEmail}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'var(--frya-on-surface-variant)', marginTop: 1 }}>
+                {displayRole}
               </div>
             </div>
           </div>

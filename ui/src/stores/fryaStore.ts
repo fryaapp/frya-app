@@ -393,6 +393,8 @@ export const useFryaStore = create<FryaStore>((set, get) => {
 
     login: async (email, password) => {
       const data = await api.post<LoginResponse>('/auth/login', { email, password })
+      // Persist email for Settings display + Google Password Manager
+      localStorage.setItem('frya-email', email)
       applyTokens(data.access_token, data.refresh_token, data.expires_in)
       // Auto-connect WS after login
       setTimeout(() => { get().connect() }, 0)

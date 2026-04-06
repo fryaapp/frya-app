@@ -96,12 +96,7 @@ function AppContent() {
     )
   }
 
-  return (
-    <>
-      <ChatView />
-      <BugReportFAB />
-    </>
-  )
+  return <ChatView />
 }
 
 export default function App() {

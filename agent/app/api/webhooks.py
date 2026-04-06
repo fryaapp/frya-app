@@ -672,28 +672,36 @@ async def paperless_document_webhook(
         }
     )
 
-    from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_tenant
-    _tenant_id = await _resolve_tenant()
-
-    # P-26: If tenant_id is None (multi-tenant mode), look up from document_upload_items
-    # by paperless task_id included in webhook payload.
-    if not _tenant_id:
-        _task_id = str(payload.get('task_id') or '')
-        if _task_id:
-            try:
-                from app.dependencies import get_db_pool as _get_pool
-                _pool = _get_pool()
-                if _pool:
-                    async with _pool.acquire() as _conn:
-                        _row = await _conn.fetchrow(
-                            'SELECT tenant_id FROM document_upload_items'
-                            ' WHERE paperless_task_id = $1 LIMIT 1',
-                            _task_id,
+    # P-32 FIX: Always resolve tenant_id from the uploader's record FIRST.
+    # The frya_webhook.sh does NOT include task_id — look up by original_file_name.
+    # This fixes multi-tenant inbox: documents land in the correct tenant's inbox.
+    _tenant_id = None
+    _orig_fn = str(payload.get('original_file_name') or '').strip()
+    if _orig_fn:
+        try:
+            from app.dependencies import get_db_pool as _get_pool
+            _pool = _get_pool()
+            if _pool:
+                async with _pool.acquire() as _conn:
+                    _row = await _conn.fetchrow(
+                        'SELECT tenant_id FROM document_upload_items'
+                        ' WHERE filename = $1 AND tenant_id IS NOT NULL'
+                        ' ORDER BY created_at DESC LIMIT 1',
+                        _orig_fn,
+                    )
+                    if _row and _row['tenant_id']:
+                        _tenant_id = str(_row['tenant_id'])
+                        logger.info(
+                            'P-32: tenant_id=%s resolved from document_upload_items (filename=%s)',
+                            _tenant_id, _orig_fn,
                         )
-                        if _row and _row['tenant_id']:
-                            _tenant_id = str(_row['tenant_id'])
-            except Exception:
-                pass  # proceed with None tenant_id
+        except Exception as _e:
+            logger.warning('P-32: tenant_id lookup by filename failed: %s', _e)
+
+    # Fallback to global tenant resolver (single-tenant / Telegram uploads)
+    if not _tenant_id:
+        from app.case_engine.tenant_resolver import resolve_tenant_id as _resolve_tenant
+        _tenant_id = await _resolve_tenant()
 
     try:
         result = await request.app.state.graph.ainvoke(

@@ -123,7 +123,7 @@ export function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <form onSubmit={handleSubmit} autoComplete="on" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* E-Mail */}
           <div style={{ position: 'relative' }}>
             <span
@@ -137,6 +137,9 @@ export function LoginPage() {
             </span>
             <input
               type="email"
+              id="frya-email"
+              name="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="E-Mail"
@@ -175,6 +178,9 @@ export function LoginPage() {
             </span>
             <input
               type={showPassword ? 'text' : 'password'}
+              id="frya-password"
+              name="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Passwort"
