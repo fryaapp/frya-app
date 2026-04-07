@@ -1604,7 +1604,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         'SHOW_FINANCIAL_OVERVIEW', 'SHOW_FINANCE', 'SHOW_INBOX',
                         'SHOW_BOOKINGS', 'SHOW_OPEN_ITEMS', 'SHOW_DEADLINES',
                         'SHOW_EXPENSE_CATEGORIES', 'SHOW_PROFIT_LOSS',
-                        'SHOW_REVENUE_TREND', 'SHOW_FORECAST',
+                        'SHOW_REVENUE_TREND', 'SHOW_FORECAST', 'PROCESS_INBOX',
                     }
                     if _shortcircuit_reply is None and tier_intent in _CHART_SHORTCIRCUIT_INTENTS:
                         try:
@@ -1612,6 +1612,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             _chart_reg = build_service_registry()
                             _chart_intent_map = {
                                 'SHOW_INBOX': ('inbox_service', 'list_pending'),
+                                'PROCESS_INBOX': ('inbox_service', 'process_first'),
                                 'SHOW_FINANCIAL_OVERVIEW': ('euer_service', 'get_finance_summary'),
                                 'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
                                 'SHOW_BOOKINGS': ('booking_service', 'list'),
@@ -1637,6 +1638,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                         # Build reply text from data
                                         _texts = {
                                             'SHOW_INBOX': f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
+                                            'PROCESS_INBOX': f'Beleg 1 von {_chart_data.get("count", 1)}: Hier sind die Details.' if _chart_data.get('status') == 'has_items' else 'Alles erledigt! Keine Belege warten auf dich.',
                                             'SHOW_FINANCE': 'Hier ist deine Finanz\u00fcbersicht.',
                                             'SHOW_FINANCIAL_OVERVIEW': 'Hier ist deine Finanz\u00fcbersicht.',
                                             'SHOW_BOOKINGS': f'Hier sind deine letzten Buchungen.',
@@ -1763,6 +1765,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             from app.agents.service_registry import build_service_registry
                             _intent_to_service = {
                                 'SHOW_INBOX': ('inbox_service', 'list_pending'),
+                                'PROCESS_INBOX': ('inbox_service', 'process_first'),
                                 'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
                                 'SHOW_DEADLINES': ('deadline_service', 'list'),
                                 'SHOW_BOOKINGS': ('booking_service', 'list'),

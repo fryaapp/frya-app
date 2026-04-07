@@ -235,6 +235,49 @@ class _InboxService:
             result['references'] = []
         return result
 
+    async def process_first(self, **kw) -> dict:
+        """Zeige den ersten Beleg aus der Inbox fuer den Abarbeiten-Modus."""
+        tid = await _resolve_tenant(kw.get('tenant_id'))
+        from app.dependencies import get_case_repository
+        repo = get_case_repository()
+        # Alle aktiven/offenen Cases laden
+        try:
+            cases = await repo.list_active_cases_for_tenant(tid)
+        except Exception:
+            cases = []
+        try:
+            drafts = await repo.list_cases_by_status(tid, 'DRAFT')
+            seen = {c.id for c in cases}
+            for d in drafts:
+                if d.id not in seen:
+                    cases.append(d)
+        except Exception:
+            pass
+        pending = [c for c in cases if c.status in ('DRAFT', 'OPEN')]
+        pending.sort(key=lambda c: c.created_at or __import__('datetime').datetime.min, reverse=True)
+        if not pending:
+            return {'status': 'empty', 'count': 0}
+        first = pending[0]
+        meta = first.metadata or {}
+        doc_analysis = meta.get('document_analysis', {})
+        conf = doc_analysis.get('overall_confidence') or meta.get('overall_confidence')
+        first_dict = {
+            'case_id': str(first.id),
+            'vendor': first.vendor_name or '?',
+            'amount': float(first.total_amount) if first.total_amount else None,
+            'document_type': doc_analysis.get('document_type', ''),
+            'confidence': conf,
+            'confidence_label': 'Sicher' if (conf or 0) >= 0.85 else 'Hoch' if (conf or 0) >= 0.65 else 'Mittel' if (conf or 0) >= 0.4 else 'Niedrig',
+            'status': first.status,
+            'fields': doc_analysis.get('fields', {}),
+        }
+        return {
+            'status': 'has_items',
+            'count': len(pending),
+            'current_index': 0,
+            'current_item': first_dict,
+        }
+
     async def _get_next_pending(self, skip_case_id: str = '') -> dict | None:
         try:
             result = await self.list_pending()

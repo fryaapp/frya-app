@@ -18,6 +18,7 @@ class TieredOrchestrator:
         r"(?i)(clean|professional|minimal).?(?:template|vorlage)?\s*(?:wähl|nehm|bitte)": "SET_TEMPLATE",
         r"(?i)(logo.*(?:hochlad|upload|änder)|mein\s+logo)": "UPLOAD_LOGO",
         r"(?i)(wer schuldet|offene posten|offene rechnung|offene forderung)": "SHOW_OPEN_ITEMS",
+        r"(?i)(inbox\s*abarbeiten|belege\s*durchgehen|alle\s*belege\s*(?:prüfen|bearbeiten)|stapel\s*abarbeiten)": "PROCESS_INBOX",
         r"(?i)(inbox|belege|was liegt an|was steht an|abarbeiten)": "SHOW_INBOX",
         # P-12b: Chart-specific intents BEFORE generic SHOW_FINANCE
         r"(?i)(ausgaben.*kategorie|kostenverteilung|wohin.*geld|kosten.*aufgeteilt)": "SHOW_EXPENSE_CATEGORIES",
@@ -52,7 +53,7 @@ class TieredOrchestrator:
         "SEND_INVOICE", "VOID_INVOICE", "EDIT_INVOICE", "SHOW_INVOICE",
         "CHOOSE_TEMPLATE", "SET_TEMPLATE", "UPLOAD_LOGO",
         "SHOW_EXPENSE_CATEGORIES", "SHOW_PROFIT_LOSS", "SHOW_REVENUE_TREND", "SHOW_FORECAST",
-        "CANCEL_INVOICE", "CHANGE_KU_STATUS",
+        "CANCEL_INVOICE", "CHANGE_KU_STATUS", "PROCESS_INBOX",
     }
 
     def __init__(self, action_router=None):
