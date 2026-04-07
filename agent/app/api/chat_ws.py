@@ -1328,7 +1328,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                         logger.warning('Vendor name approval lookup failed: %s', _vn_exc)
 
                             if _approve_case_id:
-                                _approve_result = await _inbox_svc.approve(case_id=_approve_case_id)
+                                _approve_result = await _inbox_svc.approve(case_id=_approve_case_id, tenant_id=tenant_id)
                                 if _approve_result.get('status') == 'approved':
                                     _shortcircuit_reply = 'Freigabe erledigt. Buchung erstellt.'
                                     _shortcircuit_data = _approve_result
