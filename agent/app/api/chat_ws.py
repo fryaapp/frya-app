@@ -38,6 +38,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.auth.jwt_auth import decode_token
+from app.core.intents import Intent
 from app.security.input_sanitizer import sanitize_user_message
 from app.dependencies import (
     get_audit_service,
@@ -140,34 +141,34 @@ def _get_response_builder():
 
 # Map TieredOrchestrator intents to context_type for the frontend
 _TIER_INTENT_TO_CONTEXT: dict[str, str] = {
-    'SHOW_INBOX': 'inbox',
-    'SHOW_FINANCE': 'finance',
-    'SHOW_FINANCIAL_OVERVIEW': 'finance',
-    'SHOW_DEADLINES': 'deadlines',
-    'SHOW_BOOKINGS': 'bookings',
-    'SHOW_OPEN_ITEMS': 'open_items',
-    'SHOW_CONTACT': 'contact_card',
-    'SHOW_CONTACTS': 'contact_card',
-    'SHOW_EXPORT': 'finance',
-    'CREATE_INVOICE': 'invoice_draft',
-    'SHOW_INVOICE': 'invoice_draft',
-    'SEND_INVOICE': 'none',
-    'VOID_INVOICE': 'none',
-    'EDIT_INVOICE': 'invoice_draft',
-    'CHOOSE_TEMPLATE': 'none',
-    'SET_TEMPLATE': 'none',
-    'UPLOAD_LOGO': 'none',
-    'CREATE_CONTACT': 'contact_card',
-    'CREATE_REMINDER': 'deadlines',
-    'SETTINGS': 'settings',
-    'UPLOAD': 'upload_status',
-    'STATUS_OVERVIEW': 'none',
-    'SMALL_TALK': 'none',
-    'APPROVE': 'inbox',
-    'SHOW_EXPENSE_CATEGORIES': 'finance',
-    'SHOW_PROFIT_LOSS': 'finance',
-    'SHOW_REVENUE_TREND': 'finance',
-    'SHOW_FORECAST': 'finance',
+    Intent.SHOW_INBOX: 'inbox',
+    Intent.SHOW_FINANCE: 'finance',
+    Intent.SHOW_FINANCIAL_OVERVIEW: 'finance',
+    Intent.SHOW_DEADLINES: 'deadlines',
+    Intent.SHOW_BOOKINGS: 'bookings',
+    Intent.SHOW_OPEN_ITEMS: 'open_items',
+    Intent.SHOW_CONTACT: 'contact_card',
+    Intent.SHOW_CONTACTS: 'contact_card',
+    Intent.SHOW_EXPORT: 'finance',
+    Intent.CREATE_INVOICE: 'invoice_draft',
+    Intent.SHOW_INVOICE: 'invoice_draft',
+    Intent.SEND_INVOICE: 'none',
+    Intent.VOID_INVOICE: 'none',
+    Intent.EDIT_INVOICE: 'invoice_draft',
+    Intent.CHOOSE_TEMPLATE: 'none',
+    Intent.SET_TEMPLATE: 'none',
+    Intent.UPLOAD_LOGO: 'none',
+    Intent.CREATE_CONTACT: 'contact_card',
+    Intent.CREATE_REMINDER: 'deadlines',
+    Intent.SETTINGS: 'settings',
+    Intent.UPLOAD: 'upload_status',
+    Intent.STATUS_OVERVIEW: 'none',
+    Intent.SMALL_TALK: 'none',
+    Intent.APPROVE: 'inbox',
+    Intent.SHOW_EXPENSE_CATEGORIES: 'finance',
+    Intent.SHOW_PROFIT_LOSS: 'finance',
+    Intent.SHOW_REVENUE_TREND: 'finance',
+    Intent.SHOW_FORECAST: 'finance',
 }
 
 
@@ -1264,7 +1265,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     _shortcircuit_data: dict = {}
                     _theme_changed: str | None = None
 
-                    if tier_intent == 'APPROVE':
+                    if tier_intent == Intent.APPROVE:
                         # P-12: Direct approval shortcircuit — find case, resolve approval, execute
                         try:
                             from app.agents.service_registry import _InboxService
@@ -1343,7 +1344,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             logger.warning('APPROVE shortcircuit failed: %s', _ae)
                             _shortcircuit_reply = None
 
-                    elif tier_intent == 'UPLOAD':
+                    elif tier_intent == Intent.UPLOAD:
                         # BUG-002: User typed "upload" but has no attachment —
                         # skip communicator to avoid hallucinated "received" reply.
                         _shortcircuit_reply = (
@@ -1351,14 +1352,14 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             'oder ziehe Dateien direkt in den Chat.'
                         )
 
-                    elif tier_intent == 'CHOOSE_TEMPLATE':
+                    elif tier_intent == Intent.CHOOSE_TEMPLATE:
                         # Template selection — show 3 template cards
                         _shortcircuit_reply = (
                             'Wie sollen deine Rechnungen aussehen? '
                             'Hier sind drei Vorlagen:'
                         )
 
-                    elif tier_intent == 'SET_TEMPLATE':
+                    elif tier_intent == Intent.SET_TEMPLATE:
                         # Parse which template from text
                         _tpl_text = text.lower()
                         _chosen_tpl = 'clean'
@@ -1370,13 +1371,13 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         _tpl_titles = {'clean': 'Clean', 'professional': 'Professional', 'minimal': 'Minimal'}
                         _shortcircuit_reply = f'Rechnungs-Template auf "{_tpl_titles[_chosen_tpl]}" geaendert.'
 
-                    elif tier_intent == 'UPLOAD_LOGO':
+                    elif tier_intent == Intent.UPLOAD_LOGO:
                         _shortcircuit_reply = (
                             'Schick mir einfach dein Logo als Bild (PNG, JPG oder SVG). '
                             'Nutze das Bueroklammer-Symbol unten links.'
                         )
 
-                    elif tier_intent == 'SHOW_CONTACTS':
+                    elif tier_intent == Intent.SHOW_CONTACTS:
                         # P-08 A2: Load all contacts for card_list
                         try:
                             from app.dependencies import get_accounting_repository
@@ -1399,7 +1400,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             _shortcircuit_reply = 'Kontakte konnten nicht geladen werden.'
                             _shortcircuit_data = {}
 
-                    elif tier_intent == 'SETTINGS':
+                    elif tier_intent == Intent.SETTINGS:
                         # BUG-006: Handle theme change requests directly
                         text_lower = text.lower()
                         for trigger, theme in _THEME_MAP.items():
@@ -1411,7 +1412,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 break
 
                     # --- P-27: CHANGE_KU_STATUS: Kleinunternehmer via Chat aendern ---
-                    if tier_intent == 'CHANGE_KU_STATUS':
+                    if tier_intent == Intent.CHANGE_KU_STATUS:
                         _ku_text_lower = text.lower()
                         _ku_nein = any(p.search(text) for p in _NEIN_KLEINUNTERNEHMER_PATTERNS)
                         if _ku_nein:
@@ -1442,7 +1443,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 _shortcircuit_reply = 'KU-Status konnte nicht geaendert werden.'
 
                     # --- P-27: CANCEL_INVOICE: Rechnung stornieren ---
-                    if tier_intent == 'CANCEL_INVOICE':
+                    if tier_intent == Intent.CANCEL_INVOICE:
                         import re as _re_cancel
                         _cancel_match = _re_cancel.search(r'RE-\d+-\d+', text)
                         if _cancel_match:
@@ -1511,7 +1512,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             _shortcircuit_reply = 'Welche Rechnung soll storniert werden? (z.B. RE-2026-054)'
 
                     # --- P-25: SHOW_CASE: Load case detail by case_id ---
-                    if tier_intent == 'SHOW_CASE':
+                    if tier_intent == Intent.SHOW_CASE:
                         try:
                             from app.agents.service_registry import _InboxService
                             _case_svc = _InboxService()
@@ -1537,7 +1538,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             _shortcircuit_reply = None
 
                     # --- SHOW_INVOICE: Load and display specific invoice ---
-                    if tier_intent == 'SHOW_INVOICE':
+                    if tier_intent == Intent.SHOW_INVOICE:
                         import re as _re_inv
                         _inv_match = _re_inv.search(r'RE-\d+-\d+', text)
                         if _inv_match:
@@ -1601,27 +1602,27 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
 
                     # P-12b: Shortcircuit ALL chart/data intents — bypass Communicator
                     _CHART_SHORTCIRCUIT_INTENTS = {
-                        'SHOW_FINANCIAL_OVERVIEW', 'SHOW_FINANCE', 'SHOW_INBOX',
-                        'SHOW_BOOKINGS', 'SHOW_OPEN_ITEMS', 'SHOW_DEADLINES',
-                        'SHOW_EXPENSE_CATEGORIES', 'SHOW_PROFIT_LOSS',
-                        'SHOW_REVENUE_TREND', 'SHOW_FORECAST', 'PROCESS_INBOX',
+                        Intent.SHOW_FINANCIAL_OVERVIEW, Intent.SHOW_FINANCE, Intent.SHOW_INBOX,
+                        Intent.SHOW_BOOKINGS, Intent.SHOW_OPEN_ITEMS, Intent.SHOW_DEADLINES,
+                        Intent.SHOW_EXPENSE_CATEGORIES, Intent.SHOW_PROFIT_LOSS,
+                        Intent.SHOW_REVENUE_TREND, Intent.SHOW_FORECAST, Intent.PROCESS_INBOX,
                     }
                     if _shortcircuit_reply is None and tier_intent in _CHART_SHORTCIRCUIT_INTENTS:
                         try:
                             from app.agents.service_registry import build_service_registry
                             _chart_reg = build_service_registry()
                             _chart_intent_map = {
-                                'SHOW_INBOX': ('inbox_service', 'list_pending'),
-                                'PROCESS_INBOX': ('inbox_service', 'process_first'),
-                                'SHOW_FINANCIAL_OVERVIEW': ('euer_service', 'get_finance_summary'),
-                                'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
-                                'SHOW_BOOKINGS': ('booking_service', 'list'),
-                                'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
-                                'SHOW_DEADLINES': ('deadline_service', 'list'),
-                                'SHOW_EXPENSE_CATEGORIES': ('booking_service', 'list'),
-                                'SHOW_PROFIT_LOSS': ('euer_service', 'get_finance_summary'),
-                                'SHOW_REVENUE_TREND': ('booking_service', 'list'),
-                                'SHOW_FORECAST': ('euer_service', 'get_finance_summary'),
+                                Intent.SHOW_INBOX: ('inbox_service', 'list_pending'),
+                                Intent.PROCESS_INBOX: ('inbox_service', 'process_first'),
+                                Intent.SHOW_FINANCIAL_OVERVIEW: ('euer_service', 'get_finance_summary'),
+                                Intent.SHOW_FINANCE: ('euer_service', 'get_finance_summary'),
+                                Intent.SHOW_BOOKINGS: ('booking_service', 'list'),
+                                Intent.SHOW_OPEN_ITEMS: ('open_item_service', 'list'),
+                                Intent.SHOW_DEADLINES: ('deadline_service', 'list'),
+                                Intent.SHOW_EXPENSE_CATEGORIES: ('booking_service', 'list'),
+                                Intent.SHOW_PROFIT_LOSS: ('euer_service', 'get_finance_summary'),
+                                Intent.SHOW_REVENUE_TREND: ('booking_service', 'list'),
+                                Intent.SHOW_FORECAST: ('euer_service', 'get_finance_summary'),
                             }
                             _si = _chart_intent_map.get(tier_intent)
                             if _si:
@@ -1633,21 +1634,21 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                         _shortcircuit_data = _chart_data
                                         # Map intent for ResponseBuilder
                                         _rb_intent = tier_intent
-                                        if tier_intent == 'SHOW_FINANCIAL_OVERVIEW':
-                                            _rb_intent = 'SHOW_FINANCE'
+                                        if tier_intent == Intent.SHOW_FINANCIAL_OVERVIEW:
+                                            _rb_intent = Intent.SHOW_FINANCE
                                         # Build reply text from data
                                         _texts = {
-                                            'SHOW_INBOX': f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
-                                            'PROCESS_INBOX': f'Beleg 1 von {_chart_data.get("count", 1)}: Hier sind die Details.' if _chart_data.get('status') == 'has_items' else 'Alles erledigt! Keine Belege warten auf dich.',
-                                            'SHOW_FINANCE': 'Hier ist deine Finanz\u00fcbersicht.',
-                                            'SHOW_FINANCIAL_OVERVIEW': 'Hier ist deine Finanz\u00fcbersicht.',
-                                            'SHOW_BOOKINGS': f'Hier sind deine letzten Buchungen.',
-                                            'SHOW_OPEN_ITEMS': 'Hier sind deine offenen Posten.',
-                                            'SHOW_DEADLINES': 'Hier sind deine anstehenden Fristen.',
-                                            'SHOW_EXPENSE_CATEGORIES': 'Hier ist die Aufschluesselung deiner Ausgaben nach Kategorie.',
-                                            'SHOW_PROFIT_LOSS': 'Hier ist deine Gewinn- und Verlustrechnung.',
-                                            'SHOW_REVENUE_TREND': 'Hier ist die Umsatzentwicklung.',
-                                            'SHOW_FORECAST': 'Hier ist die Hochrechnung fuer das Geschaeftsjahr.',
+                                            Intent.SHOW_INBOX: f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
+                                            Intent.PROCESS_INBOX: f'Beleg 1 von {_chart_data.get("count", 1)}: Hier sind die Details.' if _chart_data.get('status') == 'has_items' else 'Alles erledigt! Keine Belege warten auf dich.',
+                                            Intent.SHOW_FINANCE: 'Hier ist deine Finanz\u00fcbersicht.',
+                                            Intent.SHOW_FINANCIAL_OVERVIEW: 'Hier ist deine Finanz\u00fcbersicht.',
+                                            Intent.SHOW_BOOKINGS: f'Hier sind deine letzten Buchungen.',
+                                            Intent.SHOW_OPEN_ITEMS: 'Hier sind deine offenen Posten.',
+                                            Intent.SHOW_DEADLINES: 'Hier sind deine anstehenden Fristen.',
+                                            Intent.SHOW_EXPENSE_CATEGORIES: 'Hier ist die Aufschluesselung deiner Ausgaben nach Kategorie.',
+                                            Intent.SHOW_PROFIT_LOSS: 'Hier ist deine Gewinn- und Verlustrechnung.',
+                                            Intent.SHOW_REVENUE_TREND: 'Hier ist die Umsatzentwicklung.',
+                                            Intent.SHOW_FORECAST: 'Hier ist die Hochrechnung fuer das Geschaeftsjahr.',
                                         }
                                         _shortcircuit_reply = _texts.get(tier_intent, 'Hier sind die Daten.')
                         except Exception as _chart_exc:
@@ -1764,14 +1765,14 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         try:
                             from app.agents.service_registry import build_service_registry
                             _intent_to_service = {
-                                'SHOW_INBOX': ('inbox_service', 'list_pending'),
-                                'PROCESS_INBOX': ('inbox_service', 'process_first'),
-                                'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
-                                'SHOW_DEADLINES': ('deadline_service', 'list'),
-                                'SHOW_BOOKINGS': ('booking_service', 'list'),
-                                'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
-                                'SHOW_CONTACT': ('contact_service', 'get_dossier'),
-                                'SETTINGS': ('settings_service', 'get'),
+                                Intent.SHOW_INBOX: ('inbox_service', 'list_pending'),
+                                Intent.PROCESS_INBOX: ('inbox_service', 'process_first'),
+                                Intent.SHOW_FINANCE: ('euer_service', 'get_finance_summary'),
+                                Intent.SHOW_DEADLINES: ('deadline_service', 'list'),
+                                Intent.SHOW_BOOKINGS: ('booking_service', 'list'),
+                                Intent.SHOW_OPEN_ITEMS: ('open_item_service', 'list'),
+                                Intent.SHOW_CONTACT: ('contact_service', 'get_dossier'),
+                                Intent.SETTINGS: ('settings_service', 'get'),
                             }
                             svc_info = _intent_to_service.get(tier_intent)
                             if svc_info:
@@ -1785,7 +1786,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             logger.warning('Service data fetch failed: %s', exc)
 
                     # Detect "show all" request for inbox
-                    if tier_intent == 'SHOW_INBOX':
+                    if tier_intent == Intent.SHOW_INBOX:
                         _text_lower = text.lower()
                         if 'alle' in _text_lower and ('zeig' in _text_lower or 'beleg' in _text_lower):
                             agent_results['show_all'] = True
@@ -1880,7 +1881,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     # --- Synchronize text with content_blocks for SHOW_INBOX ---
                     # The communicator generates text BEFORE blocks exist,
                     # causing "Inbox ist leer" even when blocks show items.
-                    if tier_intent == 'SHOW_INBOX' and content_blocks:
+                    if tier_intent == Intent.SHOW_INBOX and content_blocks:
                         _inbox_item_count = 0
                         for _b in content_blocks:
                             if _b.get('block_type') == 'card_list':

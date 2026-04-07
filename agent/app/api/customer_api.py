@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from app.core.intents import Intent
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -255,7 +256,7 @@ async def send_chat_message(
         if _pre_orch:
             _pre_route = await _pre_orch.route(message=body.message)
             _pre_intent = _pre_route.get('intent')
-            if _pre_intent == 'APPROVE':
+            if _pre_intent == Intent.APPROVE:
                 from app.agents.service_registry import _InboxService
                 _inbox_svc = _InboxService()
                 _approve_cid = None
@@ -383,15 +384,15 @@ async def send_chat_message(
                 try:
                     from app.agents.service_registry import build_service_registry
                     _i2s = {
-                        'SHOW_INBOX': ('inbox_service', 'list_pending'),
-                        'PROCESS_INBOX': ('inbox_service', 'process_first'),
-                        'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
-                        'SHOW_FINANCIAL_OVERVIEW': ('euer_service', 'get_finance_summary'),
-                        'SHOW_DEADLINES': ('deadline_service', 'list'),
-                        'SHOW_BOOKINGS': ('booking_service', 'list'),
-                        'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
-                        'SHOW_CONTACTS': ('contact_service', 'list'),
-                        'SHOW_CONTACT': ('contact_service', 'get_dossier'),
+                        Intent.SHOW_INBOX: ('inbox_service', 'list_pending'),
+                        Intent.PROCESS_INBOX: ('inbox_service', 'process_first'),
+                        Intent.SHOW_FINANCE: ('euer_service', 'get_finance_summary'),
+                        Intent.SHOW_FINANCIAL_OVERVIEW: ('euer_service', 'get_finance_summary'),
+                        Intent.SHOW_DEADLINES: ('deadline_service', 'list'),
+                        Intent.SHOW_BOOKINGS: ('booking_service', 'list'),
+                        Intent.SHOW_OPEN_ITEMS: ('open_item_service', 'list'),
+                        Intent.SHOW_CONTACTS: ('contact_service', 'list'),
+                        Intent.SHOW_CONTACT: ('contact_service', 'get_dossier'),
                     }
                     si = _i2s.get(tier_intent)
                     if si:
@@ -428,7 +429,7 @@ async def send_chat_message(
                     suggestions = [a['chat_text'] for a in actions[:3]]
 
                 # P-44: Text-Sync for SHOW_FINANCE — overwrite LLM text with real data
-                if tier_intent in ('SHOW_FINANCE', 'SHOW_FINANCIAL_OVERVIEW') and agent_results:
+                if tier_intent in (Intent.SHOW_FINANCE, Intent.SHOW_FINANCIAL_OVERVIEW) and agent_results:
                     _fin_income = agent_results.get('total_income', 0) or 0
                     _fin_expense = agent_results.get('total_expenses', agent_results.get('total_expense', 0)) or 0
                     _fin_profit = agent_results.get('profit', _fin_income - _fin_expense)
@@ -445,7 +446,7 @@ async def send_chat_message(
                         )
 
                 # P-44: Text-Sync for SHOW_INBOX
-                if tier_intent == 'SHOW_INBOX' and content_blocks:
+                if tier_intent == Intent.SHOW_INBOX and content_blocks:
                     _inbox_count = 0
                     for _b in content_blocks:
                         if _b.get('block_type') == 'card_list':
@@ -498,7 +499,7 @@ async def send_chat_message(
 def _build_suggestions(intent: str | None, case_ref: str | None) -> list[str]:
     if case_ref:
         return ['Details anzeigen', 'Buchen', 'Rechnung suchen']
-    if intent == 'GREETING':
+    if intent == Intent.GREETING:
         return ['Status-Übersicht', 'Offene Belege', 'Frist-Check']
     return ['Offene Belege', 'Rechnung suchen']
 
@@ -1625,7 +1626,7 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
                 audit_service=get_audit_service(), user_memory=None,
                 conv_memory=conv_memory, effective_case_ref=_resolved_ref,
             )
-        if intent == 'GENERAL_CONVERSATION':
+        if intent == Intent.GENERAL_CONVERSATION:
             sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
 
         # Build LLM payload

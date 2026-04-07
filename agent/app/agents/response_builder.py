@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Any
 
+from app.core.intents import Intent
 from app.utils.translations import t_doc_type, t_confidence, t_status
 
 _CONF_TO_FLOAT = {
@@ -15,51 +16,51 @@ _CONF_TO_FLOAT = {
 
 class ResponseBuilder:
     CONTEXT_SUGGESTIONS = {
-        "SHOW_INBOX": [
+        Intent.SHOW_INBOX: [
             {"label": "Abarbeiten", "chat_text": "Inbox abarbeiten", "style": "primary"},
             {"label": "Nur dringende", "chat_text": "Nur dringende Belege", "style": "secondary"},
         ],
-        "APPROVE": [
+        Intent.APPROVE: [
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
             {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
-        "SHOW_FINANCE": [
+        Intent.SHOW_FINANCE: [
             {"label": "EUeR als PDF", "chat_text": "EUeR als PDF", "style": "primary"},
             {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
             {"label": "Ausgaben Detail", "chat_text": "Was waren meine groessten Ausgaben?", "style": "text"},
         ],
-        "SHOW_BOOKINGS": [
+        Intent.SHOW_BOOKINGS: [
             {"label": "Filtern", "chat_text": "Buchungen im Maerz", "style": "secondary"},
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
         ],
-        "SHOW_CONTACT": [
+        Intent.SHOW_CONTACT: [
             {"label": "Fall bearbeiten", "chat_text": "Fall bearbeiten", "style": "primary"},
             {"label": "Rechnung schreiben", "chat_text": "Rechnung schreiben", "style": "secondary"},
             {"label": "Naechster Fall", "chat_text": "Naechster Fall", "style": "text"},
         ],
-        "SHOW_OPEN_ITEMS": [
+        Intent.SHOW_OPEN_ITEMS: [
             {"label": "Mahnen", "chat_text": "Ueberfaellige mahnen", "style": "primary"},
             {"label": "Details", "chat_text": "Zeig mir den aeltesten offenen Posten", "style": "secondary"},
         ],
-        "SHOW_DEADLINES": [
+        Intent.SHOW_DEADLINES: [
             {"label": "Skonto nutzen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
             {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
-        "CREATE_INVOICE": [
+        Intent.CREATE_INVOICE: [
             {"label": "Vorschau", "chat_text": "Zeig mir die Rechnung", "style": "primary"},
         ],
-        "SHOW_EXPORT": [
+        Intent.SHOW_EXPORT: [
             {"label": "EUeR dazu", "chat_text": "EUeR als PDF", "style": "secondary"},
         ],
-        "SETTINGS": [
+        Intent.SETTINGS: [
             {"label": "Profil bearbeiten", "chat_text": "Firmendaten aendern", "style": "primary"},
             {"label": "Dunkelmodus", "chat_text": "Dunkelmodus an", "style": "secondary"},
             {"label": "Heller Modus", "chat_text": "Heller Modus", "style": "secondary"},
         ],
-        "UPLOAD": [
+        Intent.UPLOAD: [
             {"label": "Inbox pruefen", "chat_text": "Was liegt in der Inbox?", "style": "primary"},
         ],
-        "CHOOSE_TEMPLATE": [
+        Intent.CHOOSE_TEMPLATE: [
             {"label": "Clean", "chat_text": "Clean-Template waehlen", "style": "primary",
              "quick_action": {"type": "set_template", "params": {"template": "clean"}}},
             {"label": "Professional", "chat_text": "Professional-Template waehlen", "style": "secondary",
@@ -67,42 +68,42 @@ class ResponseBuilder:
             {"label": "Minimal", "chat_text": "Minimal-Template waehlen", "style": "text",
              "quick_action": {"type": "set_template", "params": {"template": "minimal"}}},
         ],
-        "SET_TEMPLATE": [
+        Intent.SET_TEMPLATE: [
             {"label": "Rechnung erstellen", "chat_text": "Rechnung erstellen", "style": "primary"},
             {"label": "Vorschau ansehen", "chat_text": "Rechnungs-Vorschau zeigen", "style": "secondary"},
         ],
-        "UPLOAD_LOGO": [
+        Intent.UPLOAD_LOGO: [
             {"label": "Logo hochladen", "chat_text": "Logo hochladen", "style": "primary"},
         ],
-        "SHOW_FINANCIAL_OVERVIEW": [
+        Intent.SHOW_FINANCIAL_OVERVIEW: [
             {"label": "Ausgaben Detail", "chat_text": "Ausgaben nach Kategorie", "style": "primary"},
             {"label": "Gewinn/Verlust", "chat_text": "Wie ist mein Gewinn?", "style": "secondary"},
             {"label": "Prognose", "chat_text": "Hochrechnung", "style": "text"},
         ],
-        "SHOW_EXPENSE_CATEGORIES": [
+        Intent.SHOW_EXPENSE_CATEGORIES: [
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
             {"label": "Umsatztrend", "chat_text": "Umsatzentwicklung", "style": "text"},
         ],
-        "SHOW_PROFIT_LOSS": [
+        Intent.SHOW_PROFIT_LOSS: [
             {"label": "Prognose", "chat_text": "Hochrechnung", "style": "primary"},
             {"label": "Umsatztrend", "chat_text": "Umsatzentwicklung", "style": "secondary"},
         ],
-        "SHOW_REVENUE_TREND": [
+        Intent.SHOW_REVENUE_TREND: [
             {"label": "Gewinn/Verlust", "chat_text": "Wie ist mein Gewinn?", "style": "secondary"},
             {"label": "Prognose", "chat_text": "Hochrechnung", "style": "text"},
         ],
-        "SHOW_FORECAST": [
+        Intent.SHOW_FORECAST: [
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
             {"label": "Ausgaben", "chat_text": "Ausgaben nach Kategorie", "style": "text"},
         ],
-        "SHOW_CASE": [
+        Intent.SHOW_CASE: [
             {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary",
              "quick_action": {"type": "approve", "params": {}}},
             {"label": "Korrigieren", "chat_text": "Korrigieren", "style": "secondary"},
             {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text",
              "quick_action": {"type": "reject", "params": {}}},
         ],
-        "PROCESS_INBOX": [
+        Intent.PROCESS_INBOX: [
             {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary"},
             {"label": "Ueberspringen", "chat_text": "Naechster", "style": "secondary"},
             {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text"},
@@ -128,7 +129,7 @@ class ResponseBuilder:
         blocks = [b for b in blocks if self._block_has_data(b)]
 
         # Aufgabe 3: LLM suggestions > static matrix (except APPROVE which has quick_actions)
-        if llm_suggestions and intent not in ('APPROVE',):
+        if llm_suggestions and intent not in (Intent.APPROVE,):
             actions = llm_suggestions
         else:
             actions = self._build_actions(intent, agent_results, state)
@@ -843,7 +844,7 @@ class ResponseBuilder:
         self, intent: str, results: dict, state: dict | None = None
     ) -> list[dict]:
         # APPROVE with confirmed approval (user clicked Freigeben button)
-        if intent == "APPROVE" and results.get("approved"):
+        if intent == Intent.APPROVE and results.get("approved"):
             # Approval was executed — show next item or success + context suggestions
             if results.get("next_item"):
                 ni = results["next_item"]
@@ -868,10 +869,10 @@ class ResponseBuilder:
                         },
                     },
                 ]
-            return list(self.CONTEXT_SUGGESTIONS.get("APPROVE", self.FALLBACK_SUGGESTIONS))
+            return list(self.CONTEXT_SUGGESTIONS.get(Intent.APPROVE, self.FALLBACK_SUGGESTIONS))
 
         # APPROVE without confirmed approval — show item for review with buttons
-        if intent == "APPROVE" and results.get("next_item"):
+        if intent == Intent.APPROVE and results.get("next_item"):
             ni = results["next_item"]
             cid = ni.get("case_id", "")
             return [
@@ -901,7 +902,7 @@ class ResponseBuilder:
             ]
 
         # SHOW_INBOX with items — Abarbeiten starts review, does NOT auto-approve
-        if intent == "SHOW_INBOX" and results.get("items"):
+        if intent == Intent.SHOW_INBOX and results.get("items"):
             first = results["items"][0]
             return [
                 {
@@ -921,7 +922,7 @@ class ResponseBuilder:
             ]
 
         # SHOW_CASE: inject case_id into quick_action params
-        if intent == "SHOW_CASE":
+        if intent == Intent.SHOW_CASE:
             case = results.get("case", results) if isinstance(results, dict) else {}
             cid = str(case.get("case_id", case.get("id", ""))) if isinstance(case, dict) else ""
             return [
@@ -945,11 +946,11 @@ class ResponseBuilder:
             ]
 
         # PROCESS_INBOX — Abarbeiten-Modus: Freigeben / Ueberspringen / Ablehnen fuer den aktuellen Beleg
-        if intent == "PROCESS_INBOX":
+        if intent == Intent.PROCESS_INBOX:
             item = results.get('current_item', {})
             cid = item.get('case_id', '') if isinstance(item, dict) else ''
             if results.get('status') == 'empty' or not cid:
-                return list(self.CONTEXT_SUGGESTIONS.get("SHOW_INBOX", self.FALLBACK_SUGGESTIONS))
+                return list(self.CONTEXT_SUGGESTIONS.get(Intent.SHOW_INBOX, self.FALLBACK_SUGGESTIONS))
             vendor = item.get('vendor', 'Beleg') if isinstance(item, dict) else 'Beleg'
             return [
                 {
@@ -974,7 +975,7 @@ class ResponseBuilder:
 
         # Use CONTEXT_SUGGESTIONS matrix for all other intents
         # Also handle SHOW_SETTINGS alias
-        lookup_intent = intent if intent != "SHOW_SETTINGS" else "SETTINGS"
+        lookup_intent = intent if intent != "SHOW_SETTINGS" else Intent.SETTINGS
         suggestions = self.CONTEXT_SUGGESTIONS.get(lookup_intent)
         if suggestions:
             return list(suggestions)

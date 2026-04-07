@@ -3,6 +3,8 @@ import re, logging, os
 from typing import Optional
 import litellm
 
+from app.core.intents import Intent, parse_intent
+
 logger = logging.getLogger(__name__)
 
 _LLM_TIMEOUT = 30
@@ -11,32 +13,32 @@ _LLM_TIMEOUT = 30
 class TieredOrchestrator:
     FAST_PATTERNS = {
         # Specific patterns FIRST (before generic ones that might over-match)
-        r"(?i)(zeig.*rechnung\s*RE-|rechnung\s*RE-\d+.*(?:aufrufen|anzeig|detail|öffn))": "SHOW_INVOICE",
-        r"(?i)(rechnung.*(?:RE-\d+).*send|RE-\d+.*(?:send|freigeb|verschick))": "SEND_INVOICE",
-        r"(?i)(rechnung.*erstell|schreib.*rechnung|rechnung an\s)": "CREATE_INVOICE",
-        r"(?i)(rechnungs?.?(?:layout|vorlage|template|design)|template.*(?:wechsel|änder|wähl))": "CHOOSE_TEMPLATE",
-        r"(?i)(clean|professional|minimal).?(?:template|vorlage)?\s*(?:wähl|nehm|bitte)": "SET_TEMPLATE",
-        r"(?i)(logo.*(?:hochlad|upload|änder)|mein\s+logo)": "UPLOAD_LOGO",
-        r"(?i)(wer schuldet|offene posten|offene rechnung|offene forderung)": "SHOW_OPEN_ITEMS",
-        r"(?i)(inbox\s*abarbeiten|belege\s*durchgehen|alle\s*belege\s*(?:prüfen|bearbeiten)|stapel\s*abarbeiten)": "PROCESS_INBOX",
-        r"(?i)(inbox|belege|was liegt an|was steht an|abarbeiten)": "SHOW_INBOX",
+        r"(?i)(zeig.*rechnung\s*RE-|rechnung\s*RE-\d+.*(?:aufrufen|anzeig|detail|öffn))": Intent.SHOW_INVOICE,
+        r"(?i)(rechnung.*(?:RE-\d+).*send|RE-\d+.*(?:send|freigeb|verschick))": Intent.SEND_INVOICE,
+        r"(?i)(rechnung.*erstell|schreib.*rechnung|rechnung an\s)": Intent.CREATE_INVOICE,
+        r"(?i)(rechnungs?.?(?:layout|vorlage|template|design)|template.*(?:wechsel|änder|wähl))": Intent.CHOOSE_TEMPLATE,
+        r"(?i)(clean|professional|minimal).?(?:template|vorlage)?\s*(?:wähl|nehm|bitte)": Intent.SET_TEMPLATE,
+        r"(?i)(logo.*(?:hochlad|upload|änder)|mein\s+logo)": Intent.UPLOAD_LOGO,
+        r"(?i)(wer schuldet|offene posten|offene rechnung|offene forderung)": Intent.SHOW_OPEN_ITEMS,
+        r"(?i)(inbox\s*abarbeiten|belege\s*durchgehen|alle\s*belege\s*(?:prüfen|bearbeiten)|stapel\s*abarbeiten)": Intent.PROCESS_INBOX,
+        r"(?i)(inbox|belege|was liegt an|was steht an|abarbeiten)": Intent.SHOW_INBOX,
         # P-12b: Chart-specific intents BEFORE generic SHOW_FINANCE
-        r"(?i)(ausgaben.*kategorie|kostenverteilung|wohin.*geld|kosten.*aufgeteilt)": "SHOW_EXPENSE_CATEGORIES",
-        r"(?i)(gewinn|verlust|gewinn.*verlust|guv)": "SHOW_PROFIT_LOSS",
-        r"(?i)(umsatz.*entwicklung|umsatz.*trend|umsatz.*verlauf)": "SHOW_REVENUE_TREND",
-        r"(?i)(hochrechnung|prognose|jahres.?hochrechnung|forecast)": "SHOW_FORECAST",
-        r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell|finanz.?übersicht)": "SHOW_FINANCIAL_OVERVIEW",
-        r"(?i)(frist|deadline|dringend|überfällig|was ist fällig)": "SHOW_DEADLINES",
-        r"(?i)(zeig.*kontakt|meine\s*kontakte|alle\s*kontakte|alles über|kundenakte|kontaktliste)": "SHOW_CONTACTS",
-        r"(?i)(buchungsjournal|buchungen zeig|journal|meine buchungen)": "SHOW_BOOKINGS",
-        r"(?i)(einstellung|dark.?mode|hell|dunkel|theme|anrede)": "SETTINGS",
-        r"(?i)(export|datev|steuerberater)": "SHOW_EXPORT",
-        r"(?i)(upload|wäschekorb|belege.*rein|stapel)": "UPLOAD",
-        r"(?i)(kontakt.*anleg|neuer kontakt|kund.*anleg)": "CREATE_CONTACT",
-        r"(?i)(mahnung|mahnen|zahlungserinnerung)": "CREATE_REMINDER",
-        r"(?i)(freigeb|buchen|genehmig|bestätig.*buchung|CASE-\d{4}-\d{5}.*freigeb)": "APPROVE",
-        r"(?i)(storniere.*rechnung|rechnung.*storniere|rechnung.*(?:RE-\d+).*(?:storno|storniere|zurueck|cancel))": "CANCEL_INVOICE",
-        r"(?i)(kein\s+kleinunternehmer\s+mehr|nicht\s+mehr\s+kleinunternehmer|bin\s+wieder\s+kleinunternehmer|bin\s+kleinunternehmer|mit\s+(?:umsatz|mwst|mehrwert)steuer)": "CHANGE_KU_STATUS",
+        r"(?i)(ausgaben.*kategorie|kostenverteilung|wohin.*geld|kosten.*aufgeteilt)": Intent.SHOW_EXPENSE_CATEGORIES,
+        r"(?i)(gewinn|verlust|gewinn.*verlust|guv)": Intent.SHOW_PROFIT_LOSS,
+        r"(?i)(umsatz.*entwicklung|umsatz.*trend|umsatz.*verlauf)": Intent.SHOW_REVENUE_TREND,
+        r"(?i)(hochrechnung|prognose|jahres.?hochrechnung|forecast)": Intent.SHOW_FORECAST,
+        r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell|finanz.?übersicht)": Intent.SHOW_FINANCIAL_OVERVIEW,
+        r"(?i)(frist|deadline|dringend|überfällig|was ist fällig)": Intent.SHOW_DEADLINES,
+        r"(?i)(zeig.*kontakt|meine\s*kontakte|alle\s*kontakte|alles über|kundenakte|kontaktliste)": Intent.SHOW_CONTACTS,
+        r"(?i)(buchungsjournal|buchungen zeig|journal|meine buchungen)": Intent.SHOW_BOOKINGS,
+        r"(?i)(einstellung|dark.?mode|hell|dunkel|theme|anrede)": Intent.SETTINGS,
+        r"(?i)(export|datev|steuerberater)": Intent.SHOW_EXPORT,
+        r"(?i)(upload|wäschekorb|belege.*rein|stapel)": Intent.UPLOAD,
+        r"(?i)(kontakt.*anleg|neuer kontakt|kund.*anleg)": Intent.CREATE_CONTACT,
+        r"(?i)(mahnung|mahnen|zahlungserinnerung)": Intent.CREATE_REMINDER,
+        r"(?i)(freigeb|buchen|genehmig|bestätig.*buchung|CASE-\d{4}-\d{5}.*freigeb)": Intent.APPROVE,
+        r"(?i)(storniere.*rechnung|rechnung.*storniere|rechnung.*(?:RE-\d+).*(?:storno|storniere|zurueck|cancel))": Intent.CANCEL_INVOICE,
+        r"(?i)(kein\s+kleinunternehmer\s+mehr|nicht\s+mehr\s+kleinunternehmer|bin\s+wieder\s+kleinunternehmer|bin\s+kleinunternehmer|mit\s+(?:umsatz|mwst|mehrwert)steuer)": Intent.CHANGE_KU_STATUS,
     }
 
     DEEP_KEYWORDS = [
@@ -45,16 +47,8 @@ class TieredOrchestrator:
         "strategie", "prognose", "trend", "zusammenfass",
     ]
 
-    VALID_INTENTS = {
-        "SHOW_INBOX", "SHOW_FINANCE", "SHOW_FINANCIAL_OVERVIEW", "SHOW_DEADLINES", "SHOW_BOOKINGS",
-        "SHOW_OPEN_ITEMS", "SHOW_CONTACT", "SHOW_CONTACTS", "SHOW_EXPORT", "CREATE_INVOICE",
-        "CREATE_CONTACT", "CREATE_REMINDER", "APPROVE", "SETTINGS", "UPLOAD",
-        "STATUS_OVERVIEW", "SMALL_TALK", "UNKNOWN",
-        "SEND_INVOICE", "VOID_INVOICE", "EDIT_INVOICE", "SHOW_INVOICE",
-        "CHOOSE_TEMPLATE", "SET_TEMPLATE", "UPLOAD_LOGO",
-        "SHOW_EXPENSE_CATEGORIES", "SHOW_PROFIT_LOSS", "SHOW_REVENUE_TREND", "SHOW_FORECAST",
-        "CANCEL_INVOICE", "CHANGE_KU_STATUS", "PROCESS_INBOX",
-    }
+    # VALID_INTENTS: Jetzt automatisch aus dem Intent-Enum
+    VALID_INTENTS = set(Intent)
 
     def __init__(self, action_router=None):
         self.action_router = action_router
@@ -71,7 +65,7 @@ class TieredOrchestrator:
             # P-25: show_case bypasses ActionRouter — handled in Phase 1b via ResponseBuilder
             if qa_type == "show_case":
                 logger.info("Routing show_case via quick_action (Phase 1b)")
-                return {"intent": "SHOW_CASE", "routing": "quick_action", "params": quick_action.get("params", {})}
+                return {"intent": str(Intent.SHOW_CASE), "routing": "quick_action", "params": quick_action.get("params", {})}
             if self.action_router:
                 logger.info("Routing via ActionRouter: %s", qa_type)
                 result = await self.action_router.execute(quick_action)
@@ -149,7 +143,7 @@ class TieredOrchestrator:
         try:
             config = await self._get_llm_config('orchestrator_router')
             if not config or not config.get('api_key'):
-                return {"intent": "UNKNOWN", "routing": "fast_no_key", "message": message}
+                return {"intent": str(Intent.UNKNOWN), "routing": "fast_no_key", "message": message}
 
             resp = await litellm.acompletion(
                 model=config['full_model'],
@@ -160,10 +154,10 @@ class TieredOrchestrator:
                 api_base=config.get('base_url'),
             )
             raw = (resp.choices[0].message.content or "").strip().upper().split()[0]
-            intent = raw if raw in self.VALID_INTENTS else "UNKNOWN"
-            if intent == "UNKNOWN":
+            intent = parse_intent(raw)
+            if intent == Intent.UNKNOWN:
                 return {"intent": "COMPLEX", "routing": "deep", "message": message}
-            return {"intent": intent, "routing": "fast", "message": message}
+            return {"intent": str(intent), "routing": "fast", "message": message}
         except Exception as exc:
             logger.warning("Fast routing failed: %s, falling through to deep", exc)
             return {"intent": "COMPLEX", "routing": "deep", "message": message}
