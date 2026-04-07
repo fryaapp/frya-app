@@ -123,7 +123,7 @@ export function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} autoComplete="on" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <form onSubmit={handleSubmit} autoComplete="on" method="post" action="#" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* E-Mail */}
           <div style={{ position: 'relative' }}>
             <span
