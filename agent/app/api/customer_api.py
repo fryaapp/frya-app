@@ -378,15 +378,20 @@ async def send_chat_message(
 
             # Fetch real data for content_blocks
             agent_results: dict = {}
+            logger.warning('P-44 ROUTE: intent=%s routing=%s', tier_intent, routing)
             if tier_intent and routing in ('regex', 'fast'):
                 try:
                     from app.agents.service_registry import build_service_registry
                     _i2s = {
                         'SHOW_INBOX': ('inbox_service', 'list_pending'),
+                        'PROCESS_INBOX': ('inbox_service', 'process_first'),
                         'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
+                        'SHOW_FINANCIAL_OVERVIEW': ('euer_service', 'get_finance_summary'),
                         'SHOW_DEADLINES': ('deadline_service', 'list'),
                         'SHOW_BOOKINGS': ('booking_service', 'list'),
                         'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
+                        'SHOW_CONTACTS': ('contact_service', 'list'),
+                        'SHOW_CONTACT': ('contact_service', 'get_dossier'),
                     }
                     si = _i2s.get(tier_intent)
                     if si:
@@ -397,14 +402,17 @@ async def send_chat_message(
                             _svc_tenant_id = str(await _resolve_tenant_uuid(user))
                         except Exception:
                             pass
+                        logger.warning('P-44 SVC: intent=%s svc=%s tenant=%s', tier_intent, si, _svc_tenant_id)
                         reg = build_service_registry()
                         svc = reg.get(si[0])
                         if svc:
                             m = getattr(svc, si[1], None)
                             if m:
-                                agent_results = await m(tenant_id=_svc_tenant_id) or {}
-                except Exception:
-                    pass
+                                _raw_svc = await m(tenant_id=_svc_tenant_id)
+                                agent_results = _raw_svc if _raw_svc else {}
+                                logger.warning('P-44 SVC OK: keys=%s', list(agent_results.keys()) if agent_results else 'EMPTY')
+                except Exception as _svc_exc:
+                    logger.warning('P-44: service_registry fetch FAILED for %s: %s', tier_intent, _svc_exc, exc_info=True)
 
             rb = _get_response_builder()
             if rb and tier_intent:
@@ -418,9 +426,34 @@ async def send_chat_message(
                 actions = enhanced.get('actions', [])
                 if actions:
                     suggestions = [a['chat_text'] for a in actions[:3]]
+
+                # P-44: Text-Sync for SHOW_FINANCE — overwrite LLM text with real data
+                if tier_intent in ('SHOW_FINANCE', 'SHOW_FINANCIAL_OVERVIEW') and agent_results:
+                    _fin_income = agent_results.get('total_income', 0) or 0
+                    _fin_expense = agent_results.get('total_expenses', agent_results.get('total_expense', 0)) or 0
+                    _fin_profit = agent_results.get('profit', _fin_income - _fin_expense)
+                    _fin_count = agent_results.get('booking_count', 0)
+                    if _fin_count > 0:
+                        def _eur_fmt(v):
+                            return f'{abs(float(v)):,.2f} \u20ac'.replace(',','X').replace('.',',').replace('X','.')
+                        result.reply_text = (
+                            f'Hier ist deine Finanz\u00fcbersicht f\u00fcr 2026:\n'
+                            f'Einnahmen: {_eur_fmt(_fin_income)}\n'
+                            f'Ausgaben: {_eur_fmt(_fin_expense)}\n'
+                            f'Ergebnis: {_eur_fmt(_fin_profit)}\n'
+                            f'({_fin_count} Buchungen)'
+                        )
+
+                # P-44: Text-Sync for SHOW_INBOX
+                if tier_intent == 'SHOW_INBOX' and content_blocks:
+                    _inbox_count = 0
+                    for _b in content_blocks:
+                        if _b.get('block_type') == 'card_list':
+                            _inbox_count = len(_b.get('data', {}).get('items', []))
+                    if _inbox_count > 0:
+                        result.reply_text = f'{_inbox_count} Belege warten auf deine Freigabe.'
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning('REST chat integration failed: %s', exc)
+        logger.warning('P-44 OUTER FAIL: %s', exc, exc_info=True)
 
     # --- Invoice Pipeline: INVOICE_DATA from communicator ---
     # If communicator returned structured INVOICE_DATA, create draft + preview.
