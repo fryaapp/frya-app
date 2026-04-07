@@ -40,19 +40,18 @@
       });
 
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      var data = await resp.json();
 
-      // Download markdown
-      var blob = new Blob([data.markdown], { type: 'text/markdown' });
+      // PDF Download (Backend liefert application/pdf)
+      var blob = await resp.blob();
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
-      a.download = 'frya-bugreport-' + new Date().toISOString().slice(0, 10) + '.md';
+      a.download = 'frya-bugreport-' + new Date().toISOString().slice(0, 10) + '.pdf';
       a.click();
       URL.revokeObjectURL(url);
 
       if (status) {
-        status.textContent = data.count + ' Bug(s) exportiert (Screenshots eingebettet)';
+        status.textContent = ids.length + ' Bug(s) als PDF exportiert';
         status.style.color = 'green';
       }
 

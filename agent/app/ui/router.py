@@ -2729,14 +2729,17 @@ async def ui_feedback_detail(request: Request, feedback_id: str, auth_user: Auth
 
 @router.post('/feedback/export')
 async def ui_feedback_export(request: Request, auth_user: AuthUser = Depends(require_admin)):
-    """Export endpoint for Operator-UI (session-based auth)."""
-    import json as _json
+    """Export Bug-Reports als PDF — eine Seite pro Bug, mit Screenshot."""
     import datetime
+    import html as _html_esc
+    import httpx
     from app.feedback.repository import FeedbackRepository
+
     body = await request.json()
     feedback_ids = body.get('feedback_ids', [])
     if not feedback_ids:
         raise HTTPException(status_code=400, detail='No feedback_ids provided')
+
     repo = FeedbackRepository(get_settings().database_url)
     items = []
     for fid in feedback_ids:
@@ -2746,41 +2749,116 @@ async def ui_feedback_export(request: Request, auth_user: AuthUser = Depends(req
     if not items:
         raise HTTPException(status_code=404, detail='No feedback items found')
 
-    md_lines = [
-        '# FRYA Bug-Report Export',
-        f'Exportiert: {datetime.datetime.now().strftime("%d.%m.%Y %H:%M")}',
-        f'Anzahl: {len(items)}',
-        '', '---', '',
-    ]
+    now_str = datetime.datetime.now().strftime('%d.%m.%Y %H:%M')
+
+    # HTML-Seiten bauen — eine pro Bug
+    pages_html = []
     for i, item in enumerate(items, 1):
         created = item.get('created_at')
         created = created.strftime('%d.%m.%Y %H:%M') if hasattr(created, 'strftime') else str(created)[:16]
-        md_lines.append(f'## Bug #{i}: {item.get("description", "")[:80]}')
-        md_lines.append('')
-        md_lines.append(f'- **ID:** `{item["id"]}`')
-        md_lines.append(f'- **User:** {item.get("user_id", "?")}')
-        md_lines.append(f'- **Seite:** {item.get("page", "?")}')
-        md_lines.append(f'- **Status:** {item.get("status", "?")}')
-        md_lines.append(f'- **Datum:** {created}')
-        md_lines.append('')
-        md_lines.append('### Beschreibung')
-        md_lines.append(item.get('description', '(leer)'))
-        md_lines.append('')
+        desc = _html_esc.escape(item.get('description', '(leer)'))
+        user = _html_esc.escape(item.get('user_id', '?'))
+        page = _html_esc.escape(item.get('page', '?'))
+        status = item.get('status', '?')
+        status_color = '#E87830' if status == 'NEW' else '#4CAF50' if status == 'RESOLVED' else '#2196F3'
+        status_label = 'Neu' if status == 'NEW' else 'Erledigt' if status == 'RESOLVED' else 'In Bearbeitung' if status == 'IN_PROGRESS' else status
+
+        # System-Info Zeilen
+        si_html = ''
         si = item.get('system_info')
         if si and isinstance(si, dict):
-            md_lines.append('### Systeminfos')
-            for k, v in si.items():
-                md_lines.append(f'- **{k}:** {v}')
-            md_lines.append('')
-        if item.get('screenshot_data'):
-            md_lines.append('### Screenshot')
-            md_lines.append(f'![Bug {i} Screenshot]({item["screenshot_data"]})')
-            md_lines.append('')
-        md_lines.append('---')
-        md_lines.append('')
+            si_rows = ''.join(f'<tr><td style="color:#888;padding:2px 8px 2px 0;">{_html_esc.escape(str(k))}</td><td style="padding:2px 0;">{_html_esc.escape(str(v))}</td></tr>' for k, v in si.items())
+            si_html = f'<table style="font-size:11px;margin-top:8px;">{si_rows}</table>'
+
+        # Screenshot
+        screenshot_html = ''
+        sd = item.get('screenshot_data')
+        if sd and isinstance(sd, str) and sd.startswith('data:'):
+            screenshot_html = f'''
+            <div style="margin-top:12px;">
+                <div style="font-weight:600;font-size:12px;color:#888;margin-bottom:6px;">SCREENSHOT</div>
+                <img src="{sd}" style="max-width:100%;border:1px solid #ddd;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);" />
+            </div>'''
+
+        page_html = f'''
+        <div style="page-break-after:always;padding:32px;font-family:'Inter','Helvetica Neue',Arial,sans-serif;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+                <div>
+                    <div style="font-size:24px;font-weight:700;color:#E87830;">FRYA Bug-Report</div>
+                    <div style="font-size:12px;color:#888;">Exportiert: {now_str}</div>
+                </div>
+                <div style="text-align:right;">
+                    <div style="font-size:14px;font-weight:600;">Bug #{i} von {len(items)}</div>
+                    <div style="display:inline-block;background:{status_color};color:#fff;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;">{status_label}</div>
+                </div>
+            </div>
+
+            <div style="background:#f8f8f8;border-radius:12px;padding:20px;margin-bottom:16px;">
+                <div style="font-size:16px;font-weight:600;margin-bottom:12px;line-height:1.4;">{desc}</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+                    <div><span style="color:#888;">User:</span> <strong>{user}</strong></div>
+                    <div><span style="color:#888;">Datum:</span> <strong>{created}</strong></div>
+                    <div><span style="color:#888;">Seite:</span> <code style="font-size:11px;background:#eee;padding:2px 6px;border-radius:4px;">{page}</code></div>
+                    <div><span style="color:#888;">ID:</span> <code style="font-size:10px;background:#eee;padding:2px 6px;border-radius:4px;">{item.get("id","?")}</code></div>
+                </div>
+                {si_html}
+            </div>
+
+            {screenshot_html}
+        </div>'''
+        pages_html.append(page_html)
+
+    full_html = f'''<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<style>
+    @page {{ size: A4; margin: 0; }}
+    body {{ margin: 0; padding: 0; }}
+    img {{ max-height: 500px; }}
+</style>
+</head><body>
+{''.join(pages_html)}
+</body></html>'''
+
+    # PDF via Gotenberg generieren
+    gotenberg_url = 'http://frya-gotenberg:3000/forms/chromium/convert/html'
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                gotenberg_url,
+                files={'files': ('index.html', full_html.encode('utf-8'), 'text/html')},
+                data={
+                    'paperWidth': '8.27',
+                    'paperHeight': '11.69',
+                    'marginTop': '0',
+                    'marginBottom': '0',
+                    'marginLeft': '0',
+                    'marginRight': '0',
+                    'printBackground': 'true',
+                },
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f'Gotenberg returned {resp.status_code}: {resp.text[:200]}')
+            pdf_bytes = resp.content
+    except Exception as gotenberg_err:
+        logger.warning('Gotenberg PDF failed: %s — falling back to HTML', gotenberg_err)
+        # Fallback: HTML direkt als Download
+        await repo.mark_exported(feedback_ids)
+        from starlette.responses import Response as RawResponse
+        return RawResponse(
+            content=full_html.encode('utf-8'),
+            media_type='text/html',
+            headers={'Content-Disposition': f'attachment; filename="frya-bugreport-{datetime.date.today()}.html"'},
+        )
 
     await repo.mark_exported(feedback_ids)
-    return {'markdown': '\n'.join(md_lines), 'count': len(items), 'exported_ids': feedback_ids}
+
+    from starlette.responses import Response as RawResponse
+    return RawResponse(
+        content=pdf_bytes,
+        media_type='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="frya-bugreport-{datetime.date.today()}.pdf"'},
+    )
 
 
 @router.patch('/feedback/{feedback_id}/status')
