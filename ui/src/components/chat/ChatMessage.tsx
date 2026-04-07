@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { FryaAvatar } from './FryaAvatar'
 import { ContentBlock } from '../content/ContentBlock'
@@ -75,9 +75,11 @@ function UploadProgressCard({ data }: { data: UploadProgressData }) {
   const [stepIdx, setStepIdx] = useState(0)
   const [smoothPct, setSmoothPct] = useState(5)
 
-  // Auto-advance through agent steps
-  useState(() => {
+  // Auto-advance through agent steps via useEffect
+  useEffect(() => {
     if (isDone) return
+    // Start with first step immediately
+    setSmoothPct(AGENT_STEPS[0].pct)
     const interval = setInterval(() => {
       setStepIdx((prev) => {
         const next = Math.min(prev + 1, AGENT_STEPS.length - 1)
@@ -86,7 +88,7 @@ function UploadProgressCard({ data }: { data: UploadProgressData }) {
       })
     }, 2500)
     return () => clearInterval(interval)
-  })
+  }, [isDone])
 
   // When done arrives from backend, jump to 100%
   const percent = isDone ? 100 : smoothPct
