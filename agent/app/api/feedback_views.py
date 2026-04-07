@@ -408,13 +408,17 @@ async def create_feedback(
     feedback_id_pre = str(uuid.uuid4())
     screenshot_url = _save_screenshot(body.screenshot, feedback_id_pre)
 
+    # P-49: Screenshot-Daten auch als base64 in der DB speichern,
+    # damit der PDF-Export die Screenshots einbetten kann.
+    _screenshot_b64 = body.screenshot if body.screenshot else None
+
     feedback_id = await repo.create(
         tenant_id=tenant_id,
         user_id=user_id,
         description=description,
         page=page,
         screenshot_path=screenshot_url,
-        screenshot_data=None,
+        screenshot_data=_screenshot_b64,
         system_info=body.system_info,
         feedback_id=feedback_id_pre,
     )

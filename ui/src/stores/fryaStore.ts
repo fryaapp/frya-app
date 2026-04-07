@@ -308,6 +308,22 @@ export const useFryaStore = create<FryaStore>((set, get) => {
             return m
           })
           updates.messages = updatedMessages
+
+          // P-49: Smart-Actions nach Beleg-Verarbeitung — halte User im Prozess
+          const vendorName = msg.text?.match(/verarbeitet:\s*(.+)/)?.[1] || (msg as any).vendor_name || ''
+          const smartId = `smart-${++msgCounter}`
+          const smartText = vendorName
+            ? `Neuer Beleg verarbeitet: ${vendorName}`
+            : 'Neuer Beleg verarbeitet!'
+          const smartActions = [
+            { label: vendorName ? `${vendorName.split(' ')[0]} freigeben` : 'Freigeben', chat_text: vendorName ? `${vendorName} freigeben` : 'Inbox abarbeiten', style: 'primary' },
+            { label: 'Details ansehen', chat_text: vendorName ? `Zeig mir ${vendorName}` : 'Zeig mir die Inbox', style: 'secondary' },
+            { label: 'Naechster Beleg', chat_text: 'Inbox abarbeiten', style: 'text' },
+          ]
+          ;(updates.messages as any[]).push({
+            id: smartId, role: 'frya' as const, text: smartText, timestamp: Date.now(),
+            content_blocks: [], actions: smartActions,
+          })
         }
         set(updates)
         break

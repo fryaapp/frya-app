@@ -53,22 +53,45 @@ function cleanText(text: string, blocks?: any[]): string {
   return t
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  uploading: 'Wird hochgeladen...',
-  ocr: 'OCR liest den Beleg...',
-  analysis: 'Analysiere Inhalt...',
-  booking: 'Erstelle Buchungsvorschlag...',
-  done: 'Fertig',
-}
+/**
+ * P-49: Animierte Agent-Pipeline mit kontinuierlichem Fortschritt.
+ * Zeigt verschiedene Agent-Stufen an, die sich automatisch weiterschalten.
+ */
+const AGENT_STEPS = [
+  { agent: 'Upload-Agent', label: 'Datei wird empfangen...', icon: 'cloud_upload', pct: 10 },
+  { agent: 'Sicherheits-Agent', label: 'Datei wird geprueft...', icon: 'shield', pct: 20 },
+  { agent: 'OCR-Agent', label: 'Text wird erkannt...', icon: 'document_scanner', pct: 35 },
+  { agent: 'Klassifikator', label: 'Belegtyp wird bestimmt...', icon: 'category', pct: 50 },
+  { agent: 'Analyse-Agent', label: 'Betraege werden extrahiert...', icon: 'search', pct: 65 },
+  { agent: 'Buchungs-Agent', label: 'Konto wird zugeordnet...', icon: 'account_balance', pct: 78 },
+  { agent: 'Qualitaets-Check', label: 'Vorschlag wird geprueft...', icon: 'verified', pct: 90 },
+]
 
 function UploadProgressCard({ data }: { data: UploadProgressData }) {
   const isDone = data.stage === 'done'
-  // percent=0 on done means error/cancelled — hide the card
   if (isDone && data.percent === 0) return null
 
-  const label = STAGE_LABELS[data.stage] ?? data.stage
-  const percent = isDone ? 100 : data.percent
-  const barColor = isDone ? 'var(--frya-primary)' : 'var(--frya-primary)'
+  // Animated step index — advances every 2.5s while not done
+  const [stepIdx, setStepIdx] = useState(0)
+  const [smoothPct, setSmoothPct] = useState(5)
+
+  // Auto-advance through agent steps
+  useState(() => {
+    if (isDone) return
+    const interval = setInterval(() => {
+      setStepIdx((prev) => {
+        const next = Math.min(prev + 1, AGENT_STEPS.length - 1)
+        setSmoothPct(AGENT_STEPS[next].pct)
+        return next
+      })
+    }, 2500)
+    return () => clearInterval(interval)
+  })
+
+  // When done arrives from backend, jump to 100%
+  const percent = isDone ? 100 : smoothPct
+  const step = isDone ? null : AGENT_STEPS[stepIdx]
+  const barColor = isDone ? '#4CAF50' : 'var(--frya-primary)'
   const trackColor = 'var(--frya-surface-container-high)'
 
   return (
@@ -88,8 +111,8 @@ function UploadProgressCard({ data }: { data: UploadProgressData }) {
           border: '1px solid var(--frya-outline-variant)',
           borderRadius: 12,
           padding: '12px 14px',
-          minWidth: 220,
-          maxWidth: 320,
+          minWidth: 240,
+          maxWidth: 340,
         }}
       >
         {/* Filename */}
@@ -105,8 +128,8 @@ function UploadProgressCard({ data }: { data: UploadProgressData }) {
             className="material-symbols-rounded"
             style={{
               fontSize: 16,
-              color: 'var(--frya-primary)',
-              fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+              color: isDone ? '#4CAF50' : 'var(--frya-primary)',
+              fontVariationSettings: isDone ? "'FILL' 1" : "'FILL' 0",
             }}
           >
             {isDone ? 'check_circle' : 'description'}
@@ -135,7 +158,7 @@ function UploadProgressCard({ data }: { data: UploadProgressData }) {
             borderRadius: 3,
             background: trackColor,
             overflow: 'hidden',
-            marginBottom: 6,
+            marginBottom: 8,
           }}
         >
           <div
@@ -144,20 +167,40 @@ function UploadProgressCard({ data }: { data: UploadProgressData }) {
               width: `${percent}%`,
               background: barColor,
               borderRadius: 3,
-              transition: 'width 600ms ease',
+              transition: 'width 1.8s cubic-bezier(0.4,0,0.2,1)',
             }}
           />
         </div>
 
-        {/* Stage label */}
+        {/* Agent step label — animated transition */}
         <div
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
             fontSize: 11,
             color: 'var(--frya-on-surface-variant)',
             fontFamily: "'Inter Variable', 'Inter', sans-serif",
+            minHeight: 18,
           }}
         >
-          {isDone ? `${label} \u2713` : label}
+          {isDone ? (
+            <span style={{ color: '#4CAF50', fontWeight: 600 }}>Fertig &#10003;</span>
+          ) : step ? (
+            <>
+              <span
+                className="material-symbols-rounded"
+                style={{ fontSize: 14, color: 'var(--frya-primary)', opacity: 0.7 }}
+              >
+                {step.icon}
+              </span>
+              <span style={{ opacity: 0.9 }}>
+                <strong style={{ color: 'var(--frya-on-surface)', fontWeight: 600 }}>{step.agent}</strong>
+                {' — '}
+                {step.label}
+              </span>
+            </>
+          ) : null}
         </div>
       </div>
     </div>

@@ -1209,6 +1209,42 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         except Exception as _pa_exc:
                             logger.debug('Pending action check failed: %s', _pa_exc)
 
+                    # --- Phase 0c: Inbox Follow-up (P-49) ---
+                    # If last response was SHOW_INBOX and user asks short follow-up
+                    # like "welche?", "zeig mal", "ok" → re-trigger SHOW_INBOX with details
+                    _inbox_followup_words = frozenset({
+                        'welche', 'welche?', 'ok welche', 'ok welche?', 'zeig mal',
+                        'zeig', 'zeig mir die', 'liste', 'details', 'welche belege',
+                        'welche sind das', 'was genau', 'ok zeig', 'zeig sie mir',
+                    })
+                    _last_routing = getattr(websocket, '_frya_last_routing', None)
+                    if _last_routing in ('SHOW_INBOX', 'PROCESS_INBOX') and text.lower().strip().rstrip('?!.') in _inbox_followup_words:
+                        # Re-trigger inbox with full details
+                        try:
+                            from app.agents.service_registry import build_service_registry, _InboxService
+                            _fu_svc = _InboxService()
+                            _fu_data = await _fu_svc.list_pending(tenant_id=tenant_id)
+                            _fu_items = _fu_data.get('items', [])
+                            if _fu_items:
+                                from app.agents.response_builder import ResponseBuilder
+                                _fu_rb = ResponseBuilder()
+                                _fu_result = _fu_rb.build('SHOW_INBOX', _fu_data, f'{len(_fu_items)} Belege:')
+                                await websocket.send_json({'type': 'typing', 'active': False})
+                                await websocket.send_json({
+                                    'type': 'message_complete',
+                                    'text': f'Hier sind deine {len(_fu_items)} offenen Belege:',
+                                    'case_ref': None,
+                                    'context_type': 'inbox',
+                                    'suggestions': [a['chat_text'] for a in _fu_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
+                                    'content_blocks': _fu_result.get('content_blocks', []),
+                                    'actions': _fu_result.get('actions', []),
+                                    'routing': 'inbox_followup',
+                                })
+                                websocket._frya_last_routing = 'SHOW_INBOX'
+                                continue
+                        except Exception as _fu_exc:
+                            logger.debug('Inbox follow-up failed: %s', _fu_exc)
+
                     # --- Phase 1: TieredOrchestrator intent routing ---
                     quick_action = data.get('quick_action')
                     # Inject user_id + tenant_id so ActionRouter can use them
@@ -1936,6 +1972,9 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         'actions': actions,
                         'routing': tier_routing,
                     })
+
+                    # P-49: Track last routing for follow-up detection
+                    websocket._frya_last_routing = tier_intent
 
                 except Exception:
                     logger.exception('Communicator error for user=%s', user_id)
