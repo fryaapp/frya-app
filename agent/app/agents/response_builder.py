@@ -275,14 +275,16 @@ class ResponseBuilder:
         return blocks
 
     def _blocks_approve(self, results: dict) -> list[dict]:
+        _is_approved = results.get("approved") or results.get("status") == "approved"
         if results.get("next_item"):
-            blocks = [{"block_type": "card", "data": self._card(results["next_item"])}]
-            # Only show "Freigabe erledigt" if the approval was actually executed
-            if results.get("approved"):
-                blocks.insert(0, {"block_type": "alert", "data": {"severity": "success", "text": "Freigabe erledigt."}})
-            return blocks
-        if results.get("approved"):
-            return [{"block_type": "alert", "data": {"severity": "success", "text": "Freigabe erledigt. Alle Belege bearbeitet!"}}]
+            # Naechster Beleg vorhanden → zeige ihn als Card (kein doppelter Alert)
+            return [{"block_type": "card", "data": self._card(results["next_item"])}]
+        if _is_approved:
+            # Erfolgreich gebucht — der Text sagt schon alles, KEIN zusaetzlicher Alert
+            # (vermeidet doppelte "Freigabe erledigt" Anzeige)
+            return []
+        if results.get("status") == "no_pending":
+            return [{"block_type": "alert", "data": {"severity": "info", "text": results.get("message", "Keine offene Freigabe fuer diesen Beleg.")}}]
         return [{"block_type": "alert", "data": {"severity": "info", "text": "Kein Beleg zum Freigeben gefunden."}}]
 
     def _blocks_show_finance(self, results: dict) -> list[dict]:
