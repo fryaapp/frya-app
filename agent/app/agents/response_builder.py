@@ -95,6 +95,18 @@ class ResponseBuilder:
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
             {"label": "Ausgaben", "chat_text": "Ausgaben nach Kategorie", "style": "text"},
         ],
+        "SHOW_CASE": [
+            {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary",
+             "quick_action": {"type": "approve", "params": {}}},
+            {"label": "Korrigieren", "chat_text": "Korrigieren", "style": "secondary"},
+            {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text",
+             "quick_action": {"type": "reject", "params": {}}},
+        ],
+        "PROCESS_INBOX": [
+            {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary"},
+            {"label": "Ueberspringen", "chat_text": "Naechster", "style": "secondary"},
+            {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text"},
+        ],
     }
 
     FALLBACK_SUGGESTIONS = [
@@ -215,6 +227,51 @@ class ResponseBuilder:
                 },
             })
 
+        return blocks
+
+    def _blocks_process_inbox(self, results: dict) -> list[dict]:
+        """Inbox-Abarbeiten-Modus: zeigt den ersten Beleg mit Aktions-Buttons."""
+        if results.get('status') == 'empty':
+            return [{"block_type": "alert", "data": {"severity": "success", "text": "Alles erledigt! Keine Belege warten auf dich."}}]
+        count = results.get('count', 0)
+        item = results.get('current_item', {})
+        idx = results.get('current_index', 0)
+        if not item:
+            return [{"block_type": "alert", "data": {"severity": "info", "text": "Keine Belege in der Inbox."}}]
+        blocks: list[dict] = [
+            {"block_type": "alert", "data": {"severity": "info", "text": f"Beleg {idx + 1} von {count}:"}},
+        ]
+        # Card fuer Beleg-Uebersicht
+        blocks.append({"block_type": "card", "data": self._card(item)})
+        # Key-Value Detail-Block
+        kv_items: list[dict] = []
+
+        def _add(label: str, value: Any) -> None:
+            if not self._is_empty_value(value):
+                kv_items.append({"label": label, "value": str(value)})
+
+        _add("Lieferant", item.get('vendor'))
+        _add("Belegtyp", item.get('document_type'))
+        if item.get('amount') is not None:
+            _add("Betrag", self._eur(item.get('amount')))
+        _add("Status", item.get('status'))
+        _add("Vertrauen", item.get('confidence_label'))
+        # Felder aus document_analysis.fields
+        fields = item.get('fields', {})
+        if isinstance(fields, dict):
+            date_raw = fields.get('invoice_date') or fields.get('date')
+            formatted_date = self._fmt_date(date_raw)
+            if formatted_date:
+                _add("Datum", formatted_date)
+            inv_nr = fields.get('invoice_number')
+            if inv_nr and not str(inv_nr).upper().startswith("CASE-"):
+                _add("Belegnr.", inv_nr)
+            due_raw = fields.get('due_date')
+            formatted_due = self._fmt_date(due_raw)
+            if formatted_due:
+                _add("Faellig am", formatted_due)
+        if kv_items:
+            blocks.append({"block_type": "key_value", "data": {"title": "Details", "items": kv_items}})
         return blocks
 
     def _blocks_approve(self, results: dict) -> list[dict]:
@@ -497,6 +554,28 @@ class ResponseBuilder:
     def _blocks_show_settings(self, results: dict) -> list[dict]:
         return self._blocks_settings(results)
 
+    @staticmethod
+    def _is_empty_value(val: Any) -> bool:
+        """Return True if val should be suppressed (None, empty string, N/A, null, -)."""
+        if val is None:
+            return True
+        s = str(val).strip()
+        return s in ("", "None", "null", "N/A", "n/a", "-", "\u2014", "?", "0")
+
+    @staticmethod
+    def _fmt_date(raw: Any) -> str | None:
+        """Convert ISO date (YYYY-MM-DD) to German format (DD.MM.YYYY). Returns None on failure."""
+        if not raw:
+            return None
+        s = str(raw).strip()
+        # Already DD.MM.YYYY
+        if len(s) == 10 and s[2] == '.' and s[5] == '.':
+            return s
+        # YYYY-MM-DD
+        if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+            return f"{s[8:10]}.{s[5:7]}.{s[0:4]}"
+        return s if s else None
+
     def _blocks_show_case(self, results: dict) -> list[dict]:
         # P-25: Error from get_case?
         if results.get('error'):
@@ -504,8 +583,10 @@ class ResponseBuilder:
         case = results.get("case", results)
         if not isinstance(case, dict):
             return []
+
         blocks: list[dict] = []
-        # Main info card
+
+        # --- Main info card ---
         conf_label = case.get('confidence_label', '')
         badge_map = {'Sicher': 'success', 'Hoch': 'info', 'Mittel': 'warning', 'Niedrig': 'error'}
         blocks.append({"block_type": "card", "data": {
@@ -514,38 +595,99 @@ class ResponseBuilder:
             "amount": self._eur(case.get("total_amount", 0)),
             "badge": {"label": conf_label, "color": badge_map.get(conf_label, "info")} if conf_label else None,
         }})
-        # Key-value details
-        kv_items = [
-            {"label": "Vorgang", "value": str(case.get("case_number", case.get("id", "?")))},
-            {"label": "Status", "value": t_status(str(case.get("status", "\u2014")))},
-        ]
-        # Add extracted fields from document_analysis
-        fields = results.get('fields', {})
-        if isinstance(fields, dict):
-            field_labels = {
-                'invoice_number': 'Rechnungsnr.', 'invoice_date': 'Datum',
-                'due_date': 'Faellig am', 'tax_rate': 'MwSt.',
-                'net_amount': 'Netto', 'tax_amount': 'MwSt.-Betrag',
-                'iban': 'IBAN', 'bic': 'BIC',
-                'sender_address': 'Absender', 'recipient_address': 'Empfaenger',
-            }
-            for fkey, flabel in field_labels.items():
-                fval = fields.get(fkey)
-                if fval:
-                    kv_items.append({"label": flabel, "value": str(fval)})
-        # Add references
+
+        # --- Key-value details (fixed order, filtered) ---
+        fields = results.get('fields', {}) if isinstance(results.get('fields'), dict) else {}
+        kv_items: list[dict] = []
+
+        def _add(label: str, value: Any) -> None:
+            if not self._is_empty_value(value):
+                kv_items.append({"label": label, "value": str(value)})
+
+        # 1. Absender (vendor_name)
+        vendor = case.get("vendor_name") or fields.get("vendor") or fields.get("sender_name")
+        _add("Absender", vendor)
+
+        # 2. Belegtyp
+        doc_type_raw = case.get("case_type") or fields.get("document_type")
+        if not self._is_empty_value(doc_type_raw):
+            _add("Belegtyp", t_doc_type(str(doc_type_raw)))
+
+        # 3. Betrag (formatiert)
+        amount_raw = case.get("total_amount") or fields.get("amount") or fields.get("gross_amount")
+        if not self._is_empty_value(amount_raw):
+            try:
+                _add("Betrag", self._eur(float(amount_raw)))
+            except (TypeError, ValueError):
+                _add("Betrag", amount_raw)
+
+        # 4. Datum (DD.MM.YYYY)
+        date_raw = fields.get("invoice_date") or fields.get("date") or case.get("invoice_date")
+        formatted_date = self._fmt_date(date_raw)
+        if formatted_date:
+            _add("Datum", formatted_date)
+
+        # 5. Belegnr.
+        inv_nr = fields.get("invoice_number") or case.get("invoice_number") or case.get("case_number")
+        # Suppress raw CASE-xxxx IDs — they are internal
+        if inv_nr and not str(inv_nr).upper().startswith("CASE-"):
+            _add("Belegnr.", inv_nr)
+
+        # 6. Faellig am
+        due_raw = fields.get("due_date") or case.get("due_date")
+        formatted_due = self._fmt_date(due_raw)
+        if formatted_due:
+            _add("Faellig am", formatted_due)
+
+        # 7. MwSt
+        tax_rate = fields.get("tax_rate") or case.get("tax_rate")
+        if not self._is_empty_value(tax_rate):
+            tax_str = str(tax_rate)
+            if tax_str and "%" not in tax_str:
+                tax_str = tax_str + " %"
+            _add("MwSt", tax_str)
+
+        # 8. Buchungsvorschlag (proposed_account / account)
+        acct = (
+            case.get("proposed_account")
+            or case.get("account")
+            or fields.get("proposed_account")
+            or fields.get("account")
+        )
+        if not self._is_empty_value(acct):
+            kv_items.append({
+                "label": "Buchungsvorschlag",
+                "value": str(acct),
+                "sublabel": "KI-Vorschlag \u00b7 bitte pr\u00fcfen",
+            })
+
+        # 9. References — only meaningful types (skip "other")
+        _ref_type_map = {
+            'invoice': 'Rechnungsnr.', 'invoice_number': 'Rechnungsnr.',
+            'contract': 'Vertragsnr.', 'order': 'Bestellnr.', 'customer': 'Kundennr.',
+            'payment': 'Zahlungsreferenz', 'dunning': 'Mahnungsnr.',
+            'iban': 'IBAN', 'bic': 'BIC', 'tax': 'Steuernr.',
+        }
         refs = results.get('references', [])
-        for ref in refs[:5]:
-            _ref_type_map = {
-                'other': 'Referenz', 'invoice': 'Rechnungsnr.', 'invoice_number': 'Rechnungsnr.',
-                'contract': 'Vertragsnr.', 'order': 'Bestellnr.', 'customer': 'Kundennr.',
-                'payment': 'Zahlungsreferenz', 'dunning': 'Mahnungsnr.', 'iban': 'IBAN',
-                'bic': 'BIC', 'tax': 'Steuernr.',
-            }
-            _raw_ref_type = str(ref.get('type', 'other')).lower()
-            _ref_label = _ref_type_map.get(_raw_ref_type, _raw_ref_type.replace('_', ' ').title())
-            kv_items.append({"label": _ref_label, "value": str(ref.get('value', ''))})
-        blocks.append({"block_type": "key_value", "data": {"title": "Details", "items": kv_items}})
+        if isinstance(refs, list):
+            for ref in refs[:5]:
+                if not isinstance(ref, dict):
+                    continue
+                _raw_type = str(ref.get('type', 'other')).lower()
+                if _raw_type == 'other':
+                    continue  # skip unclassified references
+                ref_val = ref.get('value', '')
+                if self._is_empty_value(ref_val):
+                    continue
+                # Skip raw CASE-xxxx values
+                if str(ref_val).upper().startswith("CASE-"):
+                    continue
+                _ref_label = _ref_type_map.get(_raw_type, _raw_type.replace('_', ' ').title())
+                _add(_ref_label, ref_val)
+
+        if kv_items:
+            blocks.append({"block_type": "key_value", "data": {"title": "Details", "items": kv_items}})
+
         return blocks
 
     def _blocks_show_invoices(self, results: dict) -> list[dict]:
@@ -773,6 +915,58 @@ class ResponseBuilder:
                     "label": "Nur dringende",
                     "chat_text": "Nur dringende Belege",
                     "style": "secondary",
+                },
+            ]
+
+        # SHOW_CASE: inject case_id into quick_action params
+        if intent == "SHOW_CASE":
+            case = results.get("case", results) if isinstance(results, dict) else {}
+            cid = str(case.get("case_id", case.get("id", ""))) if isinstance(case, dict) else ""
+            return [
+                {
+                    "label": "Freigeben",
+                    "chat_text": "Freigeben",
+                    "style": "primary",
+                    "quick_action": {"type": "approve", "params": {"case_id": cid}},
+                },
+                {
+                    "label": "Korrigieren",
+                    "chat_text": "Korrigieren",
+                    "style": "secondary",
+                },
+                {
+                    "label": "Ablehnen",
+                    "chat_text": "Ablehnen",
+                    "style": "text",
+                    "quick_action": {"type": "reject", "params": {"case_id": cid}},
+                },
+            ]
+
+        # PROCESS_INBOX — Abarbeiten-Modus: Freigeben / Ueberspringen / Ablehnen fuer den aktuellen Beleg
+        if intent == "PROCESS_INBOX":
+            item = results.get('current_item', {})
+            cid = item.get('case_id', '') if isinstance(item, dict) else ''
+            if results.get('status') == 'empty' or not cid:
+                return list(self.CONTEXT_SUGGESTIONS.get("SHOW_INBOX", self.FALLBACK_SUGGESTIONS))
+            vendor = item.get('vendor', 'Beleg') if isinstance(item, dict) else 'Beleg'
+            return [
+                {
+                    "label": "Freigeben",
+                    "chat_text": f"{vendor} freigeben",
+                    "style": "primary",
+                    "quick_action": {"type": "approve", "params": {"case_id": cid}},
+                },
+                {
+                    "label": "Ueberspringen",
+                    "chat_text": "Naechster",
+                    "style": "secondary",
+                    "quick_action": {"type": "defer", "params": {"case_id": cid}},
+                },
+                {
+                    "label": "Ablehnen",
+                    "chat_text": f"{vendor} ablehnen",
+                    "style": "text",
+                    "quick_action": {"type": "reject", "params": {"case_id": cid}},
                 },
             ]
 
