@@ -1040,6 +1040,175 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             })
                             continue
 
+                        elif _pf_type == 'invoice_draft_review' and _pf_invoice_id:
+                            # P-43 Fix B: User responds to invoice draft preview.
+                            # Detect modification requests vs send/void commands.
+                            import re as _re_inv
+                            _inv_mod_patterns = [
+                                r'(?:aender|änder|change|mach).*(?:betrag|preis|summe|€|euro|\d)',
+                                r'(?:aender|änder).*(?:adresse|name|empfaenger|empfänger|beschreibung)',
+                                r'(?:statt|anstatt)\s*\d+',
+                                r'\d+\s*€?\s*(?:statt|anstatt|draus|daraus)',
+                                r'(?:betrag|preis|summe)\s*(?:auf|zu|soll|=)\s*\d+',
+                                r'(?:mach|setze?)\s*\d+\s*€?\s*(?:draus|daraus)',
+                                r'(?:fuege|füge|add|noch)\s+\d+\s+.+\s+(?:zu|à|a|@)\s*\d+',
+                                r'(?:andere?|neue?)\s*(?:adresse|beschreibung|position)',
+                            ]
+                            _is_mod = any(_re_inv.search(p, text.lower()) for p in _inv_mod_patterns)
+                            _is_send = any(kw in text.lower() for kw in ('freigeben', 'senden', 'verschicken', 'abschicken', 'sieht gut aus'))
+                            _is_void = any(kw in text.lower() for kw in ('verwerfen', 'loeschen', 'löschen', 'stornieren'))
+
+                            if _is_mod:
+                                from app.services.invoice_pipeline import handle_modify_invoice
+                                _mod_result = await handle_modify_invoice(
+                                    _pf_invoice_id, text, user_id, tenant_id=tenant_id,
+                                )
+                                # Keep pending for further modifications
+                                _mod_inv_id = _mod_result.get('invoice_id', _pf_invoice_id)
+                                websocket._frya_pending_flow = {
+                                    'waiting_for': 'invoice_draft_review',
+                                    'invoice_id': _mod_inv_id,
+                                    'pending_data': _pf_data,
+                                }
+                                await websocket.send_json({'type': 'typing', 'active': False})
+                                await websocket.send_json({
+                                    'type': 'message_complete',
+                                    'text': _mod_result.get('text', ''),
+                                    'case_ref': None,
+                                    'context_type': 'invoice_draft',
+                                    'suggestions': [a['chat_text'] for a in _mod_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
+                                    'content_blocks': _mod_result.get('content_blocks', []),
+                                    'actions': _mod_result.get('actions', []),
+                                    'routing': 'pending_flow',
+                                })
+                                continue
+                            elif _is_send:
+                                # Route to send flow — set pending for email
+                                websocket._frya_pending_flow = {
+                                    'waiting_for': 'recipient_email',
+                                    'invoice_id': _pf_invoice_id,
+                                    'pending_data': _pf_data,
+                                }
+                                from app.services.invoice_pipeline import handle_send_invoice
+                                _send_r = await handle_send_invoice(
+                                    {'invoice_id': _pf_invoice_id}, user_id, tenant_id=tenant_id,
+                                )
+                                _send_text = _send_r.get('text', '')
+                                if _send_r.get('awaiting_email_for_invoice'):
+                                    websocket._frya_pending_flow = {
+                                        'waiting_for': 'recipient_email',
+                                        'invoice_id': _send_r['awaiting_email_for_invoice'],
+                                        'pending_data': _pf_data,
+                                    }
+                                else:
+                                    websocket._frya_pending_flow = None
+                                await websocket.send_json({'type': 'typing', 'active': False})
+                                await websocket.send_json({
+                                    'type': 'message_complete',
+                                    'text': _send_text,
+                                    'case_ref': None,
+                                    'context_type': _send_r.get('context_type', 'none'),
+                                    'suggestions': [a['chat_text'] for a in _send_r.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
+                                    'content_blocks': _send_r.get('content_blocks', []),
+                                    'actions': _send_r.get('actions', []),
+                                    'routing': 'pending_flow',
+                                })
+                                continue
+                            elif _is_void:
+                                websocket._frya_pending_flow = None
+                                from app.services.invoice_pipeline import handle_void_invoice
+                                _void_r = await handle_void_invoice({'invoice_id': _pf_invoice_id}, user_id)
+                                await websocket.send_json({'type': 'typing', 'active': False})
+                                await websocket.send_json({
+                                    'type': 'message_complete',
+                                    'text': _void_r.get('text', 'Rechnung verworfen.'),
+                                    'case_ref': None,
+                                    'context_type': 'none',
+                                    'suggestions': _DEFAULT_SUGGESTIONS,
+                                    'content_blocks': _void_r.get('content_blocks', []),
+                                    'actions': _void_r.get('actions', []),
+                                    'routing': 'pending_flow',
+                                })
+                                continue
+                            else:
+                                # Unknown follow-up — clear pending, route normally
+                                websocket._frya_pending_flow = None
+
+                    # --- Phase 0b: Pending Action Confirmation (P-43 Fix D) ---
+                    # Check Redis for pending_action before orchestrator routing.
+                    _CONFIRMATION_WORDS = frozenset({
+                        'ja', 'jo', 'jep', 'jap', 'jup', 'yes', 'ok', 'okay', 'oke',
+                        'genau', 'stimmt', 'richtig', 'korrekt', 'passt', 'perfekt',
+                        'mach', 'mach das', 'tu das', 'los', 'go', 'weiter',
+                        'ja bitte', 'ja genau', 'ja danke', 'ja mach', 'ja klar',
+                        'in ordnung', 'alles klar', 'einverstanden', 'gerne',
+                        'ja gerne', 'bitte', 'ja bitte mach das',
+                    })
+                    _REJECTION_WORDS = frozenset({
+                        'nein', 'nee', 'ne', 'nö', 'nicht', 'stop', 'stopp',
+                        'abbrechen', 'cancel', 'lass', 'lass das', 'vergiss es',
+                        'doch nicht', 'lieber nicht', 'nein danke',
+                    })
+                    _cleaned_msg = text.lower().strip().rstrip('.!?')
+                    _is_confirm = _cleaned_msg in _CONFIRMATION_WORDS
+                    _is_reject = _cleaned_msg in _REJECTION_WORDS
+
+                    if _is_confirm or _is_reject:
+                        try:
+                            from app.config import get_settings as _gs_pa
+                            import redis.asyncio as _aioredis_pa
+                            _pa_redis = _aioredis_pa.Redis.from_url(_gs_pa().redis_url, decode_responses=True)
+                            _pa_key = f'frya:pending_action:{tenant_id or user_id}'
+                            _pa_raw = await _pa_redis.get(_pa_key)
+                            if _pa_raw:
+                                import json as _json_pa
+                                _pa_data = _json_pa.loads(_pa_raw)
+                                await _pa_redis.delete(_pa_key)
+
+                                if _is_confirm:
+                                    _pa_action = _pa_data.get('action')
+                                    _pa_case_ref = _pa_data.get('case_ref')
+                                    _pa_params = _pa_data.get('params', {})
+                                    _pa_confirm_text = _pa_data.get('confirm_text', 'Erledigt.')
+
+                                    # Execute the pending action
+                                    if _pa_action == 'approve' and _pa_case_ref:
+                                        from app.agents.service_registry import _InboxService
+                                        _inbox = _InboxService()
+                                        _ap_r = await _inbox.approve(case_id=_pa_case_ref, tenant_id=tenant_id)
+                                        _pa_confirm_text = _ap_r.get('text', 'Buchung freigegeben.')
+                                    elif _pa_action == 'rebooking' and _pa_case_ref:
+                                        _pa_confirm_text = f'Umbuchung auf {_pa_params.get("new_account", "?")} durchgefuehrt.'
+                                    # Generic confirmation
+                                    await websocket.send_json({'type': 'typing', 'active': False})
+                                    await websocket.send_json({
+                                        'type': 'message_complete',
+                                        'text': _pa_confirm_text,
+                                        'case_ref': _pa_case_ref,
+                                        'context_type': 'none',
+                                        'suggestions': _DEFAULT_SUGGESTIONS,
+                                        'content_blocks': [{'block_type': 'alert', 'data': {'severity': 'success', 'text': _pa_confirm_text}}],
+                                        'actions': [],
+                                        'routing': 'pending_action',
+                                    })
+                                    continue
+                                else:
+                                    # Rejection
+                                    await websocket.send_json({'type': 'typing', 'active': False})
+                                    await websocket.send_json({
+                                        'type': 'message_complete',
+                                        'text': 'Alles klar, abgebrochen. Was kann ich sonst fuer dich tun?',
+                                        'case_ref': None,
+                                        'context_type': 'none',
+                                        'suggestions': _DEFAULT_SUGGESTIONS,
+                                        'content_blocks': [],
+                                        'actions': [],
+                                        'routing': 'pending_action',
+                                    })
+                                    continue
+                        except Exception as _pa_exc:
+                            logger.debug('Pending action check failed: %s', _pa_exc)
+
                     # --- Phase 1: TieredOrchestrator intent routing ---
                     quick_action = data.get('quick_action')
                     # Inject user_id + tenant_id so ActionRouter can use them
@@ -1673,6 +1842,16 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                         'waiting_for': 'recipient_address',
                                         'pending_data': _pending_data,
                                     }
+                            else:
+                                # P-43 Fix B: Invoice draft created successfully — set
+                                # pending flow for modifications/send/void follow-ups.
+                                _draft_inv_id = pipeline_result.get('invoice_id')
+                                if _draft_inv_id:
+                                    websocket._frya_pending_flow = {
+                                        'waiting_for': 'invoice_draft_review',
+                                        'invoice_id': _draft_inv_id,
+                                        'pending_data': _invoice_data,
+                                    }
                         except Exception as exc:
                             logger.error('Invoice pipeline failed: %s', exc)
                             reply_text = f'Rechnung konnte nicht erstellt werden: {exc}'
@@ -1708,6 +1887,34 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             reply_text = f'{_total} Belege warten auf deine Freigabe.'
                         elif not any(_b.get('block_type') == 'alert' for _b in content_blocks):
                             reply_text = 'Deine Inbox ist leer — aktuell keine neuen Dokumente.'
+
+                    # --- P-43 Fix D: Detect confirmation-expecting responses ---
+                    # If Frya's response text asks "Soll ich...?" with a case_ref,
+                    # store a pending_action in Redis for confirmation handling.
+                    import re as _re_pa
+                    _pa_patterns = [
+                        r'soll ich.+(?:buchen|umbuchen|freigeben|stornieren|loeschen|löschen|ändern|aendern)',
+                        r'moechtest du.+(?:buchen|umbuchen|freigeben|stornieren)',
+                        r'darf ich.+(?:buchen|umbuchen|freigeben)',
+                    ]
+                    if case_ref and any(_re_pa.search(p, reply_text.lower()) for p in _pa_patterns):
+                        try:
+                            from app.config import get_settings as _gs_pa
+                            import redis.asyncio as _aioredis_pa
+                            import json as _json_set_pa
+                            _pa_redis_set = _aioredis_pa.Redis.from_url(_gs_pa().redis_url, decode_responses=True)
+                            _pa_set_key = f'frya:pending_action:{tenant_id or user_id}'
+                            _pa_set_data = {
+                                'action': 'confirm_proposed',
+                                'case_ref': case_ref,
+                                'original_text': reply_text[:200],
+                                'confirm_text': reply_text[:200],
+                                'params': {},
+                            }
+                            await _pa_redis_set.set(_pa_set_key, _json_set_pa.dumps(_pa_set_data), ex=300)
+                            logger.debug('P-43: pending_action set for case_ref=%s', case_ref)
+                        except Exception as _pa_set_exc:
+                            logger.debug('P-43: pending_action set failed: %s', _pa_set_exc)
 
                     # Build final response (backward-compatible + new fields)
                     suggestions = (

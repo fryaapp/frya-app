@@ -463,7 +463,209 @@ async def handle_create_invoice(invoice_data: dict, user_id: str, tenant_id: str
             },
         ],
         'context_type': 'invoice_draft',
+        'invoice_id': invoice_id_str,
     }
+
+
+# ---------------------------------------------------------------------------
+# Schritt 2b: Modify-Action (P-43 — Rechnungsaenderung im Pending-Flow)
+# ---------------------------------------------------------------------------
+
+async def handle_modify_invoice(
+    invoice_id: str,
+    modification_text: str,
+    user_id: str,
+    tenant_id: str | None = None,
+) -> dict:
+    """Modify an existing DRAFT invoice based on free-text modification request.
+
+    Supports:
+      - Amount changes: "Aendere den Betrag auf 150€"
+      - Item additions: "Fuege noch 1 Workshop zu 300€ hinzu"
+      - Description changes: "Aendere die Beschreibung auf Consulting"
+      - Address changes: "Andere Adresse: Musterstr 5, 10115 Berlin"
+
+    Returns the same preview dict as handle_create_invoice.
+    """
+    import re
+    import asyncpg
+    from app.dependencies import get_settings
+
+    tid = await _resolve_tenant(tenant_id)
+    settings = get_settings()
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        # Load existing invoice + contact data via JOIN
+        inv = await conn.fetchrow(
+            "SELECT i.id, i.invoice_number, i.net_total, i.tax_total, i.gross_total, "
+            "i.status, i.due_date, i.contact_id, "
+            "c.name AS contact_name, c.email AS contact_email, "
+            "c.address_street AS contact_street, c.address_zip AS contact_zip, c.address_city AS contact_city "
+            "FROM frya_invoices i "
+            "LEFT JOIN frya_contacts c ON c.id = i.contact_id "
+            "WHERE i.id = $1::uuid AND i.tenant_id = $2 AND i.status = 'DRAFT'",
+            invoice_id, str(tid),
+        )
+        if not inv:
+            return {
+                'text': 'Keine Entwurfs-Rechnung gefunden die geaendert werden kann.',
+                'content_blocks': [],
+                'actions': [],
+                'context_type': 'none',
+            }
+
+        # Load existing items
+        items_rows = await conn.fetch(
+            "SELECT id, description, quantity, unit_price, tax_rate, position "
+            "FROM frya_invoice_items WHERE invoice_id = $1::uuid ORDER BY position",
+            invoice_id,
+        )
+        items = [dict(r) for r in items_rows]
+        # Derive tax_rate from items (frya_invoices has no tax_rate column)
+        _item_tax_rates = [float(i.get('tax_rate', 0) or 0) for i in items if i.get('tax_rate')]
+        _derived_tax_rate = int(_item_tax_rates[0]) if _item_tax_rates else 0
+
+        text_lower = modification_text.lower()
+        changed = False
+        change_description = ''
+
+        # --- 1. Amount change: "Aendere den Betrag auf 150€" / "Mach 200 draus" ---
+        amount_match = re.search(
+            r'(?:auf|zu|=)\s*(\d+(?:[.,]\d{1,2})?)\s*(?:€|euro|eur)?'
+            r'|(\d+(?:[.,]\d{1,2})?)\s*(?:€|euro|eur)\s*(?:draus|daraus|statt)',
+            text_lower,
+        )
+        if amount_match:
+            new_amount_str = amount_match.group(1) or amount_match.group(2)
+            new_amount = float(new_amount_str.replace(',', '.'))
+            if items:
+                # Update the first (or only) item's unit_price
+                await conn.execute(
+                    "UPDATE frya_invoice_items SET unit_price = $1 WHERE id = $2::uuid",
+                    new_amount, str(items[0]['id']),
+                )
+                items[0]['unit_price'] = new_amount
+                changed = True
+                change_description = f'Betrag auf {_eur(new_amount)} geaendert'
+
+        # --- 2. Item addition: "Fuege noch 1 Workshop zu 300€ hinzu" ---
+        add_match = re.search(
+            r'(?:fuege|füge|add|noch)\s+(\d+)\s+(.+?)\s+(?:zu|à|a|@)\s*(\d+(?:[.,]\d{1,2})?)\s*(?:€|euro)?',
+            text_lower,
+        )
+        if add_match and not changed:
+            qty = int(add_match.group(1))
+            desc = add_match.group(2).strip().title()
+            price = float(add_match.group(3).replace(',', '.'))
+            next_pos = len(items) + 1
+            _new_item_id = await conn.fetchval(
+                "INSERT INTO frya_invoice_items (invoice_id, description, quantity, unit_price, tax_rate, position) "
+                "VALUES ($1::uuid, $2, $3, $4, $5, $6) RETURNING id",
+                invoice_id, desc, qty, price, _derived_tax_rate, next_pos,
+            )
+            items.append({'description': desc, 'quantity': qty, 'unit_price': price, 'tax_rate': _derived_tax_rate})
+            changed = True
+            change_description = f'{qty}x {desc} zu {_eur(price)} hinzugefuegt'
+
+        # --- 3. Description change ---
+        desc_match = re.search(
+            r'(?:beschreibung|bezeichnung|position)\s+(?:auf|zu|in|=)\s+["\']?(.+?)["\']?\s*$',
+            text_lower,
+        )
+        if desc_match and not changed and items:
+            new_desc = desc_match.group(1).strip().title()
+            await conn.execute(
+                "UPDATE frya_invoice_items SET description = $1 WHERE id = $2::uuid",
+                new_desc, str(items[0]['id']),
+            )
+            items[0]['description'] = new_desc
+            changed = True
+            change_description = f'Beschreibung geaendert auf "{new_desc}"'
+
+        if not changed:
+            return {
+                'text': f'Ich konnte die Aenderung nicht verstehen. Die Rechnung {inv["invoice_number"]} bleibt unveraendert. '
+                        'Sag mir z.B. "Aendere den Betrag auf 150 Euro" oder "Fuege 1 Workshop zu 300 Euro hinzu".',
+                'content_blocks': [],
+                'actions': [],
+                'context_type': 'invoice_draft',
+                'invoice_id': invoice_id,
+            }
+
+        # Recalculate totals
+        new_net = sum(float(i['quantity']) * float(i['unit_price']) for i in items)
+        tax_rate_val = int(_derived_tax_rate)
+        new_tax = new_net * tax_rate_val / 100
+        new_gross = new_net + new_tax
+
+        # Update invoice totals in DB
+        await conn.execute(
+            "UPDATE frya_invoices SET net_total = $1, tax_total = $2, gross_total = $3, updated_at = now() "
+            "WHERE id = $4::uuid",
+            new_net, new_tax, new_gross, invoice_id,
+        )
+
+        # Regenerate PDF
+        try:
+            from app.accounting.invoice_service import InvoiceService
+            svc = InvoiceService(conn, tid)
+            await svc.regenerate_pdf(invoice_id)
+        except Exception as pdf_exc:
+            logger.warning('PDF regeneration after modify failed: %s', pdf_exc)
+
+        # Build preview (same format as handle_create_invoice)
+        preview_items = [
+            {'label': 'Empfaenger', 'value': inv['contact_name']},
+        ]
+        _addr_parts = [inv['contact_street'] or '']
+        if inv['contact_zip'] or inv['contact_city']:
+            _addr_parts.append(f"{inv['contact_zip'] or ''} {inv['contact_city'] or ''}".strip())
+        _addr = ', '.join(p for p in _addr_parts if p)
+        if _addr:
+            preview_items.append({'label': 'Adresse', 'value': _addr})
+        preview_items.append({'label': 'Rechnungsnr.', 'value': inv['invoice_number']})
+
+        for item in items:
+            qty = item.get('quantity', 1)
+            qty_str = str(int(qty)) if qty == int(qty) else str(qty)
+            preview_items.append({
+                'label': item.get('description', ''),
+                'value': f'{qty_str} x {_eur(float(item["unit_price"]))}',
+            })
+
+        if tax_rate_val > 0:
+            preview_items.append({'label': 'Netto', 'value': _eur(new_net)})
+            preview_items.append({'label': f'MwSt ({tax_rate_val}%)', 'value': _eur(new_tax)})
+            preview_items.append({'label': 'Brutto', 'value': _eur(new_gross)})
+        else:
+            preview_items.append({'label': 'Gesamtbetrag', 'value': _eur(new_gross)})
+
+        return {
+            'text': f'Rechnung {inv["invoice_number"]} aktualisiert: {change_description}.',
+            'content_blocks': [
+                {'block_type': 'key_value', 'data': {'items': preview_items}},
+                {
+                    'block_type': 'document',
+                    'data': {
+                        'title': f'Rechnung {inv["invoice_number"]}',
+                        'url': f'/api/v1/invoices/{invoice_id}/pdf',
+                        'format': 'PDF',
+                        'size': '~40 KB',
+                    },
+                },
+            ],
+            'actions': [
+                {'label': 'Freigeben & Senden', 'chat_text': f'Rechnung {inv["invoice_number"]} senden', 'style': 'primary',
+                 'quick_action': {'type': 'send_invoice', 'params': {'invoice_id': invoice_id}}},
+                {'label': 'Weiter bearbeiten', 'chat_text': f'Rechnung {inv["invoice_number"]} bearbeiten', 'style': 'secondary'},
+                {'label': 'Verwerfen', 'chat_text': 'Rechnung verwerfen', 'style': 'text',
+                 'quick_action': {'type': 'void_invoice', 'params': {'invoice_id': invoice_id}}},
+            ],
+            'context_type': 'invoice_draft',
+            'invoice_id': invoice_id,
+        }
+    finally:
+        await conn.close()
 
 
 # ---------------------------------------------------------------------------

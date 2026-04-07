@@ -142,6 +142,112 @@ async def send_chat_message(
         media_attachments=[],
     )
 
+    # --- P-43 Fix B: Pending invoice modification (REST path) ---
+    _chat_id_rest = f'web-{user.username}'
+    logger.warning('P-43 CHECK: msg=%s chat_id=%s', body.message[:40], _chat_id_rest)
+    try:
+        import re as _re_inv_rest
+        import json as _json_inv_rest
+        import redis.asyncio as _aioredis_inv_rest
+        from app.config import get_settings as _gs_inv_rest
+        _r_inv = _aioredis_inv_rest.Redis.from_url(_gs_inv_rest().redis_url, decode_responses=True)
+        _pi_key = f'frya:pending_invoice:{_chat_id_rest}'
+        _pi_raw = await _r_inv.get(_pi_key)
+        if _pi_raw:
+            _pi_data = _json_inv_rest.loads(_pi_raw)
+            _pi_invoice_id = _pi_data.get('invoice_id')
+            _inv_mod_patterns = [
+                r'(?:aender|änder|change|mach).*(?:betrag|preis|summe|€|euro|\d)',
+                r'(?:betrag|preis|summe)\s*(?:auf|zu|soll|=)\s*\d+',
+                r'(?:mach|setze?)\s*\d+\s*€?\s*(?:draus|daraus)',
+                r'(?:fuege|füge|add|noch)\s+\d+\s+.+\s+(?:zu|à|a|@)\s*\d+',
+                r'(?:andere?|neue?)\s*(?:adresse|beschreibung|position)',
+            ]
+            _is_mod = any(_re_inv_rest.search(p, body.message.lower()) for p in _inv_mod_patterns)
+            _is_send = any(kw in body.message.lower() for kw in ('freigeben', 'senden', 'verschicken', 'sieht gut aus'))
+            _is_void = any(kw in body.message.lower() for kw in ('verwerfen', 'loeschen', 'löschen', 'stornieren'))
+
+            if _is_mod and _pi_invoice_id:
+                from app.services.invoice_pipeline import handle_modify_invoice
+                _tid_rest = str(user.tenant_id) if getattr(user, 'tenant_id', None) else None
+                _mod_r = await handle_modify_invoice(_pi_invoice_id, body.message, user.username, tenant_id=_tid_rest)
+                _mod_inv_id = _mod_r.get('invoice_id', _pi_invoice_id)
+                await _r_inv.set(_pi_key, _json_inv_rest.dumps({'invoice_id': _mod_inv_id, 'pending_data': _pi_data.get('pending_data', {})}), ex=300)
+                return ChatResponse(
+                    reply=_mod_r.get('text', ''),
+                    content_blocks=_mod_r.get('content_blocks', []),
+                    actions=_mod_r.get('actions', []),
+                    routing='pending_flow',
+                )
+            elif _is_send and _pi_invoice_id:
+                await _r_inv.delete(_pi_key)
+                from app.services.invoice_pipeline import handle_send_invoice
+                _tid_rest = str(user.tenant_id) if getattr(user, 'tenant_id', None) else None
+                _send_r = await handle_send_invoice({'invoice_id': _pi_invoice_id}, user.username, tenant_id=_tid_rest)
+                return ChatResponse(
+                    reply=_send_r.get('text', ''),
+                    content_blocks=_send_r.get('content_blocks', []),
+                    actions=_send_r.get('actions', []),
+                    routing='pending_flow',
+                )
+            elif _is_void:
+                await _r_inv.delete(_pi_key)
+                from app.services.invoice_pipeline import handle_void_invoice
+                _void_r = await handle_void_invoice({'invoice_id': _pi_invoice_id}, user.username)
+                return ChatResponse(
+                    reply=_void_r.get('text', 'Rechnung verworfen.'),
+                    content_blocks=_void_r.get('content_blocks', []),
+                    actions=_void_r.get('actions', []),
+                    routing='pending_flow',
+                )
+        await _r_inv.aclose()
+    except Exception as _pi_exc:
+        logger.warning('P-43 REST pending_invoice check failed: %s', _pi_exc, exc_info=True)
+
+    # --- P-43 Fix D: Pending action confirmation (REST path) ---
+    _CONFIRMATION_WORDS_REST = frozenset({
+        'ja', 'jo', 'jep', 'jap', 'yes', 'ok', 'okay',
+        'genau', 'stimmt', 'richtig', 'korrekt', 'passt', 'perfekt',
+        'mach', 'mach das', 'tu das', 'los', 'weiter',
+        'ja bitte', 'ja genau', 'ja danke', 'ja mach', 'ja klar',
+        'in ordnung', 'alles klar', 'einverstanden', 'gerne',
+    })
+    _REJECTION_WORDS_REST = frozenset({
+        'nein', 'nee', 'ne', 'nö', 'nicht', 'stop', 'stopp',
+        'abbrechen', 'cancel', 'vergiss es', 'doch nicht', 'lieber nicht',
+    })
+    _cleaned_rest = body.message.lower().strip().rstrip('.!?')
+    if _cleaned_rest in _CONFIRMATION_WORDS_REST or _cleaned_rest in _REJECTION_WORDS_REST:
+        try:
+            import json as _json_pa_rest
+            import redis.asyncio as _aioredis_pa_rest
+            from app.config import get_settings as _gs_pa_rest
+            _tid_rest_pa = str(user.tenant_id) if getattr(user, 'tenant_id', None) else user.username
+            _r_pa = _aioredis_pa_rest.Redis.from_url(_gs_pa_rest().redis_url, decode_responses=True)
+            _pa_key = f'frya:pending_action:{_tid_rest_pa}'
+            _pa_raw = await _r_pa.get(_pa_key)
+            if _pa_raw:
+                _pa_data = _json_pa_rest.loads(_pa_raw)
+                await _r_pa.delete(_pa_key)
+                if _cleaned_rest in _CONFIRMATION_WORDS_REST:
+                    _confirm_text = _pa_data.get('confirm_text', 'Erledigt.')
+                    return ChatResponse(
+                        reply=_confirm_text,
+                        content_blocks=[{'block_type': 'alert', 'data': {'severity': 'success', 'text': _confirm_text}}],
+                        actions=[],
+                        routing='pending_action',
+                    )
+                else:
+                    return ChatResponse(
+                        reply='Alles klar, abgebrochen.',
+                        content_blocks=[],
+                        actions=[],
+                        routing='pending_action',
+                    )
+            await _r_pa.aclose()
+        except Exception as _pa_rest_exc:
+            logger.debug('P-43 REST pending_action check failed: %s', _pa_rest_exc)
+
     # P-12: APPROVE shortcircuit — execute booking approval BEFORE communicator
     try:
         from app.api.chat_ws import _get_tiered_orchestrator
@@ -330,6 +436,23 @@ async def send_chat_message(
             if actions:
                 suggestions = [a['chat_text'] for a in actions[:3]]
             logger.info('Invoice pipeline: draft created from INVOICE_DATA (REST)')
+            # P-43 Fix B: Store pending invoice in Redis for REST path
+            _draft_inv_id_rest = pipeline_result.get('invoice_id')
+            if _draft_inv_id_rest and not pipeline_result.get('_pending_intent'):
+                try:
+                    import json as _json_set_inv
+                    import redis.asyncio as _aioredis_set_inv
+                    from app.config import get_settings as _gs_set_inv
+                    _r_set = _aioredis_set_inv.Redis.from_url(_gs_set_inv().redis_url, decode_responses=True)
+                    _pi_set_key = f'frya:pending_invoice:{chat_id}'
+                    await _r_set.set(_pi_set_key, _json_set_inv.dumps({
+                        'invoice_id': _draft_inv_id_rest,
+                        'pending_data': _invoice_data,
+                    }), ex=300)
+                    await _r_set.aclose()
+                    logger.warning('P-43: pending_invoice SET in Redis for %s, invoice_id=%s', chat_id, _draft_inv_id_rest)
+                except Exception as _pi_set_exc:
+                    logger.warning('P-43: pending_invoice SET FAILED: %s', _pi_set_exc, exc_info=True)
         except Exception as exc:
             logger.error('Invoice pipeline failed (REST): %s', exc)
             result.reply_text = f'Rechnung konnte nicht erstellt werden: {exc}'
