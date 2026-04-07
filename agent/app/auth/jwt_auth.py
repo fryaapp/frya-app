@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 JWT_ALGORITHM = 'HS256'
-JWT_ACCESS_EXPIRY = timedelta(hours=1)
+JWT_ACCESS_EXPIRY = timedelta(hours=24)
 JWT_REFRESH_EXPIRY = timedelta(days=30)
 
 
