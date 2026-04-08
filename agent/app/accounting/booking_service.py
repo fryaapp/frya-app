@@ -11,8 +11,17 @@ from app.accounting.models import Booking
 from app.accounting.repository import (
     AccountingRepository, compute_booking_hash, validate_booking_date,
 )
+from app.middleware.tenant import resolve_tenant
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_uuid(explicit: uuid.UUID | str | None) -> uuid.UUID:
+    """Resolve tenant_id zu UUID: Explizit > ContextVar > ValueError."""
+    if explicit is not None:
+        return explicit if isinstance(explicit, uuid.UUID) else uuid.UUID(str(explicit))
+    tid_str = resolve_tenant(None)  # Holt aus ContextVar oder wirft
+    return uuid.UUID(tid_str)
 
 
 class BookingService:
@@ -20,7 +29,7 @@ class BookingService:
         self._repo = repo
 
     async def create_booking_from_case(
-        self, *, case_id: str, tenant_id: uuid.UUID,
+        self, *, case_id: str, tenant_id: uuid.UUID | None = None,
         vendor_name: str, description: str,
         account_soll: str, account_soll_name: str,
         account_haben: str, account_haben_name: str,
@@ -34,6 +43,7 @@ class BookingService:
         created_by: str = 'frya-auto',
     ) -> Booking:
         """Create a booking from a case approval. Also creates/finds the contact."""
+        tenant_id = _resolve_uuid(tenant_id)
         validate_booking_date(document_date or date.today())
 
         # Find or create contact
@@ -85,7 +95,7 @@ class BookingService:
         return booking
 
     async def create_manual_booking(
-        self, *, tenant_id: uuid.UUID,
+        self, *, tenant_id: uuid.UUID | None = None,
         booking_date: date, description: str,
         account_soll: str, account_haben: str,
         gross_amount: Decimal,
@@ -94,6 +104,7 @@ class BookingService:
         **kwargs,
     ) -> Booking:
         """Create a manual booking (bank reconciliation, cash payment, correction)."""
+        tenant_id = _resolve_uuid(tenant_id)
         validate_booking_date(booking_date)
 
         booking_number = await self._repo.get_next_booking_number(tenant_id)
@@ -139,10 +150,11 @@ class BookingService:
         return await self._repo.insert_booking(tenant_id, data)
 
     async def cancel_booking(
-        self, *, booking_id: str, tenant_id: uuid.UUID,
+        self, *, booking_id: str, tenant_id: uuid.UUID | None = None,
         reason: str, cancelled_by: str,
     ) -> Booking:
         """GoBD-compliant cancellation: create a reversal booking, mark original as CANCELLED."""
+        tenant_id = _resolve_uuid(tenant_id)
         # Get original booking
         bookings = await self._repo.list_bookings(tenant_id)
         original = next((b for b in bookings if b.id == booking_id), None)
@@ -173,8 +185,9 @@ class BookingService:
                      original.booking_number, cancelled_by, reason, reversal.booking_number)
         return reversal
 
-    async def verify_hash_chain(self, tenant_id: uuid.UUID) -> dict:
+    async def verify_hash_chain(self, tenant_id: uuid.UUID | None = None) -> dict:
         """GoBD: Verify the integrity of the booking hash chain."""
+        tenant_id = _resolve_uuid(tenant_id)
         bookings = await self._repo.list_bookings(tenant_id, limit=10000)
         bookings.sort(key=lambda b: b.booking_number)
 
@@ -210,9 +223,15 @@ class BookingService:
         }
 
     async def get_finance_summary(
-        self, tenant_id: uuid.UUID, date_from: date, date_to: date,
+        self, tenant_id: uuid.UUID | None = None, date_from: date | None = None, date_to: date | None = None,
     ) -> dict:
         """Financial summary from bookings."""
+        tenant_id = _resolve_uuid(tenant_id)
+        _today = date.today()
+        if date_from is None:
+            date_from = date(_today.year, 1, 1)
+        if date_to is None:
+            date_to = date(_today.year, 12, 31)
         bookings = await self._repo.list_bookings(
             tenant_id, date_from=date_from, date_to=date_to, status='BOOKED',
         )

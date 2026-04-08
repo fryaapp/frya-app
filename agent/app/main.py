@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import uuid
@@ -277,6 +277,35 @@ app.add_middleware(
     domain=settings.auth_cookie_domain,
 )
 app.add_middleware(_SecurityHeadersMiddleware)
+
+
+# --- Refactor Fix 3: tenant_id ContextVar Middleware ---
+# Setzt tenant_id automatisch bei jedem Request.
+# MUSS NACH Auth/Session kommen (weil es den JWT-Token braucht).
+@app.middleware("http")
+async def tenant_context_middleware(request: Request, call_next):
+    """Setzt tenant_id aus JWT-Token in ContextVar fuer den aktuellen Request."""
+    from app.middleware.tenant import set_current_tenant
+    try:
+        # Versuche tenant_id aus dem Authorization-Header zu extrahieren
+        auth_header = request.headers.get('authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+            from app.auth.jwt_auth import decode_token
+            payload = decode_token(token)
+            tid = payload.get('tid', '')
+            if tid:
+                set_current_tenant(str(tid))
+        # Fuer Session-basierte Requests (Operator-UI):
+        elif hasattr(request, 'state') and hasattr(request.state, 'user'):
+            user = request.state.user
+            tid = getattr(user, 'tenant_id', None)
+            if tid:
+                set_current_tenant(str(tid))
+    except Exception:
+        pass  # Nicht authentifizierte Requests → kein tenant_id (OK)
+    response = await call_next(request)
+    return response
 
 
 @app.exception_handler(HTTPException)
