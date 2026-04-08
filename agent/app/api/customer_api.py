@@ -156,6 +156,9 @@ async def send_chat_message(
         )
         if _pending_result is not None:
             _pending_result.pop('next_pending_flow', None)  # REST braucht das nicht
+            # RC-4: History auch bei Pending-Shortcircuit speichern
+            from app.api.shared_chat_logic import save_to_history
+            await save_to_history(_chat_id_rest, body.message, _pending_result.get('text', ''))
             return ChatResponse(
                 reply=_pending_result.get('text', ''),
                 case_ref=_pending_result.get('case_ref'),
@@ -304,6 +307,9 @@ async def send_chat_message(
                     tenant_id=_tid, user_id=user.username,
                 )
                 if _chart_r is not None:
+                    # RC-4: History auch bei Chart-Shortcircuit speichern
+                    from app.api.shared_chat_logic import save_to_history
+                    await save_to_history(_chat_id_rest, body.message, _chart_r.get('text', ''))
                     return ChatResponse(
                         reply=_chart_r.get('text', ''),
                         case_ref=_chart_r.get('case_ref'),

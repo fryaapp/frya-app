@@ -636,3 +636,29 @@ async def handle_shortcircuit_intent(
     except Exception as exc:
         logger.warning('Chart shortcircuit failed: %s', exc)
         return None
+
+
+# ============================================================
+# SCHRITT 4: HISTORY-SAVE (RC-4 Fix + REGEL P3)
+# Speichert IMMER — auch bei Shortcircuit. Auch im REST-Pfad.
+# REGEL P3: Darf den Response NIEMALS blockieren.
+# ============================================================
+
+async def save_to_history(
+    chat_id: str,
+    user_message: str,
+    assistant_text: str,
+) -> None:
+    """Speichert User-Nachricht + Antwort in Redis Chat-History.
+
+    IMMER aufrufen — bei Shortcircuit, Pending, Communicator.
+    REGEL P3: Darf den Response NIEMALS blockieren.
+    """
+    try:
+        from app.dependencies import get_chat_history_store
+        hist = get_chat_history_store()
+        if assistant_text:
+            await hist.append(chat_id, user_message, assistant_text)
+    except Exception as exc:
+        logger.warning('Chat-History save failed for %s: %s', chat_id, exc)
+        # NICHT re-raisen — Response darf nicht blockiert werden
