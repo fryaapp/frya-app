@@ -410,7 +410,7 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def insert_booking(self, tenant_id: uuid.UUID | None = None, *, data: dict) -> Booking:
+    async def insert_booking(self, tenant_id: uuid.UUID | None = None, data: dict = None) -> Booking:
         """Insert a new booking (GoBD: write-once, no updates)."""
         tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
@@ -499,7 +499,7 @@ class AccountingRepository:
 
     # ── Contact CRUD ─────────────────────────────────────────────────────────
 
-    async def find_or_create_contact(self, tenant_id: uuid.UUID | None = None, *, name: str, **kwargs) -> Contact:
+    async def find_or_create_contact(self, tenant_id: uuid.UUID | None = None, name: str = '', **kwargs) -> Contact:
         tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             for c in self._contacts.values():
@@ -589,7 +589,7 @@ class AccountingRepository:
 
     # ── Open Items ───────────────────────────────────────────────────────────
 
-    async def create_open_item(self, tenant_id: uuid.UUID | None = None, *, data: dict) -> AccountingOpenItem:
+    async def create_open_item(self, tenant_id: uuid.UUID | None = None, data: dict = None) -> AccountingOpenItem:
         tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             oid = uuid.uuid4()
@@ -615,7 +615,7 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def list_open_items(self, tenant_id: uuid.UUID | None = None, *, item_type: str | None = None, status: str | None = None) -> list[AccountingOpenItem]:
+    async def list_open_items(self, tenant_id: uuid.UUID | None = None, item_type: str | None = None, status: str | None = None) -> list[AccountingOpenItem]:
         tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             items = [i for i in self._open_items.values() if i.tenant_id == str(tenant_id)]
@@ -677,7 +677,7 @@ class AccountingRepository:
 
     # ── Invoices ─────────────────────────────────────────────────────────────
 
-    async def create_invoice(self, tenant_id: uuid.UUID | None = None, *, data: dict) -> Invoice:
+    async def create_invoice(self, tenant_id: uuid.UUID | None = None, data: dict = None) -> Invoice:
         tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             iid = uuid.uuid4()
@@ -760,7 +760,7 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def get_invoice_by_id(self, tenant_id: uuid.UUID | None = None, *, invoice_id: uuid.UUID) -> Invoice | None:
+    async def get_invoice_by_id(self, tenant_id: uuid.UUID | None = None, invoice_id: uuid.UUID = None) -> Invoice | None:
         tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             inv = self._invoices.get(invoice_id)
@@ -778,7 +778,7 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def get_contact_by_id(self, tenant_id: uuid.UUID | None = None, *, contact_id: uuid.UUID) -> Contact | None:
+    async def get_contact_by_id(self, tenant_id: uuid.UUID | None = None, contact_id: uuid.UUID = None) -> Contact | None:
         tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             c = self._contacts.get(contact_id)
