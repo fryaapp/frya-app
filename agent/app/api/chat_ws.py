@@ -1337,60 +1337,29 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             except Exception as _inv_exc:
                                 logger.warning('SHOW_INVOICE failed: %s', _inv_exc)
 
-                    # P-12b: Shortcircuit ALL chart/data intents — bypass Communicator
-                    _CHART_SHORTCIRCUIT_INTENTS = {
-                        Intent.SHOW_FINANCIAL_OVERVIEW, Intent.SHOW_FINANCE, Intent.SHOW_INBOX,
-                        Intent.SHOW_BOOKINGS, Intent.SHOW_OPEN_ITEMS, Intent.SHOW_DEADLINES,
-                        Intent.SHOW_EXPENSE_CATEGORIES, Intent.SHOW_PROFIT_LOSS,
-                        Intent.SHOW_REVENUE_TREND, Intent.SHOW_FORECAST, Intent.PROCESS_INBOX,
-                    }
-                    if _shortcircuit_reply is None and tier_intent in _CHART_SHORTCIRCUIT_INTENTS:
-                        try:
-                            from app.agents.service_registry import build_service_registry
-                            _chart_reg = build_service_registry()
-                            _chart_intent_map = {
-                                Intent.SHOW_INBOX: ('inbox_service', 'list_pending'),
-                                Intent.PROCESS_INBOX: ('inbox_service', 'process_first'),
-                                Intent.SHOW_FINANCIAL_OVERVIEW: ('euer_service', 'get_finance_summary'),
-                                Intent.SHOW_FINANCE: ('euer_service', 'get_finance_summary'),
-                                Intent.SHOW_BOOKINGS: ('booking_service', 'list'),
-                                Intent.SHOW_OPEN_ITEMS: ('open_item_service', 'list'),
-                                Intent.SHOW_DEADLINES: ('deadline_service', 'list'),
-                                Intent.SHOW_EXPENSE_CATEGORIES: ('booking_service', 'list'),
-                                Intent.SHOW_PROFIT_LOSS: ('euer_service', 'get_finance_summary'),
-                                Intent.SHOW_REVENUE_TREND: ('booking_service', 'list'),
-                                Intent.SHOW_FORECAST: ('euer_service', 'get_finance_summary'),
-                            }
-                            _si = _chart_intent_map.get(tier_intent)
-                            if _si:
-                                _svc_obj = _chart_reg.get(_si[0])
-                                if _svc_obj:
-                                    _method = getattr(_svc_obj, _si[1], None)
-                                    if _method:
-                                        _chart_data = await _method(tenant_id=tenant_id) or {}
-                                        _shortcircuit_data = _chart_data
-                                        # Map intent for ResponseBuilder
-                                        _rb_intent = tier_intent
-                                        if tier_intent == Intent.SHOW_FINANCIAL_OVERVIEW:
-                                            _rb_intent = Intent.SHOW_FINANCE
-                                        # Build reply text from data
-                                        _texts = {
-                                            Intent.SHOW_INBOX: f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
-                                            Intent.PROCESS_INBOX: f'Beleg 1 von {_chart_data.get("count", 1)}: Hier sind die Details.' if _chart_data.get('status') == 'has_items' else 'Alles erledigt! Keine Belege warten auf dich.',
-                                            Intent.SHOW_FINANCE: 'Hier ist deine Finanz\u00fcbersicht.',
-                                            Intent.SHOW_FINANCIAL_OVERVIEW: 'Hier ist deine Finanz\u00fcbersicht.',
-                                            Intent.SHOW_BOOKINGS: f'Hier sind deine letzten Buchungen.',
-                                            Intent.SHOW_OPEN_ITEMS: 'Hier sind deine offenen Posten.',
-                                            Intent.SHOW_DEADLINES: 'Hier sind deine anstehenden Fristen.',
-                                            Intent.SHOW_EXPENSE_CATEGORIES: 'Hier ist die Aufschluesselung deiner Ausgaben nach Kategorie.',
-                                            Intent.SHOW_PROFIT_LOSS: 'Hier ist deine Gewinn- und Verlustrechnung.',
-                                            Intent.SHOW_REVENUE_TREND: 'Hier ist die Umsatzentwicklung.',
-                                            Intent.SHOW_FORECAST: 'Hier ist die Hochrechnung fuer das Geschaeftsjahr.',
-                                        }
-                                        _shortcircuit_reply = _texts.get(tier_intent, 'Hier sind die Daten.')
-                        except Exception as _chart_exc:
-                            logger.warning('Chart shortcircuit failed: %s', _chart_exc)
+                    # P-12b: Chart-Shortcircuit via Shared Logic (Schritt 2B)
+                    if _shortcircuit_reply is None and tier_intent:
+                        from app.api.shared_chat_logic import handle_shortcircuit_intent
+                        _chart_result = await handle_shortcircuit_intent(
+                            intent=tier_intent,
+                            message=text,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                        )
+                        if _chart_result is not None:
+                            # Save history (RC-4)
+                            try:
+                                _hist_store = get_chat_history_store()
+                                await _hist_store.append(f'web-{user_id}', text, _chart_result.get('text', ''))
+                            except Exception:
+                                pass
+                            _ctx = _chart_result.get('context_type', 'none')
+                            if _ctx != 'none':
+                                await websocket.send_json({'type': 'ui_hint', 'action': 'open_context', 'context_type': _ctx})
+                            await websocket.send_json({'type': 'message_complete', **{k: v for k, v in _chart_result.items() if k != 'context_type'}, 'context_type': _ctx})
+                            continue
 
+                    # (OLD CHART CODE REMOVED — now in shared_chat_logic.py)
                     if _shortcircuit_reply is not None:
                         # Determine context_type from orchestrator
                         context_type = _TIER_INTENT_TO_CONTEXT.get(tier_intent, 'none')

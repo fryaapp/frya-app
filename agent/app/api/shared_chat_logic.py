@@ -473,3 +473,166 @@ async def _handle_pending_action(
         logger.warning('Pending-action Redis error: %s', exc)
 
     return None
+
+
+# ============================================================
+# SCHRITT 2B: SHORTCIRCUIT-VERARBEITUNG
+# Kopiert aus chat_ws.py Zeilen 1341-1449
+# KRITISCH: Chart-Logik + ResponseBuilder MUSS enthalten sein!
+# ============================================================
+
+from app.core.intents import Intent
+
+# Intent → Service-Registry Mapping (aus WS — vollstaendiger als REST)
+_CHART_SHORTCIRCUIT_INTENTS = frozenset({
+    Intent.SHOW_FINANCIAL_OVERVIEW, Intent.SHOW_FINANCE, Intent.SHOW_INBOX,
+    Intent.SHOW_BOOKINGS, Intent.SHOW_OPEN_ITEMS, Intent.SHOW_DEADLINES,
+    Intent.SHOW_EXPENSE_CATEGORIES, Intent.SHOW_PROFIT_LOSS,
+    Intent.SHOW_REVENUE_TREND, Intent.SHOW_FORECAST, Intent.PROCESS_INBOX,
+})
+
+_CHART_INTENT_MAP = {
+    Intent.SHOW_INBOX: ('inbox_service', 'list_pending'),
+    Intent.PROCESS_INBOX: ('inbox_service', 'process_first'),
+    Intent.SHOW_FINANCIAL_OVERVIEW: ('euer_service', 'get_finance_summary'),
+    Intent.SHOW_FINANCE: ('euer_service', 'get_finance_summary'),
+    Intent.SHOW_BOOKINGS: ('booking_service', 'list'),
+    Intent.SHOW_OPEN_ITEMS: ('open_item_service', 'list'),
+    Intent.SHOW_DEADLINES: ('deadline_service', 'list'),
+    Intent.SHOW_EXPENSE_CATEGORIES: ('booking_service', 'list'),
+    Intent.SHOW_PROFIT_LOSS: ('euer_service', 'get_finance_summary'),
+    Intent.SHOW_REVENUE_TREND: ('booking_service', 'list'),
+    Intent.SHOW_FORECAST: ('euer_service', 'get_finance_summary'),
+}
+
+# Intent → Context-Type fuer Frontend
+_TIER_INTENT_TO_CONTEXT = {
+    Intent.SHOW_INBOX: 'inbox',
+    Intent.PROCESS_INBOX: 'inbox',
+    Intent.SHOW_FINANCIAL_OVERVIEW: 'finance',
+    Intent.SHOW_FINANCE: 'finance',
+    Intent.SHOW_BOOKINGS: 'bookings',
+    Intent.SHOW_OPEN_ITEMS: 'open_items',
+    Intent.SHOW_DEADLINES: 'deadlines',
+    Intent.SHOW_EXPENSE_CATEGORIES: 'finance',
+    Intent.SHOW_PROFIT_LOSS: 'finance',
+    Intent.SHOW_REVENUE_TREND: 'finance',
+    Intent.SHOW_FORECAST: 'finance',
+    Intent.SHOW_CONTACTS: 'contacts',
+    Intent.SHOW_CASE: 'case_detail',
+    Intent.SHOW_INVOICE: 'invoice_detail',
+    Intent.SETTINGS: 'settings',
+    Intent.SHOW_EXPORT: 'export',
+    Intent.CREATE_INVOICE: 'invoice_draft',
+}
+
+
+async def handle_shortcircuit_intent(
+    intent: str,
+    message: str,
+    tenant_id: str,
+    user_id: str,
+) -> Optional[dict]:
+    """Verarbeitet einen Chart-Shortcircuit-Intent: Service aufrufen + ResponseBuilder.
+
+    KRITISCH: Diese Funktion enthaelt die Chart-Builder-Logik.
+    Finanzen ohne Charts = der Bug vom ersten Versuch (02a Abbruch).
+
+    Returns:
+        dict mit Response-Daten wenn verarbeitet, None wenn nicht.
+    """
+    if intent not in _CHART_SHORTCIRCUIT_INTENTS:
+        return None
+
+    try:
+        from app.agents.service_registry import build_service_registry
+        _chart_reg = build_service_registry()
+        _si = _CHART_INTENT_MAP.get(intent)
+        if not _si:
+            return None
+
+        _svc_obj = _chart_reg.get(_si[0])
+        if not _svc_obj:
+            return None
+
+        _method = getattr(_svc_obj, _si[1], None)
+        if not _method:
+            return None
+
+        # Service aufrufen MIT tenant_id (IMMER!)
+        _chart_data = await _method(tenant_id=tenant_id) or {}
+
+        # ResponseBuilder aufrufen — HIER kommen die Charts!
+        from app.agents.response_builder import ResponseBuilder
+        _rb = ResponseBuilder()
+        _rb_intent = intent
+        # SHOW_FINANCIAL_OVERVIEW → SHOW_FINANCE fuer ResponseBuilder
+        if intent == Intent.SHOW_FINANCIAL_OVERVIEW:
+            _rb_intent = Intent.SHOW_FINANCE
+        _sc_result = _rb.build(_rb_intent, _chart_data, '')
+        _sc_blocks = _sc_result.get('content_blocks', [])
+        _sc_actions = _sc_result.get('actions', [])
+
+        # Text-Sync: Echte Zahlen statt LLM-Text
+        _texts = {
+            Intent.SHOW_INBOX: f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
+            Intent.PROCESS_INBOX: f'Beleg 1 von {_chart_data.get("count", 1)}: Hier sind die Details.' if _chart_data.get('status') == 'has_items' else 'Alles erledigt! Keine Belege warten auf dich.',
+            Intent.SHOW_FINANCE: 'Hier ist deine Finanz\u00fcbersicht.',
+            Intent.SHOW_FINANCIAL_OVERVIEW: 'Hier ist deine Finanz\u00fcbersicht.',
+            Intent.SHOW_BOOKINGS: 'Hier sind deine letzten Buchungen.',
+            Intent.SHOW_OPEN_ITEMS: 'Hier sind deine offenen Posten.',
+            Intent.SHOW_DEADLINES: 'Hier sind deine anstehenden Fristen.',
+            Intent.SHOW_EXPENSE_CATEGORIES: 'Hier ist die Aufschluesselung deiner Ausgaben nach Kategorie.',
+            Intent.SHOW_PROFIT_LOSS: 'Hier ist deine Gewinn- und Verlustrechnung.',
+            Intent.SHOW_REVENUE_TREND: 'Hier ist die Umsatzentwicklung.',
+            Intent.SHOW_FORECAST: 'Hier ist die Hochrechnung fuer das Geschaeftsjahr.',
+        }
+        _reply = _texts.get(intent, 'Hier sind die Daten.')
+
+        # Text-Sync fuer SHOW_FINANCE (Divergenz #5: REST-only → jetzt BEIDE)
+        if intent in (Intent.SHOW_FINANCE, Intent.SHOW_FINANCIAL_OVERVIEW) and _chart_data:
+            _fin_income = _chart_data.get('total_income', 0) or 0
+            _fin_expense = _chart_data.get('total_expenses', _chart_data.get('total_expense', 0)) or 0
+            _fin_profit = _chart_data.get('profit', _fin_income - _fin_expense)
+            _fin_count = _chart_data.get('booking_count', 0)
+            if _fin_count > 0:
+                def _eur_fmt(v):
+                    return f'{abs(float(v)):,.2f} \u20ac'.replace(',', 'X').replace('.', ',').replace('X', '.')
+                _reply = (
+                    f'Hier ist deine Finanz\u00fcbersicht f\u00fcr 2026:\n'
+                    f'Einnahmen: {_eur_fmt(_fin_income)}\n'
+                    f'Ausgaben: {_eur_fmt(_fin_expense)}\n'
+                    f'Ergebnis: {_eur_fmt(_fin_profit)}\n'
+                    f'({_fin_count} Buchungen)'
+                )
+
+        # Text-Sync fuer SHOW_INBOX
+        if intent == Intent.SHOW_INBOX and _sc_blocks:
+            _inbox_count = 0
+            for _b in _sc_blocks:
+                if _b.get('block_type') == 'card_list':
+                    _inbox_count = len(_b.get('data', {}).get('items', []))
+            if _inbox_count > 0:
+                _total = _chart_data.get('count', _inbox_count)
+                _reply = f'{_total} Belege warten auf deine Freigabe.'
+
+        # Explicit quick_actions override ResponseBuilder
+        _raw_actions = _chart_data.get('actions', [])
+        if _raw_actions and any(a.get('quick_action') for a in _raw_actions):
+            _sc_actions = _raw_actions
+
+        context_type = _TIER_INTENT_TO_CONTEXT.get(intent, 'none')
+
+        return {
+            'text': _reply,
+            'case_ref': None,
+            'context_type': context_type,
+            'suggestions': [a['chat_text'] for a in _sc_actions[:3]] if _sc_actions else _DEFAULT_SUGGESTIONS,
+            'content_blocks': _sc_blocks,
+            'actions': _sc_actions if _sc_actions else [],
+            'routing': 'regex',
+        }
+
+    except Exception as exc:
+        logger.warning('Chart shortcircuit failed: %s', exc)
+        return None
