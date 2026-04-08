@@ -27,7 +27,7 @@ class TieredOrchestrator:
         r"(?i)(gewinn|verlust|gewinn.*verlust|guv)": Intent.SHOW_PROFIT_LOSS,
         r"(?i)(umsatz.*entwicklung|umsatz.*trend|umsatz.*verlauf)": Intent.SHOW_REVENUE_TREND,
         r"(?i)(hochrechnung|prognose|jahres.?hochrechnung|forecast)": Intent.SHOW_FORECAST,
-        r"(?i)(eur|einnahmen|ausgaben|finanzen|wie steh|finanziell|finanz.?übersicht)": Intent.SHOW_FINANCIAL_OVERVIEW,
+        r"(?i)(eür|einnahmen.*übersicht|ausgaben.*übersicht|meine finanzen|wie steh.*finanziell|finanz.?übersicht|finanzen zeig|zeig.*finanzen)": Intent.SHOW_FINANCIAL_OVERVIEW,
         r"(?i)(frist|deadline|dringend|überfällig|was ist fällig)": Intent.SHOW_DEADLINES,
         r"(?i)(zeig.*kontakt|meine\s*kontakte|alle\s*kontakte|alles über|kundenakte|kontaktliste)": Intent.SHOW_CONTACTS,
         r"(?i)(buchungsjournal|buchungen zeig|journal|meine buchungen)": Intent.SHOW_BOOKINGS,
