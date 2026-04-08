@@ -8,16 +8,26 @@ from decimal import Decimal
 from typing import Any
 
 from app.accounting.repository import AccountingRepository
+from app.middleware.tenant import resolve_tenant
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_uuid(explicit: uuid.UUID | str | None) -> uuid.UUID:
+    if explicit is not None:
+        return explicit if isinstance(explicit, uuid.UUID) else uuid.UUID(str(explicit))
+    return uuid.UUID(resolve_tenant(None))
 
 
 class EuerService:
     def __init__(self, repo: AccountingRepository) -> None:
         self._repo = repo
 
-    async def generate_euer(self, tenant_id: uuid.UUID, year: int) -> dict:
+    async def generate_euer(self, tenant_id: uuid.UUID | None = None, year: int = None) -> dict:
         """Generate EÜR (Einnahmen-Überschuss-Rechnung) for a year."""
+        tenant_id = _resolve_uuid(tenant_id)
+        if year is None:
+            year = date.today().year
         date_from = date(year, 1, 1)
         date_to = date(year, 12, 31)
         bookings = await self._repo.list_bookings(
@@ -49,8 +59,11 @@ class EuerService:
             'booking_count': len(bookings),
         }
 
-    async def generate_ust(self, tenant_id: uuid.UUID, year: int, quarter: int) -> dict:
+    async def generate_ust(self, tenant_id: uuid.UUID | None = None, year: int = None, quarter: int = 1) -> dict:
         """Generate USt-Voranmeldung for a quarter."""
+        tenant_id = _resolve_uuid(tenant_id)
+        if year is None:
+            year = date.today().year
         month_start = (quarter - 1) * 3 + 1
         date_from = date(year, month_start, 1)
         month_end = quarter * 3

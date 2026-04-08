@@ -13,6 +13,7 @@ from app.accounting.models import (
     Account, AccountingOpenItem, Booking, Contact, CostCenter,
     Invoice, InvoiceItem, Project,
 )
+from app.middleware.tenant import resolve_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,13 @@ def validate_booking_date(booking_date: date) -> None:
         raise ValueError('Buchungsdatum darf nicht in der Zukunft liegen')
     if (today - booking_date).days > MAX_PAST_DAYS:
         raise ValueError(f'Buchungsdatum darf max {MAX_PAST_DAYS} Tage in der Vergangenheit liegen')
+
+
+def _resolve_uuid(explicit: uuid.UUID | None) -> uuid.UUID:
+    """Resolve tenant_id: use explicit value or fall back to ContextVar."""
+    if explicit is not None:
+        return explicit if isinstance(explicit, uuid.UUID) else uuid.UUID(str(explicit))
+    return uuid.UUID(resolve_tenant(None))
 
 
 class AccountingRepository:
@@ -326,8 +334,9 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def seed_skr03(self, tenant_id: uuid.UUID) -> int:
+    async def seed_skr03(self, tenant_id: uuid.UUID | None = None) -> int:
         """Seed SKR03 accounts for a tenant. Returns count of inserted accounts."""
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             count = 0
             for num, name, atype, tax in SKR03_SEED:
@@ -360,8 +369,9 @@ class AccountingRepository:
             await conn.close()
         return count
 
-    async def get_next_booking_number(self, tenant_id: uuid.UUID) -> int:
+    async def get_next_booking_number(self, tenant_id: uuid.UUID | None = None) -> int:
         """GoBD: Gap-free booking numbers per tenant with advisory lock."""
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             existing = [b.booking_number for b in self._bookings.values() if b.tenant_id == str(tenant_id)]
             return max(existing, default=0) + 1
@@ -379,8 +389,9 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def get_last_booking_hash(self, tenant_id: uuid.UUID) -> str:
+    async def get_last_booking_hash(self, tenant_id: uuid.UUID | None = None) -> str:
         """Get the hash of the last booking for hash-chain continuation."""
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             tenant_bookings = [b for b in self._bookings.values() if b.tenant_id == str(tenant_id)]
             if not tenant_bookings:
@@ -399,8 +410,9 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def insert_booking(self, tenant_id: uuid.UUID, data: dict) -> Booking:
+    async def insert_booking(self, tenant_id: uuid.UUID | None = None, *, data: dict) -> Booking:
         """Insert a new booking (GoBD: write-once, no updates)."""
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             bid = uuid.uuid4()
             booking = Booking(id=str(bid), tenant_id=str(tenant_id), **data)
@@ -444,10 +456,11 @@ class AccountingRepository:
             await conn.close()
 
     async def list_bookings(
-        self, tenant_id: uuid.UUID, *, date_from: date | None = None,
+        self, tenant_id: uuid.UUID | None = None, *, date_from: date | None = None,
         date_to: date | None = None, status: str | None = None,
         limit: int = 100, offset: int = 0,
     ) -> list[Booking]:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             result = [b for b in self._bookings.values() if b.tenant_id == str(tenant_id)]
             if date_from:
@@ -486,7 +499,8 @@ class AccountingRepository:
 
     # ── Contact CRUD ─────────────────────────────────────────────────────────
 
-    async def find_or_create_contact(self, tenant_id: uuid.UUID, name: str, **kwargs) -> Contact:
+    async def find_or_create_contact(self, tenant_id: uuid.UUID | None = None, *, name: str, **kwargs) -> Contact:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             for c in self._contacts.values():
                 if c.tenant_id == str(tenant_id) and c.name.lower() == name.lower():
@@ -515,7 +529,8 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def list_contacts(self, tenant_id: uuid.UUID) -> list[Contact]:
+    async def list_contacts(self, tenant_id: uuid.UUID | None = None) -> list[Contact]:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             return [c for c in self._contacts.values() if c.tenant_id == str(tenant_id)]
         import asyncpg
@@ -528,7 +543,8 @@ class AccountingRepository:
 
     # ── Accounts ─────────────────────────────────────────────────────────────
 
-    async def list_accounts(self, tenant_id: uuid.UUID) -> list[Account]:
+    async def list_accounts(self, tenant_id: uuid.UUID | None = None) -> list[Account]:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             return [a for a in self._accounts.values() if a.tenant_id == str(tenant_id)]
         import asyncpg
@@ -547,10 +563,11 @@ class AccountingRepository:
             await conn.close()
 
     async def get_account_balance(
-        self, tenant_id: uuid.UUID, account_number: str,
+        self, tenant_id: uuid.UUID | None = None, *, account_number: str,
         date_from: date | None = None, date_to: date | None = None,
     ) -> Decimal:
         """Calculate balance for an account (Soll - Haben)."""
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             soll = sum(b.gross_amount for b in self._bookings.values()
                        if b.tenant_id == str(tenant_id) and b.account_soll == account_number and b.status == 'BOOKED')
@@ -572,7 +589,8 @@ class AccountingRepository:
 
     # ── Open Items ───────────────────────────────────────────────────────────
 
-    async def create_open_item(self, tenant_id: uuid.UUID, data: dict) -> AccountingOpenItem:
+    async def create_open_item(self, tenant_id: uuid.UUID | None = None, *, data: dict) -> AccountingOpenItem:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             oid = uuid.uuid4()
             item = AccountingOpenItem(id=str(oid), tenant_id=str(tenant_id), **data)
@@ -597,7 +615,8 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def list_open_items(self, tenant_id: uuid.UUID, *, item_type: str | None = None, status: str | None = None) -> list[AccountingOpenItem]:
+    async def list_open_items(self, tenant_id: uuid.UUID | None = None, *, item_type: str | None = None, status: str | None = None) -> list[AccountingOpenItem]:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             items = [i for i in self._open_items.values() if i.tenant_id == str(tenant_id)]
             if item_type:
@@ -658,7 +677,8 @@ class AccountingRepository:
 
     # ── Invoices ─────────────────────────────────────────────────────────────
 
-    async def create_invoice(self, tenant_id: uuid.UUID, data: dict) -> Invoice:
+    async def create_invoice(self, tenant_id: uuid.UUID | None = None, *, data: dict) -> Invoice:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             iid = uuid.uuid4()
             inv = Invoice(id=str(iid), tenant_id=str(tenant_id), **data)
@@ -710,7 +730,8 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def list_invoices(self, tenant_id: uuid.UUID) -> list[Invoice]:
+    async def list_invoices(self, tenant_id: uuid.UUID | None = None) -> list[Invoice]:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             return [i for i in self._invoices.values() if i.tenant_id == str(tenant_id)]
         import asyncpg
@@ -721,7 +742,8 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def get_next_invoice_number(self, tenant_id: uuid.UUID) -> str:
+    async def get_next_invoice_number(self, tenant_id: uuid.UUID | None = None) -> str:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             existing = [i for i in self._invoices.values() if i.tenant_id == str(tenant_id)]
             n = len(existing) + 1
@@ -738,7 +760,8 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def get_invoice_by_id(self, tenant_id: uuid.UUID, invoice_id: uuid.UUID) -> Invoice | None:
+    async def get_invoice_by_id(self, tenant_id: uuid.UUID | None = None, *, invoice_id: uuid.UUID) -> Invoice | None:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             inv = self._invoices.get(invoice_id)
             if inv and inv.tenant_id == str(tenant_id):
@@ -755,7 +778,8 @@ class AccountingRepository:
         finally:
             await conn.close()
 
-    async def get_contact_by_id(self, tenant_id: uuid.UUID, contact_id: uuid.UUID) -> Contact | None:
+    async def get_contact_by_id(self, tenant_id: uuid.UUID | None = None, *, contact_id: uuid.UUID) -> Contact | None:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             c = self._contacts.get(contact_id)
             if c and c.tenant_id == str(tenant_id):
@@ -773,9 +797,10 @@ class AccountingRepository:
             await conn.close()
 
     async def list_open_items_by_contact(
-        self, tenant_id: uuid.UUID, contact_id: uuid.UUID,
-        *, status: str | None = None,
+        self, tenant_id: uuid.UUID | None = None, *, contact_id: uuid.UUID,
+        status: str | None = None,
     ) -> list[AccountingOpenItem]:
+        tenant_id = _resolve_uuid(tenant_id)
         if self._is_memory:
             items = [
                 i for i in self._open_items.values()
