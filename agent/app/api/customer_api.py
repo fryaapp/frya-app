@@ -932,7 +932,8 @@ async def get_finance_summary(
         date_from = date(now.year, months[0], 1)
         last_day = monthrange(now.year, months[-1])[1]
         date_to = date(now.year, months[-1], last_day)
-        summary = await svc.get_finance_summary(tid, date_from, date_to)
+        _result = await svc.get_finance_summary(tid, date_from, date_to)
+        summary = _result.data if hasattr(_result, 'data') else _result
         total_income = summary.get('total_income', 0.0)
         total_expenses = summary.get('total_expense', 0.0)
     except Exception as exc:

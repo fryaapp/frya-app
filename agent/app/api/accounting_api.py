@@ -540,7 +540,8 @@ async def get_euer(user: AuthUser = Depends(require_authenticated), year: int = 
     if year == 0:
         year = date.today().year
     from app.accounting.euer_service import EuerService
-    return await EuerService(_get_repo()).generate_euer(tid, year)
+    result = await EuerService(_get_repo()).generate_euer(tid, year)
+    return result.data if hasattr(result, 'data') else result
 
 
 @router.get('/reports/ust')

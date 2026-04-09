@@ -560,7 +560,10 @@ async def handle_shortcircuit_intent(
             return None
 
         # Service aufrufen MIT tenant_id (IMMER!)
-        _chart_data = await _method(tenant_id=tenant_id) or {}
+        _chart_raw = await _method(tenant_id=tenant_id) or {}
+
+        # Fix 5: ServiceResult → dict fuer Text-Sync, ResponseBuilder handled beides
+        _chart_data = _chart_raw.data if hasattr(_chart_raw, 'data') else _chart_raw
 
         # ResponseBuilder aufrufen — HIER kommen die Charts!
         from app.agents.response_builder import ResponseBuilder

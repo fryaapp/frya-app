@@ -11,6 +11,8 @@ from app.accounting.models import Booking
 from app.accounting.repository import (
     AccountingRepository, compute_booking_hash, validate_booking_date,
 )
+from app.core.intents import Intent
+from app.core.schemas import ServiceResult
 from app.middleware.tenant import resolve_tenant
 
 logger = logging.getLogger(__name__)
@@ -224,7 +226,7 @@ class BookingService:
 
     async def get_finance_summary(
         self, tenant_id: uuid.UUID | None = None, date_from: date | None = None, date_to: date | None = None,
-    ) -> dict:
+    ) -> ServiceResult:
         """Financial summary from bookings."""
         tenant_id = _resolve_uuid(tenant_id)
         _today = date.today()
@@ -244,10 +246,14 @@ class BookingService:
             elif b.booking_type == 'EXPENSE':
                 expenses += b.gross_amount
 
-        return {
-            'total_income': float(income),
-            'total_expense': float(expenses),
-            'total_expenses': float(expenses),  # P-12b: both singular and plural for compat
-            'profit': float(income - expenses),
-            'booking_count': len(bookings),
-        }
+        return ServiceResult(
+            success=True,
+            intent=Intent.SHOW_FINANCIAL_OVERVIEW,
+            data={
+                'total_income': float(income),
+                'total_expense': float(expenses),
+                'total_expenses': float(expenses),  # P-12b: both singular and plural for compat
+                'profit': float(income - expenses),
+                'booking_count': len(bookings),
+            },
+        )

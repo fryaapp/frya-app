@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.intents import Intent
+from app.core.schemas import ServiceResult, unwrap
 from app.utils.translations import t_doc_type, t_confidence, t_status
 
 _CONF_TO_FLOAT = {
@@ -118,12 +119,14 @@ class ResponseBuilder:
     def build(
         self,
         intent: str,
-        agent_results: dict,
+        agent_results: dict | ServiceResult,
         communicator_text: str,
         state: dict | None = None,
         llm_suggestions: list[dict] | None = None,
     ) -> dict:
-        blocks = self._build_content_blocks(intent, agent_results)
+        # Fix 5: Akzeptiere sowohl ServiceResult als auch raw dict
+        results_data = unwrap(agent_results)
+        blocks = self._build_content_blocks(intent, results_data)
 
         # Aufgabe 5: Filter empty blocks
         blocks = [b for b in blocks if self._block_has_data(b)]
@@ -132,7 +135,7 @@ class ResponseBuilder:
         if llm_suggestions and intent not in (Intent.APPROVE,):
             actions = llm_suggestions
         else:
-            actions = self._build_actions(intent, agent_results, state)
+            actions = self._build_actions(intent, results_data, state)
         return {
             "type": "message_complete",
             "text": communicator_text,
