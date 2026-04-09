@@ -106,14 +106,15 @@ class TieredOrchestrator:
         else:
             logger.info("Shortcircuit OFF — skipping regex, routing to LLM")
 
-        # Deep oder Fast? — Feature-Flag gesteuert
+        # Ebene 2: LLM Intent-Klassifikation
         _settings = get_settings()
         if _settings.fast_tier_enabled and not self._needs_deep(message):
             logger.info("Routing via Fast (Mistral 24B)")
             return await self._route_fast(message)
         else:
-            logger.info("Routing via Deep (Llama 3.3 70B) — fast_tier=%s", _settings.fast_tier_enabled)
-            return {"intent": "COMPLEX", "routing": "deep", "message": message}
+            # Llama 3.3 70B klassifiziert — NICHT mehr blind "COMPLEX"
+            logger.info("Routing via Llama 3.3 70B Classify")
+            return await self._classify_with_llama(message)
 
     def _regex_match(self, message: str) -> Optional[str]:
         """Regex-Shortcircuit MIT Collision-Detection.
@@ -214,3 +215,74 @@ class TieredOrchestrator:
         except Exception as exc:
             logger.warning("Fast routing failed: %s, falling through to deep", exc)
             return {"intent": "COMPLEX", "routing": "deep", "message": message}
+
+    async def _classify_with_llama(self, message: str) -> dict:
+        """Llama 3.3 70B klassifiziert den Intent.
+
+        Gibt einen ECHTEN Intent zurueck (nicht COMPLEX).
+        Nutzt die DB-Config 'orchestrator' (Llama 3.3 70B auf IONOS).
+        Gleicher Output-Format wie _route_fast() damit die Service Registry matcht.
+        """
+        classify_prompt = (
+            "Du bist der Intent-Classifier fuer FRYA, ein deutsches Buchhaltungssystem.\n"
+            "Analysiere die Nachricht und gib GENAU EINEN Intent zurueck.\n\n"
+            "VERFUEGBARE INTENTS:\n"
+            "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues\n"
+            "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR\n"
+            "- SHOW_FINANCIAL_OVERVIEW: Gleich wie SHOW_FINANCE\n"
+            "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet mir, Geld schulden, Forderungen, Mahnung, Schuldner\n"
+            "- SHOW_DEADLINES: Fristen, dringend, faellig, Termine\n"
+            "- SHOW_BOOKINGS: Buchungen, Buchungsjournal, Kontobewegungen\n"
+            "- SHOW_CONTACTS: Kontakte, Kunden, Lieferanten anzeigen\n"
+            "- SHOW_CONTACT: Einen bestimmten Kontakt suchen/anzeigen\n"
+            "- SHOW_CASE: Einen bestimmten Beleg/Vorgang/Fall anzeigen\n"
+            "- SHOW_EXPORT: Export, DATEV, CSV\n"
+            "- CREATE_INVOICE: Rechnung erstellen/schreiben\n"
+            "- CREATE_CONTACT: Kontakt anlegen\n"
+            "- CREATE_REMINDER: Erinnerung/Mahnung erstellen\n"
+            "- APPROVE: Freigeben, genehmigen, buchen\n"
+            "- PROCESS_INBOX: Inbox abarbeiten, Belege durchgehen\n"
+            "- SETTINGS: Einstellungen, Profil, Theme\n"
+            "- UPLOAD: Beleg hochladen\n"
+            "- GENERAL_CONVERSATION: Begruessung, Danke, Smalltalk, oder wenn unklar\n\n"
+            "WICHTIGE REGELN:\n"
+            "1. 'Geld schulden', 'Forderungen', 'Mahnung', 'wer schuldet' → SHOW_OPEN_ITEMS (NICHT SHOW_FINANCE!)\n"
+            "2. 'Rechnung erstellen/schreiben', Betraege im Kontext einer Rechnung → CREATE_INVOICE\n"
+            "3. 'Euro'/'Betrag'/'Preis' allein sind KEIN Grund fuer SHOW_FINANCE — pruefe den Kontext\n"
+            "4. SHOW_FINANCE nur wenn User EXPLIZIT nach Finanzuebersicht/EUeR fragt\n"
+            "5. Wenn unklar → GENERAL_CONVERSATION\n\n"
+            "BEISPIELE:\n"
+            '"Wer schuldet mir Geld?" → SHOW_OPEN_ITEMS\n'
+            '"Erstelle eine Rechnung ueber 500 Euro" → CREATE_INVOICE\n'
+            '"Wie stehe ich finanziell?" → SHOW_FINANCIAL_OVERVIEW\n'
+            '"Was liegt in der Inbox?" → SHOW_INBOX\n'
+            '"Was habe ich bei Stabilo gekauft?" → SHOW_CASE\n'
+            '"Zeig mir meine Buchungen" → SHOW_BOOKINGS\n'
+            '"Hallo Frya" → GENERAL_CONVERSATION\n\n'
+            f'Nachricht: "{message}"\n\n'
+            "Antworte mit GENAU EINEM Intent-String, nichts anderes."
+        )
+        try:
+            config = await self._get_llm_config('orchestrator')
+            if not config or not config.get('api_key'):
+                logger.warning("Llama classify: no config for 'orchestrator', falling back to GENERAL_CONVERSATION")
+                return {"intent": str(Intent.GENERAL_CONVERSATION), "routing": "deep_no_key", "message": message}
+
+            resp = await litellm.acompletion(
+                model=config['full_model'],
+                messages=[{"role": "user", "content": classify_prompt}],
+                max_tokens=20,
+                timeout=_LLM_TIMEOUT,
+                temperature=0.1,
+                api_key=config['api_key'],
+                api_base=config.get('base_url'),
+            )
+            raw = (resp.choices[0].message.content or "").strip().upper().split()[0]
+            intent = parse_intent(raw)
+            logger.info("Llama classify: '%s' → %s", message[:50], intent)
+            if intent == Intent.UNKNOWN:
+                return {"intent": str(Intent.GENERAL_CONVERSATION), "routing": "deep", "message": message}
+            return {"intent": str(intent), "routing": "deep", "message": message}
+        except Exception as exc:
+            logger.warning("Llama classify failed: %s → GENERAL_CONVERSATION", exc)
+            return {"intent": str(Intent.GENERAL_CONVERSATION), "routing": "deep", "message": message}
