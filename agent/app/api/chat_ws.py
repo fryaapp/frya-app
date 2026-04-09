@@ -38,7 +38,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.auth.jwt_auth import decode_token
-from app.core.intents import Intent
+from app.core.intents import Intent, parse_intent
 from app.security.input_sanitizer import sanitize_user_message
 from app.dependencies import (
     get_audit_service,
@@ -1337,7 +1337,10 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             except Exception as _inv_exc:
                                 logger.warning('SHOW_INVOICE failed: %s', _inv_exc)
 
-                    # P-12b: Chart-Shortcircuit via Shared Logic (Schritt 2B)
+                    # P-12b: Service-Daten + Text-Sync fuer Daten-Intents
+                    # Regex ist AUS (Feature-Flag), aber der Service-Pfad MUSS laufen
+                    # wenn der LLM-Orchestrator einen Daten-Intent klassifiziert hat.
+                    # Ohne das: Communicator halluziniert "keine Daten" / "oeffne die App"
                     if _shortcircuit_reply is None and tier_intent:
                         from app.api.shared_chat_logic import handle_shortcircuit_intent
                         _chart_result = await handle_shortcircuit_intent(
@@ -1466,8 +1469,15 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         })
 
                     # --- Phase 3: Fetch data for content_blocks via ServiceRegistry ---
+                    # Seit Shortcircuit-Kill: auch 'deep' routing braucht Chart-Daten
+                    # Fallback: comm_intent nutzen wenn tier_intent == 'COMPLEX'
+                    _data_intent = tier_intent
+                    if tier_intent == 'COMPLEX':
+                        _ci = getattr(result, 'intent', None) if result else None
+                        if _ci:
+                            _data_intent = parse_intent(_ci) if isinstance(_ci, str) else _ci
                     agent_results: dict = {}
-                    if tier_intent and tier_routing in ('regex', 'fast', 'action_router'):
+                    if _data_intent and _data_intent != 'COMPLEX':
                         try:
                             from app.agents.service_registry import build_service_registry
                             _intent_to_service = {

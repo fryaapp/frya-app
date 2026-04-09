@@ -88,6 +88,12 @@ class Settings(BaseSettings):
     initial_admin_email: str | None = None
     initial_admin_password: str | None = None
 
+    # Feature-Flag: Shortcircuit/Fast-Tier Regex-Matching
+    # False = Alle Nachrichten gehen an den LLM-Orchestrator (Llama 3.3 70B)
+    # True  = Regex-Patterns klassifizieren einfache Intents (0ms, aber Fehlklassifikationen)
+    # Deaktiviert seit 09.04.2026 — Regex-Fehlklassifikationen zerstoeren Konversationsfluss
+    shortcircuit_enabled: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -96,11 +96,15 @@ class TieredOrchestrator:
                 if result is not None:
                     return result
 
-        # Ebene 1: Regex (<5ms)
-        intent = self._regex_match(message)
-        if intent:
-            logger.info("Routing via Regex: %s", intent)
-            return {"intent": intent, "routing": "regex", "message": message}
+        # Ebene 1: Regex (<5ms) — Feature-Flag gesteuert
+        from app.config import get_settings
+        if get_settings().shortcircuit_enabled:
+            intent = self._regex_match(message)
+            if intent:
+                logger.info("Routing via Regex: %s", intent)
+                return {"intent": intent, "routing": "regex", "message": message}
+        else:
+            logger.info("Shortcircuit OFF — skipping regex, routing to LLM")
 
         # Deep oder Fast?
         if self._needs_deep(message):

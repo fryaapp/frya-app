@@ -299,7 +299,8 @@ async def send_chat_message(
             tier_intent = routing_result.get('intent')
             routing = routing_result.get('routing')
 
-            # Chart-Shortcircuit via Shared Logic (Schritt 2B)
+            # Service-Daten + Text-Sync fuer Daten-Intents
+            # Regex ist AUS, aber LLM-klassifizierte Intents nutzen den gleichen Service-Pfad
             if tier_intent and routing in ('regex', 'fast'):
                 from app.api.shared_chat_logic import handle_shortcircuit_intent
                 _chart_r = await handle_shortcircuit_intent(
