@@ -623,12 +623,14 @@ async def handle_shortcircuit_intent(
             _fin_count = _chart_data.get('booking_count', 0)
             if _fin_count > 0:
                 def _eur_fmt(v):
-                    return f'{abs(float(v)):,.2f} \u20ac'.replace(',', 'X').replace('.', ',').replace('X', '.')
+                    return f'{float(v):,.2f} \u20ac'.replace(',', 'X').replace('.', ',').replace('X', '.')
+                _profit_f = float(_fin_profit)
+                _ergebnis_label = f'{_eur_fmt(_fin_profit)} Gewinn' if _profit_f >= 0 else f'{_eur_fmt(abs(_profit_f))} Verlust'
                 _reply = (
                     f'Hier ist deine Finanz\u00fcbersicht f\u00fcr 2026:\n'
                     f'Einnahmen: {_eur_fmt(_fin_income)}\n'
                     f'Ausgaben: {_eur_fmt(_fin_expense)}\n'
-                    f'Ergebnis: {_eur_fmt(_fin_profit)}\n'
+                    f'Ergebnis: {_ergebnis_label}\n'
                     f'({_fin_count} Buchungen)'
                 )
 
