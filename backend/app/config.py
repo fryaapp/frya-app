@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     mailgun_from: str = 'noreply@frya.app'
 
     # Base URL shown in password-reset links (e.g. https://app.myfrya.de)
-    app_base_url: str = 'https://app.staging.myfrya.de'
+    app_base_url: str = 'http://localhost:8001'
 
     # Mail provider switch: 'brevo' | 'mailgun' (default)
     # Set FRYA_MAIL_PROVIDER=brevo to route system mails via Brevo API v3
@@ -87,18 +87,6 @@ class Settings(BaseSettings):
     initial_admin_username: str | None = None
     initial_admin_email: str | None = None
     initial_admin_password: str | None = None
-
-    # Feature-Flag: Shortcircuit/Fast-Tier Regex-Matching
-    # False = Alle Nachrichten gehen an den LLM-Orchestrator (Llama 3.3 70B)
-    # True  = Regex-Patterns klassifizieren einfache Intents (0ms, aber Fehlklassifikationen)
-    # Deaktiviert seit 09.04.2026 — Regex-Fehlklassifikationen zerstoeren Konversationsfluss
-    shortcircuit_enabled: bool = False
-
-    # Feature-Flag: Mistral 24B Fast-Tier
-    # True  = Mistral 24B klassifiziert Intents (~250ms), Service-Daten werden geladen
-    # False = Alles geht an Deep-Tier (Communicator), aber OHNE Service-Daten
-    # ENTSCHEIDUNG OFFEN — Dev muss Architektur-Entscheidung treffen (siehe Auswertung)
-    fast_tier_enabled: bool = False
 
 
 @lru_cache

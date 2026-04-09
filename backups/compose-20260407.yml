@@ -1,0 +1,368 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+    - --api.dashboard=true
+    - --api.insecure=false
+    - --entrypoints.web.address=:80
+    - --entrypoints.websecure.address=:443
+    - --providers.docker=true
+    - --providers.docker.exposedbydefault=false
+    - --providers.file.directory=/etc/traefik/dynamic
+    - --providers.file.watch=true
+    - --certificatesresolvers.le.acme.email=admin@myfrya.de
+    - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+    - --certificatesresolvers.le.acme.httpchallenge=true
+    - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+    ports:
+    - 80:80
+    - 443:443
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    - ./letsencrypt:/letsencrypt
+    - ./traefik:/etc/traefik/dynamic:ro
+    restart: unless-stopped
+    networks:
+    - frya-internal
+  backend:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /app/firebase-service-account.json
+    volumes:
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
+      - backend_data:/app/data
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.frya-backend.rule=Host(`api.staging.myfrya.de`)
+    - traefik.http.routers.frya-backend.entrypoints=websecure
+    - traefik.http.routers.frya-backend.tls=true
+    - traefik.http.routers.frya-backend.tls.certresolver=le
+    - traefik.http.routers.frya-backend.middlewares=frya-security-headers@file,frya-upload-buffer@file
+    - traefik.http.routers.frya-backend-http.rule=Host(`api.staging.myfrya.de`)
+    - traefik.http.routers.frya-backend-http.entrypoints=web
+    - traefik.http.routers.frya-backend-http.middlewares=redirect-to-https@file
+    - traefik.http.services.frya-backend.loadbalancer.server.port=8001
+    - com.centurylinklabs.watchtower.enable=true
+    restart: unless-stopped
+    networks:
+    - frya-internal
+  postgres:
+    image: postgres:16
+    container_name: frya-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: frya
+      POSTGRES_PASSWORD: ${STAGING_POSTGRES_PASSWORD}
+      POSTGRES_DB: frya
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+    - frya-internal
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U frya -d frya
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7
+    container_name: frya-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 100mb --maxmemory-policy allkeys-lru
+    volumes:
+    - redis_data:/data
+    networks:
+    - frya-internal
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  tika:
+    image: apache/tika:latest
+    container_name: frya-tika
+    restart: unless-stopped
+    networks:
+    - frya-internal
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: frya-gotenberg
+    restart: unless-stopped
+    command:
+    - gotenberg
+    - --chromium-disable-javascript=true
+    - --chromium-allow-list=file:///tmp/.*
+    networks:
+    - frya-internal
+  paperless:
+    image: paperlessngx/paperless-ngx:2.14
+    container_name: frya-paperless
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      tika:
+        condition: service_started
+      gotenberg:
+        condition: service_started
+    environment:
+      PAPERLESS_DBHOST: postgres
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: frya
+      PAPERLESS_DBPASS: ${STAGING_POSTGRES_PASSWORD}
+      PAPERLESS_REDIS: redis://redis:6379
+      PAPERLESS_TIKA_ENABLED: 1
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://gotenberg:3000
+      PAPERLESS_TIKA_ENDPOINT: http://tika:9998
+      PAPERLESS_OCR_LANGUAGE: deu+eng
+      PAPERLESS_TIME_ZONE: Europe/Berlin
+      PAPERLESS_SECRET_KEY: ${STAGING_PAPERLESS_SECRET_KEY}
+      PAPERLESS_URL: https://paperless.staging.myfrya.de
+      PAPERLESS_ADMIN_USER: admin
+      PAPERLESS_ADMIN_PASSWORD: ${STAGING_PAPERLESS_ADMIN_PASSWORD}
+      PAPERLESS_CONSUMPTION_DIR: /usr/src/paperless/consume
+      PAPERLESS_CONSUMER_ENABLE_BARCODES: 'true'
+      PAPERLESS_CONSUMER_BARCODE_SCANNER: ZXING
+      PAPERLESS_POST_CONSUME_SCRIPT: /usr/src/paperless/scripts/frya_webhook.sh
+    volumes:
+    - paperless_data:/usr/src/paperless/data
+    - paperless_media:/usr/src/paperless/media
+    - paperless_export:/usr/src/paperless/export
+    - paperless_consume:/usr/src/paperless/consume
+    - /opt/dms-staging/scripts:/usr/src/paperless/scripts:ro
+    networks:
+    - frya-internal
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.paperless.rule=Host(`paperless.staging.myfrya.de`)
+    - traefik.http.routers.paperless.entrypoints=websecure
+    - traefik.http.routers.paperless.tls.certresolver=le
+    - traefik.http.services.paperless.loadbalancer.server.port=8000
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - curl -sf http://localhost:8000/ > /dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+  akaunting:
+    image: akaunting/akaunting:latest
+    container_name: frya-akaunting
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: akaunting
+      DB_USERNAME: frya
+      DB_PASSWORD: ${STAGING_POSTGRES_PASSWORD}
+      DB_PREFIX: akai_
+      ADMIN_EMAIL: admin@myfrya.de
+      ADMIN_PASSWORD: ${STAGING_AKAUNTING_ADMIN_PASSWORD}
+      APP_URL: https://akaunting.staging.myfrya.de
+    volumes:
+    - akaunting_data:/var/www/html/storage
+    networks:
+    - frya-internal
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.akaunting.rule=Host(`akaunting.staging.myfrya.de`)
+    - traefik.http.routers.akaunting.entrypoints=websecure
+    - traefik.http.routers.akaunting.tls.certresolver=le
+    - traefik.http.services.akaunting.loadbalancer.server.port=80
+  mariadb:
+    image: mariadb:11
+    container_name: frya-mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${STAGING_MARIADB_ROOT_PASSWORD}
+      MYSQL_DATABASE: akaunting
+      MYSQL_USER: akaunting
+      MYSQL_PASSWORD: ${STAGING_MARIADB_PASSWORD}
+    volumes:
+    - mariadb_data:/var/lib/mysql
+    networks:
+    - frya-internal
+    healthcheck:
+      test:
+      - CMD
+      - healthcheck.sh
+      - --connect
+      - --innodb_initialized
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: frya-n8n
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: frya
+      DB_POSTGRESDB_PASSWORD: ${STAGING_POSTGRES_PASSWORD}
+      N8N_BASIC_AUTH_ACTIVE: 'true'
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: ${STAGING_N8N_AUTH_PASSWORD}
+      N8N_HOST: n8n.staging.myfrya.de
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://n8n.staging.myfrya.de/
+      N8N_ENCRYPTION_KEY: ${STAGING_N8N_ENCRYPTION_KEY}
+      EXECUTIONS_MODE: regular
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: 'false'
+      QUEUE_BULL_REDIS_HOST: redis
+      QUEUE_BULL_REDIS_PORT: 6379
+      FRYA_AGENT_URL: http://frya-agent:8001
+      FRYA_N8N_TOKEN: ${FRYA_N8N_TOKEN}
+      FRYA_TENANT_ID: bc9e10fc-ed10-43f0-b15c-f06eb9becebf
+      FRYA_TELEGRAM_CHAT_ID: -5200036710
+    volumes:
+    - n8n_data:/home/node/.n8n
+    networks:
+    - frya-internal
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.n8n.rule=Host(`n8n.staging.myfrya.de`)
+    - traefik.http.routers.n8n.entrypoints=websecure
+    - traefik.http.routers.n8n.tls.certresolver=le
+    - traefik.http.services.n8n.loadbalancer.server.port=5678
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - wget -q --spider http://localhost:5678/healthz || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: frya-agent
+    restart: unless-stopped
+    environment:
+      FRYA_OPENAI_API_KEY: ${FRYA_OPENAI_API_KEY:?Muss gesetzt sein}
+      FRYA_JWT_SECRET: ${FRYA_JWT_SECRET}
+      FRYA_ANTHROPIC_API_KEY: ${FRYA_ANTHROPIC_API_KEY:-}
+      ANTHROPIC_API_KEY: ${FRYA_ANTHROPIC_API_KEY:-}
+      AWS_ACCESS_KEY_ID: 
+      AWS_SECRET_ACCESS_KEY: 
+      AWS_DEFAULT_REGION: eu-central-1
+      FRYA_DATABASE_URL: ${FRYA_DATABASE_URL}
+      FRYA_REDIS_URL: redis://frya-redis:6379/0
+      FRYA_PAPERLESS_BASE_URL: http://frya-paperless:8000
+      FRYA_PAPERLESS_TOKEN: ${FRYA_PAPERLESS_TOKEN:?Muss gesetzt sein}
+      FRYA_AKAUNTING_BASE_URL: https://akaunting.staging.myfrya.de
+      FRYA_AKAUNTING_EMAIL: ${FRYA_AKAUNTING_EMAIL:-}
+      FRYA_AKAUNTING_PASSWORD: ${FRYA_AKAUNTING_PASSWORD:-}
+      FRYA_N8N_BASE_URL: http://frya-n8n:5678
+      FRYA_N8N_TOKEN: ${FRYA_N8N_TOKEN:-}
+      FRYA_TELEGRAM_BOT_TOKEN: ${FRYA_TELEGRAM_BOT_TOKEN:?Muss gesetzt sein}
+      FRYA_TELEGRAM_DEFAULT_CHAT_ID: ${FRYA_TELEGRAM_CHAT_ID:?Muss gesetzt sein}
+      FRYA_TELEGRAM_ALLOWED_DIRECT_CHAT_IDS: ${FRYA_TELEGRAM_ALLOWED_DIRECT_CHAT_IDS:-}
+      FRYA_TELEGRAM_DEDUP_TTL_SECONDS: ${FRYA_TELEGRAM_DEDUP_TTL_SECONDS:-86400}
+      FRYA_TELEGRAM_WEBHOOK_SECRET: ${FRYA_TELEGRAM_WEBHOOK_SECRET:?Muss gesetzt sein}
+      # FRYA_AUTH_USERS_JSON: loaded via env_file
+      FRYA_AUTH_SESSION_SECRET: ${FRYA_AUTH_SESSION_SECRET:?Muss gesetzt sein}
+      FRYA_AUTH_COOKIE_SECURE: ${FRYA_AUTH_COOKIE_SECURE:-true}
+      FRYA_AUTH_COOKIE_SAMESITE: ${FRYA_AUTH_COOKIE_SAMESITE:-lax}
+      FRYA_AUTH_SESSION_MAX_AGE_SECONDS: ${FRYA_AUTH_SESSION_MAX_AGE_SECONDS:-28800}
+      FRYA_AUTH_SESSION_IDLE_TIMEOUT_SECONDS: ${FRYA_AUTH_SESSION_IDLE_TIMEOUT_SECONDS:-28800}
+      FRYA_CONFIG_ENCRYPTION_KEY: ${FRYA_CONFIG_ENCRYPTION_KEY:?Muss gesetzt sein}
+      FRYA_DEFAULT_TENANT_ID: ${FRYA_DEFAULT_TENANT_ID:-}
+      FRYA_AUTO_TRIGGER_DOCUMENT_ANALYST: ${FRYA_AUTO_TRIGGER_DOCUMENT_ANALYST:-false}
+      FRYA_INITIAL_ADMIN_USERNAME: ${FRYA_INITIAL_ADMIN_USERNAME:-}
+      FRYA_INITIAL_ADMIN_EMAIL: ${FRYA_INITIAL_ADMIN_EMAIL:-}
+      FRYA_INITIAL_ADMIN_PASSWORD: ${FRYA_INITIAL_ADMIN_PASSWORD:-}
+      FRYA_BREVO_API_KEY: ${FRYA_BREVO_API_KEY:-}
+      FRYA_MAIL_PROVIDER: ${FRYA_MAIL_PROVIDER:-mailgun}
+      FRYA_MAILGUN_FROM: ${FRYA_MAILGUN_FROM:-}
+      FRYA_S3_ACCESS_KEY: ${FRYA_S3_ACCESS_KEY:-}
+      FRYA_S3_SECRET_KEY: ${FRYA_S3_SECRET_KEY:-}
+      FRYA_S3_BACKUP_BUCKET: ${FRYA_S3_BACKUP_BUCKET:-}
+      FRYA_S3_ENDPOINT: ${FRYA_S3_ENDPOINT:-}
+      FRYA_AGE_PUBLIC_KEY: ${FRYA_AGE_PUBLIC_KEY:-}
+    volumes:
+    - agent_data:/app/data
+    networks:
+    - frya-internal
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.frya-agent.rule=Host(`agent.staging.myfrya.de`)
+    - traefik.http.routers.frya-agent.entrypoints=websecure
+    - traefik.http.routers.frya-agent.tls=true
+    - traefik.http.routers.frya-agent.tls.certresolver=le
+    - traefik.http.services.frya-agent.loadbalancer.server.port=8001
+    - traefik.docker.network=dms-staging_frya-internal
+    - com.centurylinklabs.watchtower.enable=false
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health').getcode()==200
+        else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: frya-uptime-kuma
+    restart: unless-stopped
+    volumes:
+    - uptime_kuma_data:/app/data
+    networks:
+    - frya-internal
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.uptimekuma.rule=Host(`status.staging.myfrya.de`) || Host(`uptime.staging.myfrya.de`)
+    - traefik.http.routers.uptimekuma.entrypoints=websecure
+    - traefik.http.routers.uptimekuma.tls.certresolver=le
+    - traefik.http.services.uptimekuma.loadbalancer.server.port=3001
+  watchtower:
+    image: containrrr/watchtower
+    container_name: frya-watchtower
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_CLEANUP: 'true'
+      WATCHTOWER_POLL_INTERVAL: '300'
+      WATCHTOWER_LABEL_ENABLE: 'true'
+    volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+    - frya-internal
+volumes:
+  postgres_data: null
+  redis_data: null
+  paperless_data: null
+  paperless_media: null
+  paperless_export: null
+  paperless_consume: null
+  akaunting_data: null
+  mariadb_data: null
+  n8n_data: null
+  uptime_kuma_data: null
+  backend_data: null
+  agent_data: null
+networks:
+  frya-internal:
+    driver: bridge

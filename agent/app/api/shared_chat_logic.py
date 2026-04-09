@@ -270,8 +270,31 @@ async def _handle_pending_flow(
                 'next_pending_flow': None,
             }
         else:
-            # Unknown follow-up — clear pending, let caller route normally
-            return None  # next_pending_flow will be cleared by caller
+            # Unbekannte Nachricht im Rechnungs-Flow:
+            # NICHT fallen lassen! Als Modifikation behandeln — der User
+            # antwortet auf eine Flow-Frage (z.B. "Pauschalpreis" auf
+            # "Stunden oder Pauschalpreis?"). An die Invoice Pipeline weiterleiten.
+            try:
+                from app.services.invoice_pipeline import handle_modify_invoice
+                _fallback_mod = await handle_modify_invoice(_pf_invoice_id, message, user_id, tenant_id=tenant_id)
+                _fb_inv_id = _fallback_mod.get('invoice_id', _pf_invoice_id)
+                return {
+                    'text': _fallback_mod.get('text', ''),
+                    'case_ref': None,
+                    'context_type': 'invoice_draft',
+                    'suggestions': [a['chat_text'] for a in _fallback_mod.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
+                    'content_blocks': _fallback_mod.get('content_blocks', []),
+                    'actions': _fallback_mod.get('actions', []),
+                    'routing': 'pending_flow',
+                    'next_pending_flow': {
+                        'waiting_for': 'invoice_draft_review',
+                        'invoice_id': _fb_inv_id,
+                        'pending_data': _pf_data,
+                    },
+                }
+            except Exception as _fb_exc:
+                logger.warning('invoice_draft_review fallback failed: %s', _fb_exc)
+                return None  # Nur bei echtem Fehler fallen lassen
 
     # Unknown pending_flow type — let caller handle normally
     return None

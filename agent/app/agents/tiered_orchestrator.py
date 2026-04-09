@@ -106,13 +106,14 @@ class TieredOrchestrator:
         else:
             logger.info("Shortcircuit OFF — skipping regex, routing to LLM")
 
-        # Deep oder Fast?
-        if self._needs_deep(message):
-            logger.info("Routing via Deep (existing orchestrator)")
-            return {"intent": "COMPLEX", "routing": "deep", "message": message}
-        else:
+        # Deep oder Fast? — Feature-Flag gesteuert
+        _settings = get_settings()
+        if _settings.fast_tier_enabled and not self._needs_deep(message):
             logger.info("Routing via Fast (Mistral 24B)")
             return await self._route_fast(message)
+        else:
+            logger.info("Routing via Deep (Llama 3.3 70B) — fast_tier=%s", _settings.fast_tier_enabled)
+            return {"intent": "COMPLEX", "routing": "deep", "message": message}
 
     def _regex_match(self, message: str) -> Optional[str]:
         """Regex-Shortcircuit MIT Collision-Detection.
@@ -173,10 +174,22 @@ class TieredOrchestrator:
         """Mistral 24B classifies intent via DB-configured orchestrator_router agent."""
         classify_prompt = (
             "Klassifiziere die User-Nachricht in EINEN Intent.\n"
-            "Mögliche: SHOW_INBOX, SHOW_FINANCE, SHOW_DEADLINES, SHOW_BOOKINGS, "
-            "SHOW_OPEN_ITEMS, SHOW_CONTACT, SHOW_CONTACTS, SHOW_EXPORT, CREATE_INVOICE, "
-            "CREATE_CONTACT, CREATE_REMINDER, APPROVE, SETTINGS, UPLOAD, "
-            "STATUS_OVERVIEW, SMALL_TALK, UNKNOWN\n"
+            "Mögliche Intents:\n"
+            "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues\n"
+            "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR\n"
+            "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet, Geld, Forderungen, Mahnung, Schuldner\n"
+            "- SHOW_DEADLINES: Fristen, dringend, faellig, Termine\n"
+            "- SHOW_BOOKINGS: Buchungen, Kontobewegungen\n"
+            "- SHOW_CONTACT, SHOW_CONTACTS: Kontakt(e) suchen/anzeigen\n"
+            "- SHOW_EXPORT: Export, DATEV, CSV\n"
+            "- CREATE_INVOICE: Rechnung erstellen/schreiben\n"
+            "- CREATE_CONTACT: Kontakt anlegen\n"
+            "- CREATE_REMINDER: Erinnerung setzen\n"
+            "- APPROVE: Freigeben, genehmigen\n"
+            "- SETTINGS: Einstellungen, Profil, Theme\n"
+            "- UPLOAD: Beleg hochladen\n"
+            "- SMALL_TALK: Begruessung, Danke, Smalltalk\n"
+            "- UNKNOWN: Unklar\n"
             f'Nachricht: "{message}"\n'
             "Antworte NUR mit dem Intent-Namen."
         )
