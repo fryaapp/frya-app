@@ -15,6 +15,99 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_SUGGESTIONS = ['Inbox', 'Finanzen', 'Belege']
 
+# ============================================================
+# Communicator-Text fuer Daten-Intents (Sprint-02-06)
+# Statt statischem "X Belege warten" → LLM formuliert menschlichen Text
+# ============================================================
+
+_DATA_TEXT_PROMPT = """\
+Du bist Frya, eine warme und kompetente Buchhaltungs-Kollegin.
+Der User hat gerade Daten abgefragt die als Karten/Charts angezeigt werden.
+Formuliere einen KURZEN begleitenden Text (2-3 Saetze, Deutsch, per du).
+
+REGELN:
+- NICHT die Zahlen nochmal auflisten — die sieht der User in den Karten/Charts
+- Stattdessen: EINORDNEN, KOMMENTIEREN, naechsten Schritt vorschlagen
+- Wenn der User "Moin" oder "Hallo" gesagt hat: Gruesse ZUERST zurueck
+- Wenn negativ (Verlust, ueberfaellig): Ehrlich aber ermutigend
+- Wenn positiv (Gewinn, alles erledigt): Anerkennung ohne Uebertreibung
+- KEIN "oeffne die App", kein "/status", keine Slash-Befehle
+- KEINE Emojis (ausser der User nutzt welche)
+- Beginne NICHT mit "FRYA:"
+
+DATEN:
+Intent: {intent}
+Zusammenfassung: {summary}
+
+Letzte User-Nachricht: "{user_message}"
+
+Formuliere den begleitenden Text:"""
+
+
+async def _format_data_text(intent: str, data: dict, user_message: str) -> Optional[str]:
+    """LLM-generierter Text fuer Daten-Intents. Timeout 3s, Fallback None."""
+    import asyncio
+    try:
+        summary_parts = []
+        if data.get('count') is not None:
+            summary_parts.append(f"Anzahl: {data['count']}")
+        if data.get('items'):
+            vendors = [it.get('vendor', it.get('name', '')) for it in data['items'][:3] if isinstance(it, dict)]
+            if vendors:
+                summary_parts.append(f"Erste: {', '.join(v for v in vendors if v)}")
+        if data.get('total_income') is not None:
+            summary_parts.append(f"Einnahmen: {data['total_income']}€")
+        if data.get('total_expenses') is not None:
+            summary_parts.append(f"Ausgaben: {data['total_expenses']}€")
+        if data.get('profit') is not None:
+            summary_parts.append(f"Ergebnis: {data['profit']}€")
+        if data.get('booking_count') is not None:
+            summary_parts.append(f"Buchungen: {data['booking_count']}")
+        summary = ', '.join(summary_parts) if summary_parts else str(data)[:200]
+
+        prompt = _DATA_TEXT_PROMPT.format(
+            intent=intent,
+            summary=summary,
+            user_message=user_message[:100],
+        )
+
+        from app.agents.tiered_orchestrator import TieredOrchestrator
+        _orch = TieredOrchestrator()
+        # Nutze 'orchestrator_router' (Mistral 24B auf IONOS, ~1-2s) fuer schnellen Text
+        # Bedrock Sonnet: ~7s (zu langsam), Llama 70B: ~7s (auch zu langsam)
+        config = await _orch._get_llm_config('orchestrator_router')
+        if not config or not config.get('full_model'):
+            return None
+
+        import litellm
+        _call_kwargs = {
+            'model': config['full_model'],
+            'messages': [{'role': 'user', 'content': prompt}],
+            'max_tokens': 150,
+            'temperature': 0.7,
+        }
+        # Bedrock nutzt AWS env vars, kein api_key. Andere Provider brauchen api_key.
+        if config.get('api_key'):
+            _call_kwargs['api_key'] = config['api_key']
+        if config.get('base_url'):
+            _call_kwargs['api_base'] = config['base_url']
+
+        resp = await asyncio.wait_for(
+            litellm.acompletion(**_call_kwargs),
+            timeout=8.0,
+        )
+        text = (resp.choices[0].message.content or '').strip()
+        # Strip "FRYA: " prefix if present
+        text = re.sub(r'^FRYA:\s*', '', text)
+        if text:
+            logger.info('format_data_text OK: %s', text[:60])
+            return text
+    except asyncio.TimeoutError:
+        logger.warning('format_data_text: Timeout (8s) — Fallback auf statischen Text')
+    except Exception as exc:
+        logger.warning('format_data_text: %s — Fallback auf statischen Text', exc)
+    return None
+
 
 # ============================================================
 # Confirmation / Rejection (Divergenz #6: WS hat mehr Woerter → WS-Version)
@@ -648,6 +741,13 @@ async def handle_shortcircuit_intent(
         _raw_actions = _chart_data.get('actions', [])
         if _raw_actions and any(a.get('quick_action') for a in _raw_actions):
             _sc_actions = _raw_actions
+
+        # Sprint-02-06: LLM-Text statt statischem Text
+        # Der Communicator formuliert den begleitenden Text menschlich.
+        # Timeout 3s, Fallback auf statischen Text (_reply).
+        _llm_text = await _format_data_text(str(intent), _chart_data, message)
+        if _llm_text:
+            _reply = _llm_text
 
         context_type = _TIER_INTENT_TO_CONTEXT.get(intent, 'none')
 
