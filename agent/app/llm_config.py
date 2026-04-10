@@ -25,10 +25,10 @@ AGENT_CATALOG: dict[str, dict] = {
     'orchestrator': {
         'label': 'Orchestrator (Herz)',
         'provider': 'ionos',
-        'target_model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8',
+        'target_model': 'meta-llama/Llama-3.3-70B-Instruct',
         'base_url': IONOS_BASE_URL,
         'agent_status': 'active',
-        'note': 'IONOS DE — 405B-Instruct-FP8 (FP8-quantised, target: 405B-Instruct)',
+        'note': 'IONOS DE — Llama-3.3-70B-Instruct (Intent-Klassifizierung, Ø 0.5-1.2s warm)',
     },
     'communicator': {
         'label': 'Kommunikator (Mund)',
@@ -81,18 +81,18 @@ AGENT_CATALOG: dict[str, dict] = {
     'memory_curator': {
         'label': 'Gedaechtnis (Hirn)',
         'provider': 'ionos',
-        'target_model': 'meta-llama/Meta-Llama-3.1-405B-Instruct-FP8',
+        'target_model': 'openai/gpt-oss-120b',
         'base_url': IONOS_BASE_URL,
         'agent_status': 'active',
-        'note': 'IONOS DE — Llama-3.1-405B-Instruct-FP8 (Langzeitgedächtnis-Kuration)',
+        'note': 'IONOS DE — GPT-OSS-120B (Langzeitgedächtnis-Kuration)',
     },
     'orchestrator_router': {
-        'label': 'Orchestrator Router (Fast)',
+        'label': 'Daten-Erzaehler (Stimme)',
         'provider': 'ionos',
-        'target_model': 'mistralai/Mistral-Small-24B-Instruct',
+        'target_model': 'meta-llama/Llama-3.3-70B-Instruct',
         'base_url': IONOS_BASE_URL,
         'agent_status': 'active',
-        'note': 'IONOS DE — Mistral-Small-24B (Schnelles Intent-Routing, 90% der Anfragen)',
+        'note': 'IONOS DE — Llama-3.3-70B (Kommentiert Daten-Antworten + kontextuelle Suggestions, Ø 2.4s)',
     },
     'communicator_fallback': {
         'label': 'Kommunikator Fallback',

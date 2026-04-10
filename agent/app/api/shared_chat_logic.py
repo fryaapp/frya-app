@@ -73,8 +73,8 @@ async def _format_data_text(intent: str, data: dict, user_message: str) -> Optio
 
         from app.agents.tiered_orchestrator import TieredOrchestrator
         _orch = TieredOrchestrator()
-        # Nutze 'orchestrator_router' (Mistral 24B auf IONOS, ~1-2s) fuer schnellen Text
-        # Bedrock Sonnet: ~7s (zu langsam), Llama 70B: ~7s (auch zu langsam)
+        # Nutze 'orchestrator_router' (Llama 3.3 70B auf IONOS, ~2.4s warm) fuer Fallback-Text
+        # Wird nur genutzt wenn generate_data_response() fehlschlaegt (Timeout/Exception)
         config = await _orch._get_llm_config('orchestrator_router')
         if not config or not config.get('full_model'):
             return None
@@ -222,7 +222,9 @@ async def generate_data_response(
     """Llama 3.3 70B: Text + Suggestions fuer Daten-Intents in EINEM Call.
 
     Ersetzt _format_data_text() (Mistral, nur Text) + CONTEXT_SUGGESTIONS (statisch).
-    Timeout 5s. Bei Fehler: {'text': None, 'suggestions': []} → Caller nutzt Fallback.
+    Timeout 8s (Cold-Start IONOS ~6-7s, warm ~1.5-2s).
+    Bei Fehler: {'text': None, 'suggestions': []} → Caller nutzt Fallback.
+    Nutzt 'orchestrator_router' Slot (Llama 3.3 70B, Sprint-02-08).
     """
     import asyncio
     import json as _json
@@ -240,7 +242,7 @@ async def generate_data_response(
 
         from app.agents.tiered_orchestrator import TieredOrchestrator
         _orch = TieredOrchestrator()
-        config = await _orch._get_llm_config('orchestrator')  # Llama 3.3 70B auf IONOS
+        config = await _orch._get_llm_config('orchestrator_router')  # Llama 3.3 70B auf IONOS (Sprint-02-08)
         if not config or not config.get('api_key'):
             logger.warning('generate_data_response: kein orchestrator-config')
             return {'text': None, 'suggestions': []}
