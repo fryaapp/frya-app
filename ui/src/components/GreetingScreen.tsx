@@ -17,13 +17,6 @@ interface GreetingResponse {
   suggestions: string[]
 }
 
-const chips = [
-  { icon: 'inbox', label: 'Inbox' },
-  { icon: 'account_balance', label: 'Finanzen' },
-  { icon: 'description', label: 'Belege' },
-  { icon: 'download', label: 'Export' },
-]
-
 export function GreetingScreen() {
   const startChat = useFryaStore((s) => s.startChat)
   const messageCount = useFryaStore((s) => s.messages.length)
@@ -75,7 +68,15 @@ export function GreetingScreen() {
     startChat(label)
   }
 
+  // Parse inbox count from status_summary (e.g. "10 Belege in der Inbox")
+  const inboxCount = (() => {
+    const summary = data?.status_summary || ''
+    const match = summary.match(/(\d+)\s*Belege/i)
+    return match ? parseInt(match[1], 10) : 0
+  })()
+
   const statusText = buildPrompt(data)
+
   return (
     <div
       style={{
@@ -83,10 +84,31 @@ export function GreetingScreen() {
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--frya-surface)',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      {/* Subtiles Pixel-Grid-Hintergrundmuster — fast unsichtbar */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundImage: [
+            'linear-gradient(var(--frya-outline-variant) 1px, transparent 1px)',
+            'linear-gradient(90deg, var(--frya-outline-variant) 1px, transparent 1px)',
+          ].join(', '),
+          backgroundSize: '4px 4px',
+          opacity: 0.03,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }}
+      />
+
       {/* Top bar — BugReport + Settings oben rechts */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '8px 12px', gap: 4, flexShrink: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '8px 12px', gap: 4, flexShrink: 0, position: 'relative', zIndex: 1 }}>
         <button
           onClick={handleBugReport}
           style={{
@@ -111,29 +133,41 @@ export function GreetingScreen() {
         </button>
       </div>
 
-      {/* Center content */}
+      {/* Content — 15vh von oben, nicht vertikal zentriert */}
       <div
         style={{
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
-          padding: '0 20px 0',
+          justifyContent: 'flex-start',
+          paddingTop: '15vh',
+          paddingLeft: 20,
+          paddingRight: 20,
+          paddingBottom: 80,
           overflow: 'auto',
+          position: 'relative',
+          zIndex: 1,
         }}
       >
         <div style={{ maxWidth: 440, width: '100%', textAlign: 'center' }}>
-          {/* Avatar */}
+
+          {/* Avatar — 160px, App-Icon-Form mit Pixel-Art-Schatten */}
           <div
             style={{
               display: 'flex',
               justifyContent: 'center',
-              marginBottom: 16,
+              marginBottom: 20,
               animation: 'frya-fade-up 400ms ease both',
             }}
           >
-            <FryaAvatar size={80} />
+            <FryaAvatar
+              size={160}
+              style={{
+                borderRadius: 40,
+                boxShadow: '4px 4px 0px var(--frya-primary-container), 8px 8px 0px rgba(0,0,0,0.1)',
+              }}
+            />
           </div>
 
           {/* Greeting text */}
@@ -141,8 +175,8 @@ export function GreetingScreen() {
             <div style={{ marginBottom: 24 }}>
               <div
                 style={{
-                  height: 28,
-                  width: 180,
+                  height: 34,
+                  width: 200,
                   background: 'var(--frya-surface-container-high)',
                   borderRadius: 8,
                   margin: '0 auto 12px',
@@ -151,8 +185,8 @@ export function GreetingScreen() {
               />
               <div
                 style={{
-                  height: 16,
-                  width: 240,
+                  height: 18,
+                  width: 260,
                   background: 'var(--frya-surface-container-high)',
                   borderRadius: 6,
                   margin: '0 auto',
@@ -164,19 +198,19 @@ export function GreetingScreen() {
           ) : (
             <div
               style={{
-                marginBottom: 20,
+                marginBottom: 24,
                 animation: 'frya-fade-up 400ms ease 100ms both',
               }}
             >
               <h1
                 style={{
                   fontFamily: "'Outfit', sans-serif",
-                  fontSize: 26,
+                  fontSize: 32,
                   fontWeight: 600,
                   color: 'var(--frya-on-surface)',
                   letterSpacing: '-0.02em',
                   lineHeight: 1.15,
-                  margin: '0 0 8px',
+                  margin: '0 0 10px',
                 }}
               >
                 {data?.greeting || 'Hallo!'}
@@ -185,10 +219,10 @@ export function GreetingScreen() {
               {statusText && (
                 <p
                   style={{
-                    fontSize: 13,
+                    fontSize: 16,
                     color: 'var(--frya-on-surface-variant)',
                     lineHeight: 1.5,
-                    maxWidth: 340,
+                    maxWidth: 280,
                     margin: '0 auto',
                     fontFamily: "'Plus Jakarta Sans', sans-serif",
                   }}
@@ -233,7 +267,7 @@ export function GreetingScreen() {
 
           {/* Back to chat button (if chat has messages) */}
           {messageCount > 0 && (
-            <div style={{ marginBottom: 12, animation: 'frya-fade-up 400ms ease 200ms both' }}>
+            <div style={{ marginBottom: 16, animation: 'frya-fade-up 400ms ease 200ms both' }}>
               <button
                 onClick={() => startChat()}
                 style={{
@@ -257,33 +291,58 @@ export function GreetingScreen() {
             </div>
           )}
 
-          {/* Chips row */}
+          {/* Primaere Aktionen — volle Breite, vertikal gestapelt */}
           <div
             style={{
               display: 'flex',
-              justifyContent: 'center',
-              gap: 8,
-              flexWrap: 'wrap',
-              marginBottom: 20,
+              flexDirection: 'column',
+              gap: 10,
+              width: '100%',
+              maxWidth: 320,
+              margin: '0 auto',
               animation: 'frya-fade-up 400ms ease 250ms both',
             }}
           >
-            {chips.map((chip) => (
-              <ChipButton
-                key={chip.label}
-                icon={chip.icon}
-                label={chip.label}
-                onClick={() => handleChip(chip.label)}
-              />
-            ))}
+            <PrimaryChip
+              icon="inbox"
+              label="Inbox"
+              badge={inboxCount > 0 ? inboxCount : undefined}
+              onClick={() => handleChip('Inbox')}
+            />
+            <PrimaryChip
+              icon="bar_chart"
+              label="Finanzen"
+              onClick={() => handleChip('Finanzen')}
+            />
+            <PrimaryChip
+              icon="cloud_upload"
+              label="Belege einwerfen"
+              onClick={() => handleChip('Belege einwerfen')}
+            />
           </div>
+
+          {/* Sekundaere Aktionen — kleiner, weniger prominent */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              marginTop: 12,
+              animation: 'frya-fade-up 400ms ease 300ms both',
+            }}
+          >
+            <SecondaryChip label="EÜR" onClick={() => handleChip('EÜR')} />
+            <SecondaryChip label="Fristen" onClick={() => handleChip('Fristen')} />
+            <SecondaryChip label="Export" onClick={() => handleChip('Export')} />
+          </div>
+
         </div>
       </div>
 
       {/* Input bar at bottom */}
       <ChatInputBar onSend={handleSend} placeholder="Nachricht an Frya…" />
       <BugReportOverlay open={bugOpen} onClose={() => { setBugOpen(false); setBugShot(null) }} screenshot={bugShot} />
-
 
       <style>{`
         @keyframes frya-pulse {
@@ -295,43 +354,103 @@ export function GreetingScreen() {
   )
 }
 
-function ChipButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+interface PrimaryChipProps {
+  icon: string
+  label: string
+  badge?: number
+  onClick: () => void
+}
+
+function PrimaryChip({ icon, label, badge, onClick }: PrimaryChipProps) {
+  const [hovered, setHovered] = useState(false)
+  const [pressed, setPressed] = useState(false)
+
   return (
     <button
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setPressed(false) }}
+      onMouseDown={() => setPressed(true)}
+      onMouseUp={() => setPressed(false)}
       style={{
-        display: 'inline-flex',
+        display: 'flex',
         alignItems: 'center',
-        gap: 6,
-        padding: '8px 14px',
-        fontSize: 12,
+        gap: 10,
+        padding: '14px 20px',
+        borderRadius: 16,
+        background: hovered ? 'var(--frya-primary-container)' : 'var(--frya-surface-container-high)',
+        border: `1.5px solid ${hovered ? 'var(--frya-primary)' : 'var(--frya-outline-variant)'}`,
+        color: hovered ? 'var(--frya-on-primary-container)' : 'var(--frya-on-surface)',
+        fontSize: 15,
         fontWeight: 500,
         fontFamily: "'Plus Jakarta Sans', sans-serif",
-        borderRadius: 18,
-        border: '1px solid var(--frya-outline-variant)',
-        background: 'transparent',
-        color: 'var(--frya-on-surface)',
         cursor: 'pointer',
-        transition: 'background 150ms, border-color 150ms',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--frya-surface-container-high)'
-        e.currentTarget.style.borderColor = 'var(--frya-primary)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'transparent'
-        e.currentTarget.style.borderColor = 'var(--frya-outline-variant)'
+        transition: 'all 0.15s ease',
+        boxShadow: pressed
+          ? '0px 0px 0px var(--frya-outline-variant)'
+          : hovered
+            ? '3px 3px 0px var(--frya-primary-container)'
+            : '2px 2px 0px var(--frya-outline-variant)',
+        transform: pressed ? 'translate(2px, 2px)' : 'translate(0, 0)',
+        width: '100%',
+        textAlign: 'left',
       }}
     >
       <span
         className="material-symbols-rounded"
         style={{
-          fontSize: 16,
-          fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 16",
+          fontSize: 20,
+          fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+          flexShrink: 0,
         }}
       >
         {icon}
       </span>
+      <span style={{ flex: 1 }}>{label}</span>
+      {badge !== undefined && (
+        <span
+          style={{
+            background: 'var(--frya-primary)',
+            color: 'var(--frya-on-primary)',
+            fontSize: 11,
+            fontWeight: 600,
+            padding: '2px 7px',
+            borderRadius: 10,
+            flexShrink: 0,
+          }}
+        >
+          {badge}
+        </span>
+      )}
+    </button>
+  )
+}
+
+function SecondaryChip({ label, onClick }: { label: string; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        padding: '8px 16px',
+        borderRadius: 12,
+        background: hovered ? 'var(--frya-surface-container-high)' : 'transparent',
+        border: `1px solid ${hovered ? 'var(--frya-primary)' : 'var(--frya-outline-variant)'}`,
+        color: 'var(--frya-on-surface-variant)',
+        fontSize: 13,
+        fontWeight: 400,
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        cursor: 'pointer',
+        transition: 'all 0.15s ease',
+      }}
+    >
       {label}
     </button>
   )
