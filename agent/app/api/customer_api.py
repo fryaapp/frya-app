@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from app.core.intents import Intent
 import uuid
 from datetime import date, datetime, timezone
@@ -129,6 +130,8 @@ async def send_chat_message(
     from app.telegram.communicator.intent_classifier import classify_intent
     from app.telegram.models import TelegramActor, TelegramNormalizedIngressMessage
 
+    _t0 = time.monotonic()
+    _tp = _t0
     chat_id = f'web-{user.username}'
     case_id = f'web-chat-{user.username}-{uuid.uuid4().hex[:8]}'
     _evt_id = f'web-evt-{uuid.uuid4().hex[:12]}'
@@ -174,13 +177,24 @@ async def send_chat_message(
     except Exception as _pending_exc:
         logger.warning('REST pending check failed: %s', _pending_exc)
 
+    _now = time.monotonic(); logger.warning('[PERF] REST Phase0 pending: %.3fs', _now - _tp); _tp = _now
     # --- (OLD PENDING CODE REMOVED — now in shared_chat_logic.py) ---
+    # OPT-1: Cache routing result from Phase1 → reuse in Phase3 (no double Llama call)
+    _cached_routing_result: dict | None = None
+    # OPT-2: Regex precheck — skip Llama 70B APPROVE-check for non-approve messages (~0.5s saved)
+    import re as _re_precheck
+    _APPROVE_KEYWORDS = _re_precheck.compile(
+        r'\b(freigeben|freigabe|buchen|genehmigen|best[äa]tigen|approve|abschlie[ßs]en)\b',
+        _re_precheck.IGNORECASE,
+    )
+    _skip_approve_check = not bool(_APPROVE_KEYWORDS.search(body.message))
     # P-12: APPROVE shortcircuit — execute booking approval BEFORE communicator
     try:
         from app.api.chat_ws import _get_tiered_orchestrator
         _pre_orch = _get_tiered_orchestrator()
-        if _pre_orch:
+        if _pre_orch and not _skip_approve_check:
             _pre_route = await _pre_orch.route(message=body.message)
+            _cached_routing_result = _pre_route  # OPT-1: save for Phase3
             _pre_intent = _pre_route.get('intent')
             if _pre_intent == Intent.APPROVE:
                 from app.agents.service_registry import _InboxService
@@ -253,6 +267,7 @@ async def send_chat_message(
     except Exception as _ae:
         logger.warning('REST APPROVE shortcircuit failed: %s', _ae)
 
+    _now = time.monotonic(); logger.warning('[PERF] REST Phase1 approve-check: %.3fs', _now - _tp); _tp = _now
     communicator = get_telegram_communicator_service()
     result = await communicator.try_handle_turn(
         normalized, case_id,
@@ -264,6 +279,8 @@ async def send_chat_message(
         case_repository=get_case_repository(),
         chat_history_store=get_chat_history_store(),
     )
+
+    _now = time.monotonic(); logger.warning('[PERF] REST Phase2 communicator: %.3fs', _now - _tp); _tp = _now
 
     if result is None or not result.reply_text:
         return ChatResponse(reply='Ich konnte deine Nachricht nicht verarbeiten.', suggestions=[])
@@ -299,7 +316,13 @@ async def send_chat_message(
         from app.api.chat_ws import _get_tiered_orchestrator, _get_response_builder
         orchestrator = _get_tiered_orchestrator()
         if orchestrator:
-            routing_result = await orchestrator.route(message=body.message, chat_id=_chat_id_rest)
+            # OPT-1: Reuse Phase1 routing result to avoid second Llama 70B call
+            if _cached_routing_result is not None:
+                routing_result = _cached_routing_result
+                _now = time.monotonic(); logger.warning('[PERF] REST Phase3 orch2 CACHE HIT (saved ~0.5s): %.3fs', _now - _tp); _tp = _now
+            else:
+                routing_result = await orchestrator.route(message=body.message, chat_id=_chat_id_rest)
+                _now = time.monotonic(); logger.warning('[PERF] REST Phase3 orchestrator2 (miss): %.3fs', _now - _tp); _tp = _now
             tier_intent = routing_result.get('intent')
             routing = routing_result.get('routing')
 
@@ -347,6 +370,7 @@ async def send_chat_message(
                 )
                 content_blocks = enhanced.get('content_blocks', [])
                 actions = enhanced.get('actions', [])
+                _now = time.monotonic(); logger.warning('[PERF] REST Phase4 rb-build: %.3fs', _now - _tp); _tp = _now
                 if actions:
                     suggestions = [a['chat_text'] for a in actions[:3]]
 
@@ -388,6 +412,7 @@ async def send_chat_message(
             logger.error('Invoice pipeline failed (REST): %s', exc)
             result.reply_text = f'Rechnung konnte nicht erstellt werden: {exc}'
 
+    logger.warning('[PERF] REST TOTAL: %.3fs', time.monotonic() - _t0)
     return ChatResponse(
         reply=result.reply_text, case_ref=case_ref, suggestions=suggestions,
         content_blocks=content_blocks, actions=actions, routing=routing,

@@ -617,6 +617,21 @@ TYPING_HINTS: dict[str, str] = {
     'vendor_search': 'Durchsuche die Vorgänge...',
 }
 
+# ITEM 2: Intent → User-facing Typing-Hint (wird während der Pipeline gesendet)
+AGENT_HINTS: dict[str, str] = {
+    'classify':           'Verstehe deine Frage...',
+    'orchestrator':       'Denke nach...',
+    'service_call':       'Hole die Daten...',
+    'communicator':       'Formuliere die Antwort...',
+    'document_analyst':   'Schaue mir den Beleg an...',
+    'accounting_analyst': 'Prüfe die Buchung...',
+    'deadline_analyst':   'Checke die Fristen...',
+    'memory_curator':     'Erinnere mich...',
+    'response_build':     'Stelle alles zusammen...',
+    'invoice_pipeline':   'Erstelle die Rechnung...',
+    'approve':            'Prüfe die Freigabe...',
+}
+
 _GENERIC_TYPING_HINT = 'Einen Moment...'
 
 # ---------------------------------------------------------------------------
@@ -948,6 +963,8 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
 
                     # --- (OLD PENDING CODE REMOVED — now in shared_chat_logic.py) ---
                     # --- Phase 1: TieredOrchestrator intent routing ---
+                    # ITEM 2: Update typing hint zur Klassifikationsphase
+                    await websocket.send_json({'type': 'typing', 'active': True, 'hint': AGENT_HINTS['classify']})
                     quick_action = data.get('quick_action')
                     # Inject user_id + tenant_id so ActionRouter can use them
                     if quick_action and isinstance(quick_action, dict):
@@ -1077,10 +1094,15 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 else:
                                     _shortcircuit_reply = str(_approve_result)
                             else:
-                                _shortcircuit_reply = None  # Fall through to communicator
+                                # BUG-2 Fix: Kein Case gefunden — explizite Meldung statt Communicator-Fallthrough.
+                                # Communicator wuerde sonst "Freigabe erledigt!" halluzinieren (Ghost Action).
+                                _shortcircuit_reply = (
+                                    'Ich konnte keinen passenden Beleg finden. '
+                                    'Nenne mir bitte den Lieferantennamen oder die Rechnungsnummer, z.B. "Telekom freigeben".'
+                                )
                         except Exception as _ae:
                             logger.warning('APPROVE shortcircuit failed: %s', _ae)
-                            _shortcircuit_reply = None
+                            _shortcircuit_reply = 'Die Freigabe ist gerade nicht moeglich. Bitte versuche es erneut.'
 
                     elif tier_intent == Intent.UPLOAD:
                         # BUG-002: User typed "upload" but has no attachment —
@@ -1343,6 +1365,8 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     # wenn der LLM-Orchestrator einen Daten-Intent klassifiziert hat.
                     # Ohne das: Communicator halluziniert "keine Daten" / "oeffne die App"
                     if _shortcircuit_reply is None and tier_intent:
+                        # ITEM 2: Hint "Hole die Daten..." vor Service-Call
+                        await websocket.send_json({'type': 'typing', 'active': True, 'hint': AGENT_HINTS['service_call']})
                         from app.api.shared_chat_logic import handle_shortcircuit_intent
                         _chart_result = await handle_shortcircuit_intent(
                             intent=tier_intent,
@@ -1440,6 +1464,8 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         continue
 
                     # --- Phase 2: Communicator (always, for natural-language reply) ---
+                    # ITEM 2: Hint "Formuliere die Antwort..." vor Communicator
+                    await websocket.send_json({'type': 'typing', 'active': True, 'hint': AGENT_HINTS['communicator']})
                     result = await _get_communicator_reply(text, user_id, tenant_id)
 
                     # Aufgabe 3: Extract LLM-generated suggestions from communicator

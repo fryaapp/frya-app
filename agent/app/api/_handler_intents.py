@@ -107,10 +107,17 @@ async def handle_approve(
             else:
                 return str(approve_result), {}
         else:
-            return None, {}
+            # BUG-2 Fix: Kein Case gefunden — explizite Meldung statt Communicator-Fallthrough.
+            # Verhindert Ghost Action: Communicator wuerde "Freigabe erledigt!" halluzinieren.
+            return (
+                'Ich konnte keinen passenden Beleg finden. '
+                'Nenne mir bitte den Lieferantennamen oder die Rechnungsnummer, z.B. "Telekom freigeben".'
+            ), {}
     except Exception as ae:
         logger.warning('APPROVE shortcircuit failed: %s', ae)
-        return None, {}
+        return (
+            'Die Freigabe ist gerade nicht moeglich. Bitte versuche es erneut.'
+        ), {}
 
 
 # ===================================================================
@@ -447,7 +454,14 @@ async def handle_invoice_draft_review(
         r'(?:andere?|neue?)\s*(?:adresse|beschreibung|position)',
     ]
     is_mod = any(re.search(p, text.lower()) for p in inv_mod_patterns)
-    is_send = any(kw in text.lower() for kw in ('freigeben', 'senden', 'verschicken', 'abschicken', 'sieht gut aus'))
+    # BUG-3 Fix: "Schick raus", "schick die ab" etc. wurden nicht erkannt
+    is_send = any(kw in text.lower() for kw in (
+        'freigeben', 'senden', 'verschicken', 'abschicken', 'sieht gut aus',
+        'schick',       # "Schick raus", "Schick die ab"
+        'rausschicken', # explizit
+        'raus',         # "Schick raus" — auch einzeln erkennbar im Kontext
+        'abschick',     # Variante
+    ))
     is_void = any(kw in text.lower() for kw in ('verwerfen', 'loeschen', 'löschen', 'stornieren'))
 
     if is_mod:
