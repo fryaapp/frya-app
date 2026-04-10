@@ -18,34 +18,34 @@ _CONF_TO_FLOAT = {
 class ResponseBuilder:
     CONTEXT_SUGGESTIONS = {
         Intent.SHOW_INBOX: [
-            {"label": "Abarbeiten", "chat_text": "Inbox abarbeiten", "style": "primary"},
-            {"label": "Nur dringende", "chat_text": "Nur dringende Belege", "style": "secondary"},
+            {"label": "Lass uns durchgehen", "chat_text": "Inbox abarbeiten", "style": "primary"},
+            {"label": "Nur die wichtigen", "chat_text": "Nur dringende Belege", "style": "secondary"},
         ],
         Intent.APPROVE: [
-            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
-            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
+            {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+            {"label": "Was liegt noch an?", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
         Intent.SHOW_FINANCE: [
             {"label": "EUeR als PDF", "chat_text": "EUeR als PDF", "style": "primary"},
             {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
-            {"label": "Ausgaben Detail", "chat_text": "Was waren meine groessten Ausgaben?", "style": "text"},
+            {"label": "Wo gebe ich am meisten aus?", "chat_text": "Was waren meine groessten Ausgaben?", "style": "text"},
         ],
         Intent.SHOW_BOOKINGS: [
-            {"label": "Filtern", "chat_text": "Buchungen im Maerz", "style": "secondary"},
-            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
+            {"label": "Nach Monat filtern", "chat_text": "Buchungen im Maerz", "style": "secondary"},
+            {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
         ],
         Intent.SHOW_CONTACT: [
-            {"label": "Fall bearbeiten", "chat_text": "Fall bearbeiten", "style": "primary"},
+            {"label": "Zum Fall", "chat_text": "Fall bearbeiten", "style": "primary"},
             {"label": "Rechnung schreiben", "chat_text": "Rechnung schreiben", "style": "secondary"},
-            {"label": "Naechster Fall", "chat_text": "Naechster Fall", "style": "text"},
+            {"label": "Naechster", "chat_text": "Naechster Fall", "style": "text"},
         ],
         Intent.SHOW_OPEN_ITEMS: [
-            {"label": "Mahnen", "chat_text": "Ueberfaellige mahnen", "style": "primary"},
-            {"label": "Details", "chat_text": "Zeig mir den aeltesten offenen Posten", "style": "secondary"},
+            {"label": "Mahnung schreiben", "chat_text": "Ueberfaellige mahnen", "style": "primary"},
+            {"label": "Wer wartet am laengsten?", "chat_text": "Zeig mir den aeltesten offenen Posten", "style": "secondary"},
         ],
         Intent.SHOW_DEADLINES: [
-            {"label": "Skonto nutzen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
-            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
+            {"label": "Skonto-Fristen pruefen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
+            {"label": "Was liegt in der Inbox?", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
         Intent.CREATE_INVOICE: [
             {"label": "Vorschau", "chat_text": "Zeig mir die Rechnung", "style": "primary"},
@@ -98,22 +98,22 @@ class ResponseBuilder:
             {"label": "Ausgaben", "chat_text": "Ausgaben nach Kategorie", "style": "text"},
         ],
         Intent.SHOW_CASE: [
-            {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary",
+            {"label": "Passt, freigeben", "chat_text": "Freigeben", "style": "primary",
              "quick_action": {"type": "approve", "params": {}}},
-            {"label": "Korrigieren", "chat_text": "Korrigieren", "style": "secondary"},
-            {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text",
+            {"label": "Muss korrigiert werden", "chat_text": "Korrigieren", "style": "secondary"},
+            {"label": "Nein, ablehnen", "chat_text": "Ablehnen", "style": "text",
              "quick_action": {"type": "reject", "params": {}}},
         ],
         Intent.PROCESS_INBOX: [
-            {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary"},
-            {"label": "Ueberspringen", "chat_text": "Naechster", "style": "secondary"},
-            {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text"},
+            {"label": "Passt, freigeben", "chat_text": "Freigeben", "style": "primary"},
+            {"label": "Naechster Beleg", "chat_text": "Naechster", "style": "secondary"},
+            {"label": "Nein, ablehnen", "chat_text": "Ablehnen", "style": "text"},
         ],
     }
 
     FALLBACK_SUGGESTIONS = [
-        {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
-        {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+        {"label": "Was liegt in der Inbox?", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
+        {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
     ]
 
     def build(
