@@ -255,7 +255,7 @@ async def generate_data_response(
                 api_key=config['api_key'],
                 api_base=config.get('base_url'),
             ),
-            timeout=5.0,
+            timeout=8.0,  # 8s: Cold-Start IONOS kann ~6-7s dauern, warm ~1.5s
         )
 
         raw = (resp.choices[0].message.content or '').strip()
@@ -270,13 +270,13 @@ async def generate_data_response(
         suggestions = [str(s) for s in parsed.get('suggestions', [])[:3]]
 
         if text:
-            logger.info('generate_data_response OK: %s | suggestions: %s', text[:60], suggestions)
+            logger.info('generate_data_response OK: %s | sugg=%s', text[:60], suggestions)
             return {'text': text, 'suggestions': suggestions}
 
-        logger.warning('generate_data_response: leerer text in JSON')
+        logger.warning('generate_data_response: leerer text in JSON | raw=%s', raw[:100])
 
     except asyncio.TimeoutError:
-        logger.warning('generate_data_response: Timeout (5s)')
+        logger.warning('generate_data_response: Timeout (8s) — Fallback auf Mistral+statisch')
     except Exception as exc:
         logger.warning('generate_data_response failed: %s', exc)
 
