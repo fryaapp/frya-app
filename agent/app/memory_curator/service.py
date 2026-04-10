@@ -326,24 +326,29 @@ class MemoryCuratorService:
                 first_of_month = today.replace(day=1)
 
                 summary = await _bsvc.get_finance_summary(tenant_id, first_of_month, today)
+                # ServiceResult → .data dict verwenden (kein .get() auf Pydantic-Objekt)
+                summary_data = summary.data if hasattr(summary, 'data') else (summary if isinstance(summary, dict) else {})
                 booking_lines = []
-                booking_lines.append(f'Einnahmen (Monat): {summary.get("total_income", 0):.2f} EUR')
-                booking_lines.append(f'Ausgaben (Monat): {summary.get("total_expense", 0):.2f} EUR')
-                booking_lines.append(f'Buchungen gesamt: {summary.get("booking_count", 0)}')
+                booking_lines.append(f'Einnahmen (Monat): {float(summary_data.get("total_income", 0)):.2f} EUR')
+                booking_lines.append(f'Ausgaben (Monat): {float(summary_data.get("total_expense", 0)):.2f} EUR')
+                booking_lines.append(f'Buchungen gesamt: {summary_data.get("booking_count", 0)}')
 
                 # EÜR breakdown for current year
                 try:
-                    euer = await _esvc.generate_euer(tenant_id, today.year)
-                    booking_lines.append(f'\nEÜR {today.year}:')
-                    booking_lines.append(f'  Einnahmen gesamt: {euer["total_income"]:.2f} EUR')
-                    if euer.get('income'):
-                        for acc, amt in list(euer['income'].items())[:5]:
-                            booking_lines.append(f'    {acc}: {amt:.2f} EUR')
-                    booking_lines.append(f'  Ausgaben gesamt: {euer["total_expenses"]:.2f} EUR')
-                    if euer.get('expenses'):
-                        for acc, amt in list(euer['expenses'].items())[:8]:
-                            booking_lines.append(f'    {acc}: {amt:.2f} EUR')
-                    booking_lines.append(f'  Gewinn/Verlust: {euer["profit"]:.2f} EUR')
+                    euer_result = await _esvc.generate_euer(tenant_id, today.year)
+                    # ServiceResult → .data dict verwenden
+                    euer = euer_result.data if hasattr(euer_result, 'data') else (euer_result if isinstance(euer_result, dict) else {})
+                    if euer:
+                        booking_lines.append(f'\nEÜR {today.year}:')
+                        booking_lines.append(f'  Einnahmen gesamt: {float(euer.get("total_income", 0)):.2f} EUR')
+                        if euer.get('income'):
+                            for acc, amt in list(euer['income'].items())[:5]:
+                                booking_lines.append(f'    {acc}: {float(amt):.2f} EUR')
+                        booking_lines.append(f'  Ausgaben gesamt: {float(euer.get("total_expenses", 0)):.2f} EUR')
+                        if euer.get('expenses'):
+                            for acc, amt in list(euer['expenses'].items())[:8]:
+                                booking_lines.append(f'    {acc}: {float(amt):.2f} EUR')
+                        booking_lines.append(f'  Gewinn/Verlust: {float(euer.get("profit", 0)):.2f} EUR')
                 except Exception as _euer_exc:
                     logger.warning('context_assembly: euer failed: %s', _euer_exc)
 

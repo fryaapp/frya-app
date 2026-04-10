@@ -20,7 +20,7 @@ case_status:
   CLOSED: "Abgeschlossen"
   ARCHIVED: "Archiviert"
   SENT: "Versendet"
-  OVERDUE: "Ueberfaellig"
+  OVERDUE: "Überfällig"
   PENDING: "Ausstehend"
   CANCELLED: "Storniert"
   ERROR: "Fehler"
@@ -128,8 +128,8 @@ reference_type:
   reference: "Referenz"
 
 ui:
-  OVERDUE: "Ueberfaellig"
-  DUE_SOON: "Bald faellig"
+  OVERDUE: "Überfällig"
+  DUE_SOON: "Bald fällig"
   ON_TIME: "Im Zeitplan"
   NO_DEADLINE: "Keine Frist"
   ACTIVE: "Aktiv"

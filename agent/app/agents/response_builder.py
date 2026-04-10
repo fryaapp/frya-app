@@ -18,55 +18,55 @@ _CONF_TO_FLOAT = {
 class ResponseBuilder:
     CONTEXT_SUGGESTIONS = {
         Intent.SHOW_INBOX: [
-            {"label": "Lass uns durchgehen", "chat_text": "Inbox abarbeiten", "style": "primary"},
-            {"label": "Nur die wichtigen", "chat_text": "Nur dringende Belege", "style": "secondary"},
+            {"label": "Alle durchgehen", "chat_text": "Inbox abarbeiten", "style": "primary"},
+            {"label": "Nur die dringenden", "chat_text": "Nur dringende Belege", "style": "secondary"},
         ],
         Intent.APPROVE: [
             {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
             {"label": "Was liegt noch an?", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
         Intent.SHOW_FINANCE: [
-            {"label": "EUeR als PDF", "chat_text": "EUeR als PDF", "style": "primary"},
+            {"label": "EÜR als PDF", "chat_text": "EÜR als PDF", "style": "primary"},
             {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
-            {"label": "Wo gebe ich am meisten aus?", "chat_text": "Was waren meine groessten Ausgaben?", "style": "text"},
+            {"label": "Wo gebe ich am meisten aus?", "chat_text": "Wo gebe ich am meisten aus?", "style": "text"},
         ],
         Intent.SHOW_BOOKINGS: [
-            {"label": "Nach Monat filtern", "chat_text": "Buchungen im Maerz", "style": "secondary"},
+            {"label": "Nach Monat filtern", "chat_text": "Buchungen im März", "style": "secondary"},
             {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
         ],
         Intent.SHOW_CONTACT: [
             {"label": "Zum Fall", "chat_text": "Fall bearbeiten", "style": "primary"},
             {"label": "Rechnung schreiben", "chat_text": "Rechnung schreiben", "style": "secondary"},
-            {"label": "Naechster", "chat_text": "Naechster Fall", "style": "text"},
+            {"label": "Nächster", "chat_text": "Nächster Fall", "style": "text"},
         ],
         Intent.SHOW_OPEN_ITEMS: [
-            {"label": "Mahnung schreiben", "chat_text": "Ueberfaellige mahnen", "style": "primary"},
-            {"label": "Wer wartet am laengsten?", "chat_text": "Zeig mir den aeltesten offenen Posten", "style": "secondary"},
+            {"label": "Mahnung schreiben", "chat_text": "Überfällige mahnen", "style": "primary"},
+            {"label": "Wer wartet am längsten?", "chat_text": "Zeig mir den ältesten offenen Posten", "style": "secondary"},
         ],
         Intent.SHOW_DEADLINES: [
-            {"label": "Skonto-Fristen pruefen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
+            {"label": "Skonto-Fristen prüfen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
             {"label": "Was liegt in der Inbox?", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
         Intent.CREATE_INVOICE: [
             {"label": "Vorschau", "chat_text": "Zeig mir die Rechnung", "style": "primary"},
         ],
         Intent.SHOW_EXPORT: [
-            {"label": "EUeR dazu", "chat_text": "EUeR als PDF", "style": "secondary"},
+            {"label": "EÜR dazu", "chat_text": "EÜR als PDF", "style": "secondary"},
         ],
         Intent.SETTINGS: [
-            {"label": "Profil bearbeiten", "chat_text": "Firmendaten aendern", "style": "primary"},
+            {"label": "Profil bearbeiten", "chat_text": "Firmendaten ändern", "style": "primary"},
             {"label": "Dunkelmodus", "chat_text": "Dunkelmodus an", "style": "secondary"},
             {"label": "Heller Modus", "chat_text": "Heller Modus", "style": "secondary"},
         ],
         Intent.UPLOAD: [
-            {"label": "Inbox pruefen", "chat_text": "Was liegt in der Inbox?", "style": "primary"},
+            {"label": "Inbox prüfen", "chat_text": "Was liegt in der Inbox?", "style": "primary"},
         ],
         Intent.CHOOSE_TEMPLATE: [
-            {"label": "Clean", "chat_text": "Clean-Template waehlen", "style": "primary",
+            {"label": "Clean", "chat_text": "Clean-Template wählen", "style": "primary",
              "quick_action": {"type": "set_template", "params": {"template": "clean"}}},
-            {"label": "Professional", "chat_text": "Professional-Template waehlen", "style": "secondary",
+            {"label": "Professional", "chat_text": "Professional-Template wählen", "style": "secondary",
              "quick_action": {"type": "set_template", "params": {"template": "professional"}}},
-            {"label": "Minimal", "chat_text": "Minimal-Template waehlen", "style": "text",
+            {"label": "Minimal", "chat_text": "Minimal-Template wählen", "style": "text",
              "quick_action": {"type": "set_template", "params": {"template": "minimal"}}},
         ],
         Intent.SET_TEMPLATE: [
@@ -77,7 +77,7 @@ class ResponseBuilder:
             {"label": "Logo hochladen", "chat_text": "Logo hochladen", "style": "primary"},
         ],
         Intent.SHOW_FINANCIAL_OVERVIEW: [
-            {"label": "Ausgaben Detail", "chat_text": "Ausgaben nach Kategorie", "style": "primary"},
+            {"label": "Ausgaben nach Kategorie", "chat_text": "Ausgaben nach Kategorie", "style": "primary"},
             {"label": "Gewinn/Verlust", "chat_text": "Wie ist mein Gewinn?", "style": "secondary"},
             {"label": "Prognose", "chat_text": "Hochrechnung", "style": "text"},
         ],
@@ -106,7 +106,7 @@ class ResponseBuilder:
         ],
         Intent.PROCESS_INBOX: [
             {"label": "Passt, freigeben", "chat_text": "Freigeben", "style": "primary"},
-            {"label": "Naechster Beleg", "chat_text": "Naechster", "style": "secondary"},
+            {"label": "Nächster Beleg", "chat_text": "Nächster", "style": "secondary"},
             {"label": "Nein, ablehnen", "chat_text": "Ablehnen", "style": "text"},
         ],
     }
@@ -255,11 +255,12 @@ class ResponseBuilder:
                 kv_items.append({"label": label, "value": str(value)})
 
         _add("Lieferant", item.get('vendor'))
-        _add("Belegtyp", item.get('document_type'))
+        _add("Belegtyp", t_doc_type(str(item.get('document_type', '') or '')))
         if item.get('amount') is not None:
             _add("Betrag", self._eur(item.get('amount')))
-        _add("Status", item.get('status'))
-        _add("Vertrauen", item.get('confidence_label'))
+        # Sprint-03-04: Status auf Deutsch übersetzen (BOOKED → Gebucht, DRAFT → Entwurf)
+        _add("Status", t_status(str(item.get('status', '') or '')))
+        _add("Vertrauen", t_confidence(str(item.get('confidence_label', '') or '')))
         # Felder aus document_analysis.fields
         fields = item.get('fields', {})
         if isinstance(fields, dict):
@@ -273,7 +274,7 @@ class ResponseBuilder:
             due_raw = fields.get('due_date')
             formatted_due = self._fmt_date(due_raw)
             if formatted_due:
-                _add("Faellig am", formatted_due)
+                _add("Fällig am", formatted_due)
         if kv_items:
             blocks.append({"block_type": "key_value", "data": {"title": "Details", "items": kv_items}})
         return blocks
@@ -354,7 +355,7 @@ class ResponseBuilder:
                 "title": str(op.get("contact_name", op.get("vendor", op.get("description", "?")))),
                 "subtitle": str(op.get("due_date", "")),
                 "amount": self._eur(op.get("remaining_amount", op.get("amount", op.get("original_amount", 0)))),
-                "badge": {"label": f"{days}d ueberfaellig" if overdue else "Offen", "color": "error" if overdue else "warning"},
+                "badge": {"label": f"{days}d überfällig" if overdue else "Offen", "color": "error" if overdue else "warning"},
             })
         blocks: list[dict] = []
         # P-11 A2: KPI + summary chart for OP
@@ -366,7 +367,7 @@ class ResponseBuilder:
             "center_value": self._eur(total_open),
             "center_label": "Gesamt offen",
             "series": [
-                {"label": "Ueberfaellig", "value": overdue_count, "color": "#FF8A80"},
+                {"label": "Überfällig", "value": overdue_count, "color": "#FF8A80"},
                 {"label": "Offen", "value": len(items) - overdue_count, "color": "#FFD54F"},
             ],
         }})
@@ -385,7 +386,7 @@ class ResponseBuilder:
                 continue
             days = d.get("days_remaining", d.get("days", 99))
             color = "error" if days < 0 else "warning" if days <= 7 else "info" if days <= 30 else "success"
-            label_text = "Ueberfaellig" if days < 0 else f"{days} Tage"
+            label_text = "Überfällig" if days < 0 else f"{days} Tage"
             cards.append({
                 "title": str(d.get("vendor", d.get("name", d.get("description", d.get("title", "?"))))),
                 "subtitle": str(d.get("due_date", "")),
@@ -444,7 +445,7 @@ class ResponseBuilder:
                     "title": str(op.get("description", "OP")),
                     "subtitle": str(op.get("due_date", "")),
                     "amount": self._eur(op.get("amount", 0)),
-                    "badge": {"label": "Ueberfaellig" if op.get("overdue") else "Offen", "color": "error" if op.get("overdue") else "warning"},
+                    "badge": {"label": "Überfällig" if op.get("overdue") else "Offen", "color": "error" if op.get("overdue") else "warning"},
                 }
                 for op in open_items if isinstance(op, dict)
             ]
@@ -489,12 +490,12 @@ class ResponseBuilder:
                 },
                 {
                     "title": "Professional",
-                    "subtitle": "Klassisch mit Header — fuer Geschaeftskunden",
+                    "subtitle": "Klassisch mit Header — für Geschäftskunden",
                     "thumbnail_url": "/api/v1/invoice-templates/professional/preview",
                 },
                 {
                     "title": "Minimal",
-                    "subtitle": "Nur das Noetigste — fuer Freelancer",
+                    "subtitle": "Nur das Nötigste — für Freelancer",
                     "thumbnail_url": "/api/v1/invoice-templates/minimal/preview",
                 },
             ]}
@@ -504,7 +505,7 @@ class ResponseBuilder:
         """Confirmation after template selection."""
         if results.get('content_blocks'):
             return results['content_blocks']
-        return [{"block_type": "alert", "data": {"severity": "success", "text": results.get("text", "Template geaendert.")}}]
+        return [{"block_type": "alert", "data": {"severity": "success", "text": results.get("text", "Template geändert.")}}]
 
     def _blocks_upload_logo(self, results: dict) -> list[dict]:
         """Blocks for logo upload flow."""
@@ -639,11 +640,11 @@ class ResponseBuilder:
         if inv_nr and not str(inv_nr).upper().startswith("CASE-"):
             _add("Belegnr.", inv_nr)
 
-        # 6. Faellig am
+        # 6. Fällig am
         due_raw = fields.get("due_date") or case.get("due_date")
         formatted_due = self._fmt_date(due_raw)
         if formatted_due:
-            _add("Faellig am", formatted_due)
+            _add("Fällig am", formatted_due)
 
         # 7. MwSt
         tax_rate = fields.get("tax_rate") or case.get("tax_rate")
@@ -963,8 +964,8 @@ class ResponseBuilder:
                     "quick_action": {"type": "approve", "params": {"case_id": cid}},
                 },
                 {
-                    "label": "Ueberspringen",
-                    "chat_text": "Naechster",
+                    "label": "Überspringen",
+                    "chat_text": "Nächster",
                     "style": "secondary",
                     "quick_action": {"type": "defer", "params": {"case_id": cid}},
                 },

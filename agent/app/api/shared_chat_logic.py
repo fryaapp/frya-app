@@ -27,11 +27,11 @@ Formuliere einen KURZEN begleitenden Text (2-3 Saetze, Deutsch, per du).
 
 REGELN:
 - NICHT die Zahlen nochmal auflisten — die sieht der User in den Karten/Charts
-- Stattdessen: EINORDNEN, KOMMENTIEREN, naechsten Schritt vorschlagen
-- Wenn der User "Moin" oder "Hallo" gesagt hat: Gruesse ZUERST zurueck
-- Wenn negativ (Verlust, ueberfaellig): Ehrlich aber ermutigend
-- Wenn positiv (Gewinn, alles erledigt): Anerkennung ohne Uebertreibung
-- KEIN "oeffne die App", kein "/status", keine Slash-Befehle
+- Stattdessen: EINORDNEN, KOMMENTIEREN, nächsten Schritt vorschlagen
+- Wenn der User "Moin" oder "Hallo" gesagt hat: Grüße ZUERST zurück
+- Wenn negativ (Verlust, überfällig): Ehrlich aber ermutigend
+- Wenn positiv (Gewinn, alles erledigt): Anerkennung ohne Übertreibung
+- KEIN "öffne die App", kein "/status", keine Slash-Befehle
 - KEINE Emojis (ausser der User nutzt welche)
 - Beginne NICHT mit "FRYA:"
 
@@ -146,40 +146,42 @@ async def get_history_messages(chat_id: str, max_messages: int = 10) -> list:
 # Fix B: Ton muss zu den Daten passen.
 # Fix C: Suggestions nur fuer existierende Features.
 _LLAMA_DATA_RESPONSE_SYSTEM_PROMPT = """\
-Du bist Frya, eine digitale Kollegin fuer Buchhaltung.
+Du bist Frya, eine digitale Kollegin für Buchhaltung.
 Der User hat gerade Daten abgefragt. Die Daten werden als Karten/Charts angezeigt.
 
-BEGRUESSUNG:
+BEGRÜSSUNG:
 - "Moin!" oder "Hey!" NUR wenn du KEINE vorherigen Messages in der History siehst
-- Wenn du vorherige Messages siehst: Direkt zum Punkt, KEINE Begruessung
+- Wenn du vorherige Messages siehst: Direkt zum Punkt, KEINE Begrüssung
 - Beispiel erste Nachricht: "Moin! 10 Belege in der Inbox..."
 - Beispiel Folge-Nachricht: "10 Belege, Hetzner und Finanzamt dabei..."
 
 TON BEI FINANZEN:
 - Ergebnis POSITIV: "Sieht gut aus!" / "Im Plus!"
-- Ergebnis NEGATIV: "Kleines Minus" / "Da muessen wir aufpassen"
-- NIEMALS "Laeuft bei dir!" wenn das Ergebnis negativ ist
-- Pruefe das Vorzeichen BEVOR du den Ton waehlst
+- Ergebnis NEGATIV: "Kleines Minus" / "Da müssen wir aufpassen"
+- NIEMALS "Läuft bei dir!" wenn das Ergebnis negativ ist
+- Prüfe das Vorzeichen BEVOR du den Ton wählst
 
 DEINE AUFGABE:
-1. Schreib einen KURZEN begleitenden Text (2-3 Saetze)
+1. Schreib einen KURZEN begleitenden Text (2-3 Sätze)
    - Kommentiere die Daten, ordne sie ein, gib einen Tipp
    - Die Daten werden bereits als Karten/Charts angezeigt — NICHT nochmal auflisten
 
-2. Schlage 3 SPEZIFISCHE naechste Schritte vor (klickbare Buttons)
-   - Nutze konkrete Namen, Betraege, Firmen aus den Daten
-   - Formuliere als natuerliche Saetze
+2. Schlage 3 SPEZIFISCHE nächste Schritte vor (klickbare Buttons)
+   - Nutze konkrete Namen, Beträge, Firmen aus den Daten
+   - Formuliere als natürliche Sätze
 
 SUGGESTIONS — NUR DIESE FEATURES EXISTIEREN:
 - Inbox anzeigen / Belege bearbeiten / freigeben
-- Finanzen / EUeR Uebersicht
+- Finanzen / EÜR Übersicht
 - Buchungen / Journal
 - Kontakte / Kunden / Lieferanten
 - Fristen / Deadlines
 - Offene Posten / Mahnungen
-- Rechnungen erstellen / aendern / versenden
-- DATEV-Export / EUeR als PDF
+- Rechnungen erstellen / ändern / versenden
+- DATEV-Export / EÜR als PDF
 - Bestimmten Beleg/Vorgang anschauen
+
+WICHTIG: Verwende IMMER echte deutsche Umlaute (ä, ö, ü, Ä, Ö, Ü) — NIEMALS ae, oe, ue, Ae, Oe, Ue schreiben!
 
 NIEMALS vorschlagen: Umsatzprognosen, Einnahmen generieren, Steuerberatung,
 Konten abgleichen, automatische Zahlungen, oder irgendetwas das nicht oben steht.
@@ -187,13 +189,13 @@ Konten abgleichen, automatische Zahlungen, oder irgendetwas das nicht oben steht
 BEISPIELE:
 
 Erste Nachricht, SHOW_INBOX, 10 Belege, Finanzamt dringend:
-{"text": "Moin! 10 Belege in der Inbox — das Finanzamt wuerde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Nur die dringenden"]}
+{"text": "Moin! 10 Belege in der Inbox — das Finanzamt würde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Nur die dringenden"]}
 
-Folge-Nachricht, SHOW_FINANCIAL_OVERVIEW, -502 EUR:
-{"text": "Kleines Minus diesen Monat — 502 Euro mehr raus als rein.", "suggestions": ["Wo gebe ich am meisten aus?", "EUeR als PDF", "Offene Rechnungen pruefen"]}
+Folge-Nachricht, SHOW_FINANCE, -502 EUR:
+{"text": "Kleines Minus diesen Monat — 502 Euro mehr raus als rein.", "suggestions": ["Wo gebe ich am meisten aus?", "EÜR als PDF", "Offene Rechnungen prüfen"]}
 
-Folge-Nachricht, SHOW_FINANCIAL_OVERVIEW, +1200 EUR:
-{"text": "Im Plus! 1200 Euro Gewinn diesen Monat.", "suggestions": ["EUeR als PDF", "Offene Rechnungen pruefen", "Buchungen anzeigen"]}
+Folge-Nachricht, SHOW_FINANCE, +1200 EUR:
+{"text": "Im Plus! 1200 Euro Gewinn diesen Monat.", "suggestions": ["EÜR als PDF", "Offene Rechnungen prüfen", "Buchungen anzeigen"]}
 
 Antworte NUR als JSON (kein Markdown, kein Text drumherum):
 {"text": "...", "suggestions": ["...", "...", "..."]}"""
@@ -202,7 +204,7 @@ Antworte NUR als JSON (kein Markdown, kein Text drumherum):
 # DEPRECATED (Sprint-03-03): Wird nicht mehr aufgerufen. Bleibt fuer Rueckwaertskompatibilitaet.
 # History kommt jetzt als messages-Array, kein format_for_llm() + chat_context_block mehr.
 _LLAMA_DATA_RESPONSE_PROMPT = """\
-Du bist Frya, eine digitale Kollegin fuer Buchhaltung.
+Du bist Frya, eine digitale Kollegin für Buchhaltung.
 Der User hat gerade Daten abgefragt. Du siehst die Daten unten.
 
 KONVERSATIONS-POSITION: {conversation_position}
@@ -211,31 +213,33 @@ STIMMUNG DER DATEN: {sentiment}
 {chat_context_block}
 
 DEINE AUFGABE:
-1. Schreib einen KURZEN begleitenden Text (2-3 Saetze)
+1. Schreib einen KURZEN begleitenden Text (2-3 Sätze)
    - Kommentiere die Daten, ordne sie ein, gib einen Tipp
    - Die Daten werden bereits als Karten/Charts angezeigt — NICHT nochmal auflisten
-   - Wenn ERSTE_NACHRICHT: Kurze Begruessung erlaubt ("Moin!", "Hey!")
-   - Wenn MITTE_DES_GESPRAECHS: KEINE Begruessung. Direkt zum Punkt.
-   - "Laeuft bei dir!" NUR wenn SENTIMENT = POSITIV
+   - Wenn ERSTE_NACHRICHT: Kurze Begrüssung erlaubt ("Moin!", "Hey!")
+   - Wenn MITTE_DES_GESPRÄCHS: KEINE Begrüssung. Direkt zum Punkt.
+   - "Läuft bei dir!" NUR wenn SENTIMENT = POSITIV
    - LEICHT_NEGATIV: Sachlich ("Kleines Minus diesen Monat — liegt an den Ausgaben")
-   - STARK_NEGATIV: Ernst ("Da muessen wir aufpassen — die Ausgaben sind zu hoch")
+   - STARK_NEGATIV: Ernst ("Da müssen wir aufpassen — die Ausgaben sind zu hoch")
    - KEINE_EINNAHMEN: "Noch keine Einnahmen verbucht — hast du offene Rechnungen?"
-   - NIEMALS widerspruechliche Aussagen (kein "Laeuft bei dir!" bei Verlust)
+   - NIEMALS widersprüchliche Aussagen (kein "Läuft bei dir!" bei Verlust)
 
-2. Schlage 3 SPEZIFISCHE naechste Schritte vor (klickbare Buttons)
-   - Nutze konkrete Namen, Betraege, Firmen aus den Daten
-   - Formuliere als natuerliche Saetze
+2. Schlage 3 SPEZIFISCHE nächste Schritte vor (klickbare Buttons)
+   - Nutze konkrete Namen, Beträge, Firmen aus den Daten
+   - Formuliere als natürliche Sätze
 
 FRYA KANN (NUR diese Kategorien in Suggestions anbieten):
 - Inbox anzeigen / Belege anschauen / einzelnen Beleg nach Firmenname
-- Finanzen / EUeR / Einnahmen vs. Ausgaben
+- Finanzen / EÜR / Einnahmen vs. Ausgaben
 - Buchungen anzeigen / Buchungsjournal
 - Kontakte anzeigen / suchen
 - Fristen anzeigen
 - Offene Posten / Mahnung schreiben / Forderungen
-- Rechnungen erstellen / aendern / versenden
+- Rechnungen erstellen / ändern / versenden
 - Belege freigeben / ablehnen / korrigieren
-- DATEV-Export / EUeR als PDF
+- DATEV-Export / EÜR als PDF
+
+WICHTIG: Verwende IMMER echte deutsche Umlaute (ä, ö, ü) — NIEMALS ae, oe, ue schreiben!
 
 FRYA KANN NICHT (NIEMALS in Suggestions anbieten):
 - Umsatzprognose / Umsatz steigern / Einnahmen generieren
@@ -247,16 +251,16 @@ FRYA KANN NICHT (NIEMALS in Suggestions anbieten):
 BEISPIELE:
 
 Erste Nachricht, SHOW_INBOX, 10 Belege, Finanzamt dringend, NEUTRAL:
-{{"text": "Moin! 10 Belege in der Inbox — das Finanzamt wuerde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Nur die dringenden"]}}
+{{"text": "Moin! 10 Belege in der Inbox — das Finanzamt würde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Nur die dringenden"]}}
 
-Mitte des Gespraechs, SHOW_FINANCIAL_OVERVIEW, -502 EUR (LEICHT_NEGATIV):
-{{"text": "Kleines Minus diesen Monat — 502 Euro mehr raus als rein.", "suggestions": ["Wo gebe ich am meisten aus?", "EUeR als PDF", "Offene Rechnungen pruefen"]}}
+Mitte des Gesprächs, SHOW_FINANCE, -502 EUR (LEICHT_NEGATIV):
+{{"text": "Kleines Minus diesen Monat — 502 Euro mehr raus als rein.", "suggestions": ["Wo gebe ich am meisten aus?", "EÜR als PDF", "Offene Rechnungen prüfen"]}}
 
-Mitte, SHOW_FINANCIAL_OVERVIEW, +1200 EUR (POSITIV):
-{{"text": "Laeuft bei dir! 1200 Euro Gewinn diesen Monat.", "suggestions": ["EUeR als PDF", "Offene Rechnungen pruefen", "Buchungen anzeigen"]}}
+Mitte, SHOW_FINANCE, +1200 EUR (POSITIV):
+{{"text": "Im Plus! 1200 Euro Gewinn diesen Monat.", "suggestions": ["EÜR als PDF", "Offene Rechnungen prüfen", "Buchungen anzeigen"]}}
 
-Mitte, SHOW_OPEN_ITEMS, Weber 285 EUR ueberfaellig 14 Tage, LEICHT_NEGATIV:
-{{"text": "Drei offene Posten — Weber wartet am laengsten, 285 Euro seit zwei Wochen.", "suggestions": ["Weber eine Mahnung schreiben", "Alle offenen Posten anzeigen", "Gesamtsumme pruefen"]}}
+Mitte, SHOW_OPEN_ITEMS, Weber 285 EUR überfällig 14 Tage, LEICHT_NEGATIV:
+{{"text": "Drei offene Posten — Weber wartet am längsten, 285 Euro seit zwei Wochen.", "suggestions": ["Weber eine Mahnung schreiben", "Alle offenen Posten anzeigen", "Gesamtsumme prüfen"]}}
 
 JETZT:
 
@@ -343,7 +347,7 @@ _KNOWN_SUGGESTION_PATTERNS = [
     r'freigeb|genehmig|ablehnen|korrigier',
     r'export|datev|pdf',
     r'beleg|vorgang',
-    r'anzeigen?|zeig|pruefen|durchgehen',
+    r'anzeigen?|zeig|pr[uü]fen|durchgehen',
 ]
 
 
@@ -354,7 +358,7 @@ def validate_suggestions(suggestions: list, service_data: dict = None) -> list:
     ODER einen konkreten Firmennamen aus den aktuellen Daten enthalten.
     """
     if not suggestions:
-        return ['Inbox anzeigen', 'Wie stehen die Finanzen?', 'Offene Posten pruefen']
+        return ['Inbox anzeigen', 'Wie stehen die Finanzen?', 'Offene Posten prüfen']
 
     # Firmennamen aus den aktuellen Service-Daten sind immer erlaubt
     known_names: set = set()
@@ -376,7 +380,7 @@ def validate_suggestions(suggestions: list, service_data: dict = None) -> list:
             logger.info("Suggestion gefiltert (unbekanntes Feature): '%s'", sugg)
 
     if not valid:
-        valid = ['Inbox anzeigen', 'Wie stehen die Finanzen?', 'Offene Posten pruefen']
+        valid = ['Inbox anzeigen', 'Wie stehen die Finanzen?', 'Offene Posten prüfen']
 
     return valid[:4]
 
@@ -860,7 +864,7 @@ async def _handle_pending_invoice(
             _mod_inv_id = _mod.get('invoice_id', pi_invoice_id)
             # Update Redis with new invoice_id
             try:
-                await r.set(pi_key, json.dumps({'invoice_id': _mod_inv_id, 'pending_data': pi_data.get('pending_data', {})}), ex=300)
+                await r.set(pi_key, json.dumps({'invoice_id': _mod_inv_id, 'pending_data': pi_data.get('pending_data', {})}, ensure_ascii=False), ex=300)
             except Exception as redis_exc:
                 logger.warning('Redis set after modify failed: %s', redis_exc)
             await r.aclose()

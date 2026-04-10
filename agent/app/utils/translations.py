@@ -47,3 +47,13 @@ def t_agent(agent_id: str) -> str:
 
 def t_agent_icon(agent_id: str) -> str:
     return t('agent_icons', agent_id, fallback='')
+
+
+def translate_status(status: str) -> str:
+    """Sprint-03-04: Oeffentliche Funktion fuer Status-Uebersetzung.
+    Alias fuer t_status() — fuer Import in anderen Modulen.
+    Gibt den Original-String zurueck wenn keine Uebersetzung existiert.
+    """
+    if not status:
+        return status
+    return t_status(status.upper())

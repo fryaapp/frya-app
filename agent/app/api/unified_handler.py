@@ -697,7 +697,7 @@ async def handle_user_message(
                 await rc.set(pk, json.dumps({
                     'action': 'confirm_proposed', 'case_ref': case_ref,
                     'original_text': reply_text[:200], 'confirm_text': reply_text[:200], 'params': {},
-                }), ex=300)
+                }, ensure_ascii=False), ex=300)
         except Exception:
             pass  # P3
 
