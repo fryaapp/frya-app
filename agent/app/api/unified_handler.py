@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from typing import Any
 
@@ -399,6 +400,8 @@ async def handle_user_message(
     )
 
     text = message
+    _t0 = time.monotonic()
+    _tp = _t0  # rolling timestamp for per-phase delta
 
     # === Phase 0: Pending-Flow Resume (P-10 A3) ===
     if pending_flow and isinstance(pending_flow, dict):
@@ -459,6 +462,7 @@ async def handle_user_message(
             return await handle_invoice_draft_review(text, pf_invoice_id, pf_data, user_id, tenant_id)
 
     # === Phase 0b: Pending Action Confirmation (P-43 Fix D) ===
+    _now = time.monotonic(); logger.info('[PERF] Phase0 pending-flow: %.3fs', _now - _tp); _tp = _now
     cleaned_msg = text.lower().strip().rstrip('.!?')
     # P2: "Ja, aber aendere..." ist KEINE Confirmation
     is_confirm = cleaned_msg in _CONFIRMATION_WORDS and not _is_confirmation_with_modification(text)
@@ -470,6 +474,7 @@ async def handle_user_message(
             return pa_result
 
     # === Phase 1: TieredOrchestrator intent routing ===
+    _now = time.monotonic(); logger.info('[PERF] Phase0b pending-action: %.3fs', _now - _tp); _tp = _now
     if quick_action and isinstance(quick_action, dict):
         qa_params = quick_action.get('params', {})
         qa_params['user_id'] = user_id
@@ -489,6 +494,7 @@ async def handle_user_message(
             logger.warning('TieredOrchestrator failed: %s', exc)
 
     # Phase 1a: ActionRouter short-circuit
+    _now = time.monotonic(); logger.info('[PERF] Phase1 orchestrator: %.3fs intent=%s routing=%s', _now - _tp, tier_intent, tier_routing); _tp = _now
     if tier_routing == 'action_router' and isinstance(routing_result.get('result'), dict):
         ar = routing_result['result']
         _save_history(user_id, text, ar.get('text', ''))
@@ -541,6 +547,8 @@ async def handle_user_message(
     if sc_reply is None and tier_intent in _CHART_SHORTCIRCUIT_INTENTS:
         sc_reply, sc_data = await handle_chart_shortcircuit(tier_intent, tenant_id)
 
+    _now = time.monotonic(); logger.info('[PERF] Phase1b shortcircuit: %.3fs intent=%s sc=%s', _now - _tp, tier_intent, sc_reply is not None); _tp = _now
+
     if sc_reply is not None:
         ctx = _TIER_INTENT_TO_CONTEXT.get(tier_intent, 'none')
         sc_blocks: list = []
@@ -558,6 +566,7 @@ async def handle_user_message(
             if raw_a and any(a.get('quick_action') for a in raw_a):
                 sc_actions = raw_a
         _save_history(user_id, text, sc_reply)
+        logger.info('[PERF] TOTAL(shortcircuit): %.3fs', time.monotonic() - _t0)
         return _build_response(
             text=sc_reply, content_blocks=sc_blocks, actions=sc_actions,
             context_type=ctx, routing=tier_routing,
@@ -585,6 +594,7 @@ async def handle_user_message(
     except Exception:
         pass
     await _run_business_info_extraction(text, user_id, tenant_id)
+    _now = time.monotonic(); logger.info('[PERF] Phase2 communicator: %.3fs', _now - _tp); _tp = _now
 
     # Context type
     if tier_intent and tier_intent in _TIER_INTENT_TO_CONTEXT:
@@ -621,6 +631,7 @@ async def handle_user_message(
 
     if tier_intent == Intent.SHOW_INBOX and 'alle' in text.lower() and ('zeig' in text.lower() or 'beleg' in text.lower()):
         agent_results['show_all'] = True
+    _now = time.monotonic(); logger.info('[PERF] Phase3 service-data: %.3fs intent=%s', _now - _tp, tier_intent); _tp = _now
 
     # === Phase 4: ResponseBuilder ===
     content_blocks: list = []
@@ -636,6 +647,7 @@ async def handle_user_message(
 
     if reply_text:
         reply_text = re.sub(r'^FRYA:\s*', '', reply_text)
+    _now = time.monotonic(); logger.info('[PERF] Phase4 response-builder: %.3fs', _now - _tp); _tp = _now
 
     # === Phase 2b: Invoice Pipeline ===
     next_pf: dict | None = None
@@ -701,7 +713,9 @@ async def handle_user_message(
         except Exception:
             pass  # P3
 
+    _now = time.monotonic(); logger.info('[PERF] Phase2b+2c+sync: %.3fs', _now - _tp); _tp = _now
     _save_history(user_id, text, reply_text)
+    logger.info('[PERF] TOTAL(full): %.3fs intent=%s routing=%s', time.monotonic() - _t0, tier_intent, tier_routing)
     return _build_response(
         text=reply_text, content_blocks=content_blocks, actions=actions,
         case_ref=case_ref, context_type=context_type, routing=tier_routing,
