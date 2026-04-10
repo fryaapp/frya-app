@@ -18,7 +18,8 @@ interface GreetingResponse {
 
 export function GreetingScreen() {
   const startChat = useFryaStore((s) => s.startChat)
-  const messageCount = useFryaStore((s) => s.messages.length)
+  // messageCount not used (back-to-chat button removed in Sprint-04)
+  // const messageCount = useFryaStore((s) => s.messages.length)
   const [data, setData] = useState<GreetingResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [bugOpen, setBugOpen] = useState(false)
@@ -198,7 +199,7 @@ export function GreetingScreen() {
           ) : (
             <div style={{ marginBottom: 28, animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both' }}>
               <h1 style={{
-                fontFamily: "'Outfit', sans-serif",
+                fontFamily: "'Playfair Display', serif",
                 fontSize: 34,
                 fontWeight: 700,
                 color: 'var(--frya-on-surface)',
@@ -241,46 +242,15 @@ export function GreetingScreen() {
             </div>
           )}
 
-          {/* ── Back to chat button ── */}
-          {messageCount > 0 && (
-            <div style={{ marginBottom: 20, animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 150ms both' }}>
-              <button
-                onClick={() => startChat()}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                  padding: '11px 22px', fontSize: 13, fontWeight: 600,
-                  fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  borderRadius: 22, border: 'none',
-                  background: 'var(--frya-primary)', color: 'var(--frya-on-primary)',
-                  cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                }}
-              >
-                <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chat</span>
-                Zurück zum Chat ({messageCount})
-              </button>
-            </div>
-          )}
-
-          {/* ── Primaere Aktionen — volle Breite, vertikal ── */}
+          {/* ── Primaere Aktionen — 3 Buttons, volle Breite, vertikal ── */}
           <div style={{
             display: 'flex', flexDirection: 'column', gap: 10,
             width: '100%', maxWidth: 320, margin: '0 auto',
-            animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both',
+            animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 150ms both',
           }}>
             <PrimaryChip icon="inbox" label="Inbox" badge={inboxCount > 0 ? inboxCount : undefined} onClick={() => handleChip('Inbox')} />
             <PrimaryChip icon="bar_chart" label="Finanzen" onClick={() => handleChip('Finanzen')} />
-            <PrimaryChip icon="cloud_upload" label="Belege einwerfen" onClick={() => handleChip('Belege einwerfen')} />
-          </div>
-
-          {/* ── Sekundaere Aktionen ── */}
-          <div style={{
-            display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap',
-            marginTop: 12,
-            animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both',
-          }}>
-            <SecondaryChip label="EÜR" onClick={() => handleChip('EÜR')} />
-            <SecondaryChip label="Fristen" onClick={() => handleChip('Fristen')} />
-            <SecondaryChip label="Export" onClick={() => handleChip('Export')} />
+            <PrimaryChip icon="receipt_long" label="Rechnung erstellen" onClick={() => handleChip('Rechnung erstellen')} />
           </div>
 
         </div>
@@ -364,32 +334,6 @@ function PrimaryChip({ icon, label, badge, onClick }: PrimaryChipProps) {
           {badge}
         </span>
       )}
-    </button>
-  )
-}
-
-// ── SecondaryChip ────────────────────────────────────────────────────────────
-
-function SecondaryChip({ label, onClick }: { label: string; onClick: () => void }) {
-  const [hovered, setHovered] = useState(false)
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        padding: '8px 18px', borderRadius: 14,
-        background: hovered ? 'var(--frya-surface-container-high)' : 'transparent',
-        border: `1px solid ${hovered ? 'var(--frya-primary)' : 'var(--frya-outline-variant)'}`,
-        color: hovered ? 'var(--frya-on-surface)' : 'var(--frya-on-surface-variant)',
-        fontSize: 13, fontWeight: 400,
-        fontFamily: "'Plus Jakarta Sans', sans-serif",
-        cursor: 'pointer', transition: 'all 0.15s ease',
-      }}
-    >
-      {label}
     </button>
   )
 }

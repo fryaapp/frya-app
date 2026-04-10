@@ -135,70 +135,60 @@ async def get_history_messages(chat_id: str, max_messages: int = 10) -> list:
 
 
 # ============================================================
-# Llama Data-Response: Text + Suggestions in einem Call (Sprint-02-08)
-# Ersetzt: _format_data_text() (Mistral, nur Text) + CONTEXT_SUGGESTIONS (statisch)
-# Modell: Llama 3.3 70B auf IONOS (~2.4s), Fallback: Mistral-Text + statisch
+# Sprint-04: Sonnet für Text + Suggestions (Llama nur noch Intent-Classify)
+# Modell: Claude Sonnet 4.6 via AWS Bedrock (communicator-Slot)
+# Llama 3.3 70B (orchestrator_router) macht NUR noch Intent-Classify — KEIN Text mehr
 # ============================================================
 
-# Sprint-03-03: Neuer statischer System-Prompt fuer Llama Data-Response.
-# History kommt als echtes messages-Array — kein {chat_context_block} mehr.
-# Fix A: Kein "Moin!" mitten im Gespraech.
-# Fix B: Ton muss zu den Daten passen.
-# Fix C: Suggestions nur fuer existierende Features.
-_LLAMA_DATA_RESPONSE_SYSTEM_PROMPT = """\
-Du bist Frya, eine digitale Kollegin für Buchhaltung.
-Der User hat gerade Daten abgefragt. Die Daten werden als Karten/Charts angezeigt.
+# Sprint-04: Sonnet-Prompt für Daten-Intents. Ein Call, ein JSON-Output.
+_SONNET_DATA_RESPONSE_SYSTEM_PROMPT = """Du bist Frya, eine digitale Kollegin für Buchhaltung.
+Der User hat Daten abgefragt. Die Daten werden als Karten und Charts angezeigt.
 
-BEGRÜSSUNG:
-- "Moin!" oder "Hey!" NUR wenn du KEINE vorherigen Messages in der History siehst
-- Wenn du vorherige Messages siehst: Direkt zum Punkt, KEINE Begrüssung
-- Beispiel erste Nachricht: "Moin! 10 Belege in der Inbox..."
-- Beispiel Folge-Nachricht: "10 Belege, Hetzner und Finanzamt dabei..."
+DEINE AUFGABE — antworte als JSON:
+{"text": "Dein Text (2-3 Sätze)", "suggestions": ["Vorschlag 1", "Vorschlag 2", "Vorschlag 3"]}
 
-TON BEI FINANZEN:
-- Ergebnis POSITIV: "Sieht gut aus!" / "Im Plus!"
-- Ergebnis NEGATIV: "Kleines Minus" / "Da müssen wir aufpassen"
-- NIEMALS "Läuft bei dir!" wenn das Ergebnis negativ ist
-- Prüfe das Vorzeichen BEVOR du den Ton wählst
+TEXT-REGELN:
+- MAXIMAL 2-3 Sätze. Kurz und konkret.
+- Nenne die WICHTIGSTEN Zahlen und Namen aus den Daten.
+- Kommentiere: Was fällt auf? Was ist dringend? Was ist gut?
+- KEINE leeren Phrasen: Nicht "Lass uns gemeinsam...", nicht "Das gibt dir eine gute Übersicht..."
+- KEIN Lebenscoaching. Du bist Buchhalterin, nicht Therapeutin.
+- Wenn Verlust: Sachlich. "502€ Minus — liegt an den Serverkosten."
+- Wenn Gewinn: Kurz anerkennend. "Sieht gut aus, 340€ Plus."
+- Begrüßung ("Moin!") NUR wenn keine vorherigen Messages im Chat-Verlauf.
+- Sprich wie eine Kollegin die kurz was nachgeschaut hat.
 
-DEINE AUFGABE:
-1. Schreib einen KURZEN begleitenden Text (2-3 Sätze)
-   - Kommentiere die Daten, ordne sie ein, gib einen Tipp
-   - Die Daten werden bereits als Karten/Charts angezeigt — NICHT nochmal auflisten
+SUGGESTION-REGELN:
+- 2-4 kurze Sätze die der User als nächstes klicken könnte.
+- JEDER Vorschlag muss SPEZIFISCH zum Kontext passen.
+- Nutze konkrete Namen und Firmen aus den Daten.
+- Mindestens 1 logischer nächster Schritt.
 
-2. Schlage 3 SPEZIFISCHE nächste Schritte vor (klickbare Buttons)
-   - Nutze konkrete Namen, Beträge, Firmen aus den Daten
-   - Formuliere als natürliche Sätze
-
-SUGGESTIONS — NUR DIESE FEATURES EXISTIEREN:
-- Inbox anzeigen / Belege bearbeiten / freigeben
-- Finanzen / EÜR Übersicht
+NUR DIESE FEATURES EXISTIEREN (nichts anderes vorschlagen):
+- Inbox / Belege bearbeiten / freigeben
+- Finanzen / EÜR
 - Buchungen / Journal
-- Kontakte / Kunden / Lieferanten
-- Fristen / Deadlines
+- Kontakte
+- Fristen
 - Offene Posten / Mahnungen
 - Rechnungen erstellen / ändern / versenden
 - DATEV-Export / EÜR als PDF
-- Bestimmten Beleg/Vorgang anschauen
 
-WICHTIG: Verwende IMMER echte deutsche Umlaute (ä, ö, ü, Ä, Ö, Ü) — NIEMALS ae, oe, ue, Ae, Oe, Ue schreiben!
-
-NIEMALS vorschlagen: Umsatzprognosen, Einnahmen generieren, Steuerberatung,
-Konten abgleichen, automatische Zahlungen, oder irgendetwas das nicht oben steht.
+NIEMALS vorschlagen: Umsatzprognosen, Einnahmen generieren, Steuerberatung, Konten abgleichen.
 
 BEISPIELE:
 
-Erste Nachricht, SHOW_INBOX, 10 Belege, Finanzamt dringend:
-{"text": "Moin! 10 Belege in der Inbox — das Finanzamt würde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Nur die dringenden"]}
+Daten: Inbox 10 Belege, Hetzner und Finanzamt dringend
+{"text": "10 Belege in der Inbox. Hetzner kenn ich — schnell abnicken. Finanzamt würde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Hetzner freigeben"]}
 
-Folge-Nachricht, SHOW_FINANCE, -502 EUR:
-{"text": "Kleines Minus diesen Monat — 502 Euro mehr raus als rein.", "suggestions": ["Wo gebe ich am meisten aus?", "EÜR als PDF", "Offene Rechnungen prüfen"]}
+Daten: Finanzen, 0€ Einnahmen, 1.963€ Ausgaben, -1.963€ Ergebnis
+{"text": "1.963€ Ausgaben, noch keine Einnahmen verbucht. Hast du offene Rechnungen draußen?", "suggestions": ["Offene Rechnungen prüfen", "Größte Ausgabenposten", "EÜR als PDF"]}
 
-Folge-Nachricht, SHOW_FINANCE, +1200 EUR:
-{"text": "Im Plus! 1200 Euro Gewinn diesen Monat.", "suggestions": ["EÜR als PDF", "Offene Rechnungen prüfen", "Buchungen anzeigen"]}
+Daten: 3 offene Posten, Weber 285€ überfällig
+{"text": "Drei offene Posten. Weber ist 14 Tage überfällig — 285€.", "suggestions": ["Weber mahnen", "Alle Posten anzeigen", "Gesamtsumme?"]}"""
 
-Antworte NUR als JSON (kein Markdown, kein Text drumherum):
-{"text": "...", "suggestions": ["...", "...", "..."]}"""
+# DEPRECATED (Sprint-04): Nicht mehr aufgerufen. Bleibt für Rückwärtskompatibilität.
+_LLAMA_DATA_RESPONSE_SYSTEM_PROMPT = _SONNET_DATA_RESPONSE_SYSTEM_PROMPT
 
 
 # DEPRECATED (Sprint-03-03): Wird nicht mehr aufgerufen. Bleibt fuer Rueckwaertskompatibilitaet.
@@ -449,16 +439,15 @@ async def generate_data_response(
     chat_history: list = None,
     is_first_message: bool = True,
 ) -> dict:
-    """Llama 3.3 70B: Text + Suggestions fuer Daten-Intents in EINEM Call.
+    """Sprint-04: Claude Sonnet 4.6 generiert Text + Suggestions fuer Daten-Intents.
 
-    Ersetzt _format_data_text() (Mistral, nur Text) + CONTEXT_SUGGESTIONS (statisch).
-    Timeout 8s (Cold-Start IONOS ~6-7s, warm ~1.5-2s).
-    Bei Fehler: {'text': None, 'suggestions': []} → Caller nutzt Fallback.
-    Nutzt 'orchestrator_router' Slot (Llama 3.3 70B, Sprint-02-08).
+    Llama 3.3 70B macht NUR noch Intent-Classify. Sonnet übernimmt Text-Generierung.
+    Timeout 12s. Bei Fehler: {'text': None, 'suggestions': []} → Caller nutzt Fallback.
+    Nutzt 'communicator' Slot (Claude Sonnet 4.6 via AWS Bedrock).
 
     Sprint-03-03: History als echtes messages-Array (ChatGPT-Stil).
     - chat_id: Chat-ID fuer Redis-History-Laden
-    - System-Prompt = _LLAMA_DATA_RESPONSE_SYSTEM_PROMPT (statisch, Fix A+B+C)
+    - System-Prompt = _SONNET_DATA_RESPONSE_SYSTEM_PROMPT
     - History = letzte 10 Nachrichten aus Redis
     - User-Message = Intent + Daten-Summary
     """
@@ -475,7 +464,7 @@ async def generate_data_response(
             history_msgs = await get_history_messages(chat_id, max_messages=10)
 
         messages = [
-            {'role': 'system', 'content': _LLAMA_DATA_RESPONSE_SYSTEM_PROMPT},
+            {'role': 'system', 'content': _SONNET_DATA_RESPONSE_SYSTEM_PROMPT},
             *history_msgs,
             {'role': 'user', 'content': (
                 f"Intent: {intent}\n"
@@ -484,25 +473,40 @@ async def generate_data_response(
             )},
         ]
 
-        from app.agents.tiered_orchestrator import TieredOrchestrator
-        _orch = TieredOrchestrator()
-        config = await _orch._get_llm_config('orchestrator_router')  # Llama 3.3 70B auf IONOS (Sprint-02-08)
-        if not config or not config.get('api_key'):
-            logger.warning('generate_data_response: kein orchestrator-config')
-            return {'text': None, 'suggestions': []}
-
-        import litellm
-        resp = await asyncio.wait_for(
-            litellm.acompletion(
-                model=config['full_model'],
-                messages=messages,
-                max_tokens=200,
-                temperature=0.7,
-                api_key=config['api_key'],
-                api_base=config.get('base_url'),
-            ),
-            timeout=8.0,  # 8s: Cold-Start IONOS kann ~6-7s dauern, warm ~1.5s
-        )
+        import litellm, os as _os
+        # Sprint-04: Sonnet direkt via Anthropic API (FRYA_ANTHROPIC_API_KEY)
+        # Bedrock-Slot hat kein api_key → direkt Anthropic-API nutzen (getestet: claude-sonnet-4-5 OK)
+        _anthropic_key = _os.environ.get('FRYA_ANTHROPIC_API_KEY') or _os.environ.get('ANTHROPIC_API_KEY')
+        if not _anthropic_key:
+            # Fallback auf orchestrator_router (Llama) wenn kein Anthropic-Key
+            logger.warning('generate_data_response: kein Anthropic-Key, versuche Llama-Fallback')
+            from app.agents.tiered_orchestrator import TieredOrchestrator
+            _orch = TieredOrchestrator()
+            config = await _orch._get_llm_config('orchestrator_router')
+            if not config or not config.get('api_key'):
+                return {'text': None, 'suggestions': []}
+            resp = await asyncio.wait_for(
+                litellm.acompletion(
+                    model=config['full_model'],
+                    messages=messages,
+                    max_tokens=250,
+                    temperature=0.7,
+                    api_key=config['api_key'],
+                    api_base=config.get('base_url'),
+                ),
+                timeout=8.0,
+            )
+        else:
+            resp = await asyncio.wait_for(
+                litellm.acompletion(
+                    model='anthropic/claude-sonnet-4-5',
+                    messages=messages,
+                    max_tokens=250,
+                    temperature=0.7,
+                    api_key=_anthropic_key,
+                ),
+                timeout=12.0,  # 12s Timeout für Sonnet
+            )
 
         raw = (resp.choices[0].message.content or '').strip()
         # Markdown-Code-Blocks entfernen falls Llama sie zurueckgibt

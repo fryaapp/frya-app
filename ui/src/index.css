@@ -31,7 +31,7 @@
   --color-info-container: var(--frya-info-container);
   --color-page-bg: var(--frya-page-bg);
 
-  --font-display: 'Outfit Variable', 'Outfit', sans-serif;
+  --font-display: 'Playfair Display', 'Outfit Variable', 'Outfit', serif;
   --font-body: 'Inter Variable', 'Inter', sans-serif;
 
   --radius-m3-sm: 8px;
