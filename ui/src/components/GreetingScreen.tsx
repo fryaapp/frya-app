@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
 import { BugReportOverlay } from './layout/BugReportOverlay'
-import { FryaAvatar } from './chat/FryaAvatar'
 import { ChatInputBar } from './chat/ChatInputBar'
 import { useFryaStore } from '../stores/fryaStore'
 import { api } from '../lib/api'
@@ -88,34 +87,36 @@ export function GreetingScreen() {
         overflow: 'hidden',
       }}
     >
-      {/* Subtiles Pixel-Grid-Hintergrundmuster — fast unsichtbar */}
+      {/* Warm radial ambient glow — oben zentriert, subtil */}
       <div
         style={{
           position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundImage: [
-            'linear-gradient(var(--frya-outline-variant) 1px, transparent 1px)',
-            'linear-gradient(90deg, var(--frya-outline-variant) 1px, transparent 1px)',
-          ].join(', '),
-          backgroundSize: '4px 4px',
-          opacity: 0.03,
+          top: '-10%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '120vw',
+          height: '60vh',
+          background: 'radial-gradient(ellipse at center top, rgba(251, 146, 60, 0.07) 0%, transparent 70%)',
           pointerEvents: 'none',
           zIndex: 0,
         }}
       />
 
       {/* Top bar — BugReport + Settings oben rechts */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '8px 12px', gap: 4, flexShrink: 0, position: 'relative', zIndex: 1 }}>
+      <div style={{
+        display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+        padding: '10px 14px', gap: 4, flexShrink: 0, position: 'relative', zIndex: 1,
+      }}>
         <button
           onClick={handleBugReport}
           style={{
-            width: 32, height: 32, borderRadius: 8, border: 'none',
+            width: 34, height: 34, borderRadius: 10, border: 'none',
             background: 'transparent', color: 'var(--frya-on-surface-variant)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            transition: 'background 150ms',
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--frya-surface-container)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
           aria-label="Problem melden"
         >
           <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>bug_report</span>
@@ -123,17 +124,20 @@ export function GreetingScreen() {
         <button
           onClick={() => useFryaStore.getState().openSettings()}
           style={{
-            width: 32, height: 32, borderRadius: 8, border: 'none',
+            width: 34, height: 34, borderRadius: 10, border: 'none',
             background: 'transparent', color: 'var(--frya-on-surface-variant)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+            transition: 'background 150ms',
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--frya-surface-container)' }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
           aria-label="Einstellungen"
         >
           <span className="material-symbols-rounded" style={{ fontSize: 18, fontVariationSettings: "'FILL' 0, 'wght' 300" }}>settings</span>
         </button>
       </div>
 
-      {/* Content — 15vh von oben, nicht vertikal zentriert */}
+      {/* Content — 12vh von oben, nicht vertikal zentriert */}
       <div
         style={{
           flex: 1,
@@ -141,7 +145,7 @@ export function GreetingScreen() {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'flex-start',
-          paddingTop: '15vh',
+          paddingTop: '12vh',
           paddingLeft: 20,
           paddingRight: 20,
           paddingBottom: 80,
@@ -150,139 +154,105 @@ export function GreetingScreen() {
           zIndex: 1,
         }}
       >
-        <div style={{ maxWidth: 440, width: '100%', textAlign: 'center' }}>
+        <div style={{ maxWidth: 400, width: '100%', textAlign: 'center' }}>
 
-          {/* Avatar — 160px, App-Icon-Form mit Pixel-Art-Schatten */}
+          {/* ── Avatar — 220px, kein Hintergrund, Pixel-Art-Glow ── */}
           <div
             style={{
               display: 'flex',
               justifyContent: 'center',
-              marginBottom: 20,
-              animation: 'frya-fade-up 400ms ease both',
+              marginBottom: 24,
+              animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) both',
             }}
           >
-            <FryaAvatar
-              size={160}
+            <img
+              src="/frya-avatar.png"
+              alt="Frya"
               style={{
-                borderRadius: 40,
-                boxShadow: '4px 4px 0px var(--frya-primary-container), 8px 8px 0px rgba(0,0,0,0.1)',
+                width: 220,
+                height: 220,
+                objectFit: 'contain',
+                // Warmer Glow — passt zu Fryas Orangerot-Farbpalette
+                filter: [
+                  'drop-shadow(0 0 18px rgba(251, 146, 60, 0.45))',
+                  'drop-shadow(0 0 6px rgba(251, 146, 60, 0.25))',
+                ].join(' '),
               }}
             />
           </div>
 
-          {/* Greeting text */}
+          {/* ── Greeting ── */}
           {loading ? (
-            <div style={{ marginBottom: 24 }}>
-              <div
-                style={{
-                  height: 34,
-                  width: 200,
-                  background: 'var(--frya-surface-container-high)',
-                  borderRadius: 8,
-                  margin: '0 auto 12px',
-                  animation: 'frya-pulse 1.5s ease-in-out infinite',
-                }}
-              />
-              <div
-                style={{
-                  height: 18,
-                  width: 260,
-                  background: 'var(--frya-surface-container-high)',
-                  borderRadius: 6,
-                  margin: '0 auto',
-                  opacity: 0.6,
-                  animation: 'frya-pulse 1.5s ease-in-out infinite 200ms',
-                }}
-              />
+            <div style={{ marginBottom: 28 }}>
+              <div style={{
+                height: 36, width: 220, background: 'var(--frya-surface-container-high)',
+                borderRadius: 10, margin: '0 auto 14px',
+                animation: 'frya-pulse 1.5s ease-in-out infinite',
+              }} />
+              <div style={{
+                height: 18, width: 270, background: 'var(--frya-surface-container-high)',
+                borderRadius: 8, margin: '0 auto', opacity: 0.6,
+                animation: 'frya-pulse 1.5s ease-in-out infinite 200ms',
+              }} />
             </div>
           ) : (
-            <div
-              style={{
-                marginBottom: 24,
-                animation: 'frya-fade-up 400ms ease 100ms both',
-              }}
-            >
-              <h1
-                style={{
-                  fontFamily: "'Outfit', sans-serif",
-                  fontSize: 32,
-                  fontWeight: 600,
-                  color: 'var(--frya-on-surface)',
-                  letterSpacing: '-0.02em',
-                  lineHeight: 1.15,
-                  margin: '0 0 10px',
-                }}
-              >
+            <div style={{ marginBottom: 28, animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both' }}>
+              <h1 style={{
+                fontFamily: "'Outfit', sans-serif",
+                fontSize: 34,
+                fontWeight: 700,
+                color: 'var(--frya-on-surface)',
+                letterSpacing: '-0.03em',
+                lineHeight: 1.1,
+                margin: '0 0 10px',
+              }}>
                 {data?.greeting || 'Hallo!'}
               </h1>
-
               {statusText && (
-                <p
-                  style={{
-                    fontSize: 16,
-                    color: 'var(--frya-on-surface-variant)',
-                    lineHeight: 1.5,
-                    maxWidth: 280,
-                    margin: '0 auto',
-                    fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  }}
-                >
+                <p style={{
+                  fontSize: 16,
+                  color: 'var(--frya-on-surface-variant)',
+                  lineHeight: 1.55,
+                  maxWidth: 260,
+                  margin: '0 auto',
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  fontWeight: 400,
+                }}>
                   {statusText}
                 </p>
               )}
             </div>
           )}
 
-          {/* Urgent banner */}
+          {/* ── Urgent banner ── */}
           {data?.urgent && data.urgent.priority === 'HIGH' && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: 'var(--frya-warning-container)',
-                color: 'var(--frya-warning)',
-                borderRadius: 12,
-                padding: '10px 14px',
-                marginBottom: 16,
-                fontSize: 13,
-                fontFamily: "'Plus Jakarta Sans', sans-serif",
-                textAlign: 'left',
-                animation: 'frya-fade-up 400ms ease 200ms both',
-              }}
-            >
-              <span
-                className="material-symbols-rounded"
-                style={{
-                  fontSize: 18,
-                  flexShrink: 0,
-                  fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 18",
-                }}
-              >
-                warning
-              </span>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'var(--frya-warning-container)', color: 'var(--frya-warning)',
+              borderRadius: 14, padding: '10px 16px', marginBottom: 20,
+              fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", textAlign: 'left',
+              animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 150ms both',
+            }}>
+              <span className="material-symbols-rounded" style={{
+                fontSize: 18, flexShrink: 0,
+                fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 18",
+              }}>warning</span>
               <span>{data.urgent.text}</span>
             </div>
           )}
 
-          {/* Back to chat button (if chat has messages) */}
+          {/* ── Back to chat button ── */}
           {messageCount > 0 && (
-            <div style={{ marginBottom: 16, animation: 'frya-fade-up 400ms ease 200ms both' }}>
+            <div style={{ marginBottom: 20, animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 150ms both' }}>
               <button
                 onClick={() => startChat()}
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '10px 20px',
-                  fontSize: 13,
-                  fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  padding: '11px 22px', fontSize: 13, fontWeight: 600,
                   fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  borderRadius: 20,
-                  border: 'none',
-                  background: 'var(--frya-primary)',
-                  color: 'var(--frya-on-primary)',
-                  cursor: 'pointer',
+                  borderRadius: 22, border: 'none',
+                  background: 'var(--frya-primary)', color: 'var(--frya-on-primary)',
+                  cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                 }}
               >
                 <span className="material-symbols-rounded" style={{ fontSize: 16 }}>chat</span>
@@ -291,47 +261,23 @@ export function GreetingScreen() {
             </div>
           )}
 
-          {/* Primaere Aktionen — volle Breite, vertikal gestapelt */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              width: '100%',
-              maxWidth: 320,
-              margin: '0 auto',
-              animation: 'frya-fade-up 400ms ease 250ms both',
-            }}
-          >
-            <PrimaryChip
-              icon="inbox"
-              label="Inbox"
-              badge={inboxCount > 0 ? inboxCount : undefined}
-              onClick={() => handleChip('Inbox')}
-            />
-            <PrimaryChip
-              icon="bar_chart"
-              label="Finanzen"
-              onClick={() => handleChip('Finanzen')}
-            />
-            <PrimaryChip
-              icon="cloud_upload"
-              label="Belege einwerfen"
-              onClick={() => handleChip('Belege einwerfen')}
-            />
+          {/* ── Primaere Aktionen — volle Breite, vertikal ── */}
+          <div style={{
+            display: 'flex', flexDirection: 'column', gap: 10,
+            width: '100%', maxWidth: 320, margin: '0 auto',
+            animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms both',
+          }}>
+            <PrimaryChip icon="inbox" label="Inbox" badge={inboxCount > 0 ? inboxCount : undefined} onClick={() => handleChip('Inbox')} />
+            <PrimaryChip icon="bar_chart" label="Finanzen" onClick={() => handleChip('Finanzen')} />
+            <PrimaryChip icon="cloud_upload" label="Belege einwerfen" onClick={() => handleChip('Belege einwerfen')} />
           </div>
 
-          {/* Sekundaere Aktionen — kleiner, weniger prominent */}
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              justifyContent: 'center',
-              flexWrap: 'wrap',
-              marginTop: 12,
-              animation: 'frya-fade-up 400ms ease 300ms both',
-            }}
-          >
+          {/* ── Sekundaere Aktionen ── */}
+          <div style={{
+            display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap',
+            marginTop: 12,
+            animation: 'frya-fade-up 500ms cubic-bezier(0.16, 1, 0.3, 1) 280ms both',
+          }}>
             <SecondaryChip label="EÜR" onClick={() => handleChip('EÜR')} />
             <SecondaryChip label="Fristen" onClick={() => handleChip('Fristen')} />
             <SecondaryChip label="Export" onClick={() => handleChip('Export')} />
@@ -347,12 +293,14 @@ export function GreetingScreen() {
       <style>{`
         @keyframes frya-pulse {
           0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+          50% { opacity: 0.4; }
         }
       `}</style>
     </div>
   )
 }
+
+// ── PrimaryChip ──────────────────────────────────────────────────────────────
 
 interface PrimaryChipProps {
   icon: string
@@ -375,9 +323,9 @@ function PrimaryChip({ icon, label, badge, onClick }: PrimaryChipProps) {
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '14px 20px',
-        borderRadius: 16,
+        gap: 12,
+        padding: '15px 20px',
+        borderRadius: 18,
         background: hovered ? 'var(--frya-primary-container)' : 'var(--frya-surface-container-high)',
         border: `1.5px solid ${hovered ? 'var(--frya-primary)' : 'var(--frya-outline-variant)'}`,
         color: hovered ? 'var(--frya-on-primary-container)' : 'var(--frya-on-surface)',
@@ -386,6 +334,7 @@ function PrimaryChip({ icon, label, badge, onClick }: PrimaryChipProps) {
         fontFamily: "'Plus Jakarta Sans', sans-serif",
         cursor: 'pointer',
         transition: 'all 0.15s ease',
+        // Pixel-Art Schatten
         boxShadow: pressed
           ? '0px 0px 0px var(--frya-outline-variant)'
           : hovered
@@ -396,35 +345,30 @@ function PrimaryChip({ icon, label, badge, onClick }: PrimaryChipProps) {
         textAlign: 'left',
       }}
     >
-      <span
-        className="material-symbols-rounded"
-        style={{
-          fontSize: 20,
-          fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20",
-          flexShrink: 0,
-        }}
-      >
+      <span className="material-symbols-rounded" style={{
+        fontSize: 20,
+        fontVariationSettings: "'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+        flexShrink: 0,
+        color: hovered ? 'var(--frya-on-primary-container)' : 'var(--frya-primary)',
+      }}>
         {icon}
       </span>
       <span style={{ flex: 1 }}>{label}</span>
       {badge !== undefined && (
-        <span
-          style={{
-            background: 'var(--frya-primary)',
-            color: 'var(--frya-on-primary)',
-            fontSize: 11,
-            fontWeight: 600,
-            padding: '2px 7px',
-            borderRadius: 10,
-            flexShrink: 0,
-          }}
-        >
+        <span style={{
+          background: 'var(--frya-primary)', color: 'var(--frya-on-primary)',
+          fontSize: 11, fontWeight: 700, padding: '2px 8px',
+          borderRadius: 12, flexShrink: 0,
+          fontFamily: "'Plus Jakarta Sans', sans-serif",
+        }}>
           {badge}
         </span>
       )}
     </button>
   )
 }
+
+// ── SecondaryChip ────────────────────────────────────────────────────────────
 
 function SecondaryChip({ label, onClick }: { label: string; onClick: () => void }) {
   const [hovered, setHovered] = useState(false)
@@ -435,20 +379,14 @@ function SecondaryChip({ label, onClick }: { label: string; onClick: () => void 
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        padding: '8px 16px',
-        borderRadius: 12,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        padding: '8px 18px', borderRadius: 14,
         background: hovered ? 'var(--frya-surface-container-high)' : 'transparent',
         border: `1px solid ${hovered ? 'var(--frya-primary)' : 'var(--frya-outline-variant)'}`,
-        color: 'var(--frya-on-surface-variant)',
-        fontSize: 13,
-        fontWeight: 400,
+        color: hovered ? 'var(--frya-on-surface)' : 'var(--frya-on-surface-variant)',
+        fontSize: 13, fontWeight: 400,
         fontFamily: "'Plus Jakarta Sans', sans-serif",
-        cursor: 'pointer',
-        transition: 'all 0.15s ease',
+        cursor: 'pointer', transition: 'all 0.15s ease',
       }}
     >
       {label}
@@ -456,15 +394,12 @@ function SecondaryChip({ label, onClick }: { label: string; onClick: () => void 
   )
 }
 
+// ── buildPrompt ──────────────────────────────────────────────────────────────
+
 function buildPrompt(data: GreetingResponse | null): string | null {
   if (!data) return null
-
-  // Don't repeat urgent text — the red box shows that separately
   const summary = data.status_summary
   if (!summary) return null
-
-  // Show status_summary as-is (it's already a nice German sentence)
   if (summary.length < 80) return summary
-
   return 'Was kann ich für dich tun?'
 }
