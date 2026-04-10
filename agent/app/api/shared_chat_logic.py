@@ -110,6 +110,180 @@ async def _format_data_text(intent: str, data: dict, user_message: str) -> Optio
 
 
 # ============================================================
+# Llama Data-Response: Text + Suggestions in einem Call (Sprint-02-08)
+# Ersetzt: _format_data_text() (Mistral, nur Text) + CONTEXT_SUGGESTIONS (statisch)
+# Modell: Llama 3.3 70B auf IONOS (~2.4s), Fallback: Mistral-Text + statisch
+# ============================================================
+
+_LLAMA_DATA_RESPONSE_PROMPT = """\
+Du bist Frya, eine digitale Kollegin fuer Buchhaltung.
+Der User hat gerade Daten abgefragt. Du siehst die Daten unten.
+
+DEINE AUFGABE:
+1. Schreib einen KURZEN begleitenden Text (2-3 Saetze)
+   - Kommentiere die Daten, ordne sie ein, gib einen Tipp
+   - Die Daten werden bereits als Karten/Charts angezeigt — NICHT nochmal auflisten
+   - Sprich wie eine Kollegin: "Moin!", "Laeuft bei dir!", "Uff, das ist knapp"
+
+2. Schlage 3 SPEZIFISCHE naechste Schritte als klickbare Buttons vor
+   - JEDER Vorschlag muss zum aktuellen Kontext passen
+   - Nutze konkrete Namen, Betraege, Firmen aus den Daten
+   - Mindestens 1 logischer naechster Schritt, mindestens 1 Alternative
+   - Formuliere als natuerliche Saetze, nicht als Befehle
+
+BEISPIELE:
+
+Intent: SHOW_INBOX, Daten: 10 Belege, Finanzamt dringend
+Text: "Moin! 10 Belege in der Inbox — das Finanzamt wuerde ich zuerst anschauen."
+Suggestions: ["Finanzamt zuerst", "Lass uns alle durchgehen", "Nur die dringenden"]
+
+Intent: SHOW_FINANCIAL_OVERVIEW, Daten: -502€ Ergebnis, Serverkosten hoch
+Text: "Leichtes Minus diesen Monat — 502 Euro mehr raus als rein. Liegt an den Serverkosten."
+Suggestions: ["Wo gebe ich am meisten aus?", "EUeR als PDF", "Offene Rechnungen pruefen"]
+
+Intent: SHOW_OPEN_ITEMS, Daten: Weber 285€ ueberfaellig 14 Tage
+Text: "Drei offene Posten, Weber ist am laengsten ueberfaellig — 285 Euro seit zwei Wochen."
+Suggestions: ["Weber eine Mahnung schicken", "Wann zahlen die anderen?", "Gesamtsumme anzeigen"]
+
+JETZT:
+
+Intent: {intent}
+Daten: {data_summary}
+Dringende Items: {urgent_items}
+Letzte User-Nachricht: "{user_message}"
+
+Antworte NUR als JSON (kein Markdown, kein Text drumherum):
+{{"text": "...", "suggestions": ["...", "...", "..."]}}"""
+
+
+def _extract_summary(data: dict) -> dict:
+    """Extrahiert kompakte Kennzahlen fuer Llama Data-Prompt."""
+    if not isinstance(data, dict):
+        return {}
+    summary: dict = {}
+
+    # Anzahl
+    if data.get('count') is not None:
+        summary['anzahl'] = data['count']
+    elif 'items' in data:
+        summary['anzahl'] = len(data['items'])
+
+    # Top-Items (Namen + Betraege, max 5)
+    items = data.get('items', data.get('bookings', data.get('contacts', [])))
+    if items and isinstance(items, list):
+        summary['top_items'] = [
+            {
+                'name': item.get('vendor', item.get('name', item.get('correspondent', '?'))),
+                'amount': item.get('amount', item.get('betrag', '')),
+                'status': item.get('status', item.get('priority', '')),
+            }
+            for item in items[:5]
+            if isinstance(item, dict)
+        ]
+
+    # Finanzen
+    for key in ('total_income', 'total_expenses', 'profit', 'booking_count'):
+        if data.get(key) is not None:
+            summary[key] = data[key]
+
+    # Offene Posten
+    if 'overdue' in data:
+        overdue = data['overdue']
+        summary['ueberfaellig'] = len(overdue) if isinstance(overdue, list) else overdue
+
+    return summary
+
+
+def _get_urgent(data: dict) -> list:
+    """Extrahiert dringende Items damit Llama sie konkret in Suggestions nennen kann."""
+    if not isinstance(data, dict):
+        return []
+    urgent = []
+    for item in data.get('items', data.get('overdue', [])):
+        if isinstance(item, dict):
+            is_urgent = (
+                item.get('priority') in ('HIGH', 'URGENT') or
+                item.get('overdue') is True or
+                item.get('status') in ('OVERDUE', 'ueberfaellig', 'overdue')
+            )
+            if is_urgent:
+                urgent.append({
+                    'name': item.get('vendor', item.get('name', '')),
+                    'amount': item.get('amount', ''),
+                })
+    return urgent[:3]
+
+
+async def generate_data_response(
+    intent: str,
+    data: dict,
+    user_message: str,
+) -> dict:
+    """Llama 3.3 70B: Text + Suggestions fuer Daten-Intents in EINEM Call.
+
+    Ersetzt _format_data_text() (Mistral, nur Text) + CONTEXT_SUGGESTIONS (statisch).
+    Timeout 5s. Bei Fehler: {'text': None, 'suggestions': []} → Caller nutzt Fallback.
+    """
+    import asyncio
+    import json as _json
+
+    try:
+        summary = _extract_summary(data)
+        urgent = _get_urgent(data)
+
+        prompt = _LLAMA_DATA_RESPONSE_PROMPT.format(
+            intent=intent,
+            data_summary=_json.dumps(summary, ensure_ascii=False, default=str),
+            urgent_items=_json.dumps(urgent, ensure_ascii=False, default=str) if urgent else 'Keine',
+            user_message=user_message[:100],
+        )
+
+        from app.agents.tiered_orchestrator import TieredOrchestrator
+        _orch = TieredOrchestrator()
+        config = await _orch._get_llm_config('orchestrator')  # Llama 3.3 70B auf IONOS
+        if not config or not config.get('api_key'):
+            logger.warning('generate_data_response: kein orchestrator-config')
+            return {'text': None, 'suggestions': []}
+
+        import litellm
+        resp = await asyncio.wait_for(
+            litellm.acompletion(
+                model=config['full_model'],
+                messages=[{'role': 'user', 'content': prompt}],
+                max_tokens=200,
+                temperature=0.7,
+                api_key=config['api_key'],
+                api_base=config.get('base_url'),
+            ),
+            timeout=5.0,
+        )
+
+        raw = (resp.choices[0].message.content or '').strip()
+        # Markdown-Code-Blocks entfernen falls Llama sie zurueckgibt
+        if '```' in raw:
+            raw = re.sub(r'```(?:json)?\n?(.*?)\n?```', r'\1', raw, flags=re.DOTALL).strip()
+
+        parsed = _json.loads(raw)
+        text = (parsed.get('text') or '').strip()
+        # Strip "FRYA:" prefix falls vorhanden
+        text = re.sub(r'^FRYA:\s*', '', text)
+        suggestions = [str(s) for s in parsed.get('suggestions', [])[:3]]
+
+        if text:
+            logger.info('generate_data_response OK: %s | suggestions: %s', text[:60], suggestions)
+            return {'text': text, 'suggestions': suggestions}
+
+        logger.warning('generate_data_response: leerer text in JSON')
+
+    except asyncio.TimeoutError:
+        logger.warning('generate_data_response: Timeout (5s)')
+    except Exception as exc:
+        logger.warning('generate_data_response failed: %s', exc)
+
+    return {'text': None, 'suggestions': []}
+
+
+# ============================================================
 # Confirmation / Rejection (Divergenz #6: WS hat mehr Woerter → WS-Version)
 # ============================================================
 
@@ -742,12 +916,32 @@ async def handle_shortcircuit_intent(
         if _raw_actions and any(a.get('quick_action') for a in _raw_actions):
             _sc_actions = _raw_actions
 
-        # Sprint-02-06: LLM-Text statt statischem Text
-        # Der Communicator formuliert den begleitenden Text menschlich.
-        # Timeout 3s, Fallback auf statischen Text (_reply).
-        _llm_text = await _format_data_text(str(intent), _chart_data, message)
-        if _llm_text:
-            _reply = _llm_text
+        # Sprint-02-08: Llama generiert Text + Suggestions in EINEM Call
+        # Fallback: Mistral-Text (_format_data_text) + statische Suggestions (_sc_actions)
+        _llama = await generate_data_response(str(intent), _chart_data, message)
+
+        if _llama.get('text'):
+            _reply = _llama['text']
+        else:
+            # Fallback Text: Mistral (wie Sprint-02-06)
+            _mistral_text = await _format_data_text(str(intent), _chart_data, message)
+            if _mistral_text:
+                _reply = _mistral_text
+
+        # Suggestions: Llama (spezifisch) > ResponseBuilder (statisch) > Default
+        if _llama.get('suggestions'):
+            _llama_actions = [
+                {'label': s, 'chat_text': s, 'style': 'primary' if i == 0 else 'secondary'}
+                for i, s in enumerate(_llama['suggestions'])
+            ]
+            _final_actions = _llama_actions
+        else:
+            _final_actions = _sc_actions if _sc_actions else []
+
+        _final_suggestions = (
+            [a['chat_text'] for a in _final_actions[:3]]
+            if _final_actions else _DEFAULT_SUGGESTIONS
+        )
 
         context_type = _TIER_INTENT_TO_CONTEXT.get(intent, 'none')
 
@@ -755,9 +949,9 @@ async def handle_shortcircuit_intent(
             'text': _reply,
             'case_ref': None,
             'context_type': context_type,
-            'suggestions': [a['chat_text'] for a in _sc_actions[:3]] if _sc_actions else _DEFAULT_SUGGESTIONS,
+            'suggestions': _final_suggestions,
             'content_blocks': _sc_blocks,
-            'actions': _sc_actions if _sc_actions else [],
+            'actions': _final_actions,
             'routing': 'regex',
         }
 
