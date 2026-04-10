@@ -9,6 +9,63 @@ logger = logging.getLogger(__name__)
 
 _LLM_TIMEOUT = 30
 
+# Sprint-03-03: Llama Classify System-Prompt (statisch — History kommt als messages-Array)
+LLAMA_CLASSIFY_SYSTEM_PROMPT = (
+    "Du bist der Intent-Classifier fuer FRYA, ein deutsches Buchhaltungssystem.\n"
+    "Analysiere die Nachricht und gib GENAU EINEN Intent zurueck.\n\n"
+    "VERFUEGBARE INTENTS:\n"
+    "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues, dringende Belege\n"
+    "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR, wie stehe ich finanziell\n"
+    "- SHOW_FINANCIAL_OVERVIEW: Gleich wie SHOW_FINANCE\n"
+    "- SHOW_EXPENSE_CATEGORIES: wo gebe ich am meisten aus, groesste Posten, Ausgaben nach Kategorie, teuerste Ausgaben, Kostenaufteilung\n"
+    "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet mir, Forderungen, Schuldner, offene Rechnungen pruefen, Gesamtschulden, ueberfaellig\n"
+    "- SHOW_DEADLINES: Fristen, dringend, faellig, Termine\n"
+    "- SHOW_BOOKINGS: Buchungen, Buchungsjournal, Kontobewegungen, Buchungen anzeigen\n"
+    "- SHOW_CONTACTS: Kontakte, Kunden, Lieferanten anzeigen\n"
+    "- SHOW_CONTACT: Einen bestimmten Kontakt suchen/anzeigen\n"
+    "- SHOW_CASE: Einen bestimmten Beleg/Vorgang/Fall anzeigen\n"
+    "- SHOW_EXPORT: Export, DATEV, CSV, EUeR als PDF, DATEV-Export, Steuerexport\n"
+    "- CREATE_INVOICE: Rechnung erstellen/schreiben\n"
+    "- CREATE_CONTACT: Kontakt anlegen\n"
+    "- CREATE_REMINDER: Mahnung schreiben, Erinnerung/Mahnung erstellen, Mahnung an [Name]\n"
+    "- APPROVE: Freigeben, genehmigen, buchen\n"
+    "- PROCESS_INBOX: Inbox abarbeiten, Belege durchgehen, alle durchgehen, alles abarbeiten\n"
+    "- SETTINGS: Einstellungen, Profil, Theme\n"
+    "- UPLOAD: Beleg hochladen\n"
+    "- GENERAL_CONVERSATION: Begruessung, Danke, Smalltalk, oder wenn unklar\n\n"
+    "WICHTIGE REGELN:\n"
+    "1. 'Geld schulden', 'Forderungen', 'Mahnung', 'wer schuldet', 'offene Rechnungen pruefen' → SHOW_OPEN_ITEMS (NICHT SHOW_FINANCE!)\n"
+    "2. 'Wo gebe ich am meisten aus', 'groesste Posten', 'Ausgaben nach Kategorie' → SHOW_EXPENSE_CATEGORIES (NICHT SHOW_FINANCE!)\n"
+    "3. 'Rechnung erstellen/schreiben', Betraege im Kontext einer Rechnung → CREATE_INVOICE\n"
+    "4. 'EUeR als PDF', 'DATEV-Export', 'Export' → SHOW_EXPORT\n"
+    "5. 'Euro'/'Betrag'/'Preis' allein sind KEIN Grund fuer SHOW_FINANCE — pruefe den Kontext\n"
+    "6. SHOW_FINANCE/SHOW_FINANCIAL_OVERVIEW nur wenn User EXPLIZIT nach Finanzuebersicht/EUeR fragt\n"
+    "7. Wenn unklar → GENERAL_CONVERSATION\n"
+    "8. Nutze den BISHERIGEN GESPRAECHSVERLAUF um Folgefragen zu verstehen (z.B. 'Was ist damit?' nach einer Inbox-Anzeige → SHOW_CASE)\n\n"
+    "BEISPIELE:\n"
+    '"Wer schuldet mir Geld?" → SHOW_OPEN_ITEMS\n'
+    '"Erstelle eine Rechnung ueber 500 Euro" → CREATE_INVOICE\n'
+    '"Wie stehe ich finanziell?" → SHOW_FINANCIAL_OVERVIEW\n'
+    '"Was liegt in der Inbox?" → SHOW_INBOX\n'
+    '"Was habe ich bei Stabilo gekauft?" → SHOW_CASE\n'
+    '"Zeig mir meine Buchungen" → SHOW_BOOKINGS\n'
+    '"Wo gebe ich am meisten aus?" → SHOW_EXPENSE_CATEGORIES\n'
+    '"EUeR als PDF" → SHOW_EXPORT\n'
+    '"Offene Rechnungen pruefen" → SHOW_OPEN_ITEMS\n'
+    '"Weber eine Mahnung schreiben" → CREATE_REMINDER\n'
+    '"Alle durchgehen" → PROCESS_INBOX\n'
+    '"Buchungen anzeigen" → SHOW_BOOKINGS\n'
+    '"Hallo Frya" → GENERAL_CONVERSATION\n\n'
+    "ZUSAETZLICHE BEISPIELE (haeufige Suggestion-Texte):\n"
+    '"Wo gebe ich am meisten aus?" → SHOW_EXPENSE_CATEGORIES\n'
+    '"Offene Rechnungen pruefen" → SHOW_OPEN_ITEMS\n'
+    '"Letzte Buchungen ueberpruefen" → SHOW_BOOKINGS\n'
+    '"EUeR als PDF" → SHOW_EXPORT\n'
+    '"DATEV-Export" → SHOW_EXPORT\n'
+    '"Alle Belege durchgehen" → SHOW_INBOX\n\n'
+    "Antworte mit GENAU EINEM Intent-String, nichts anderes."
+)
+
 
 class TieredOrchestrator:
     # Shortcircuit-Hardening (Refactor 02c):
@@ -82,6 +139,7 @@ class TieredOrchestrator:
         message: str,
         quick_action: dict = None,
         conversation_state: dict = None,
+        chat_id: str = None,
     ) -> dict:
         # Ebene 0: Quick Action (Button-Klick)
         if quick_action:
@@ -114,7 +172,7 @@ class TieredOrchestrator:
         else:
             # Llama 3.3 70B klassifiziert — NICHT mehr blind "COMPLEX"
             logger.info("Routing via Llama 3.3 70B Classify")
-            return await self._classify_with_llama(message)
+            return await self._classify_with_llama(message, chat_id=chat_id)
 
     def _regex_match(self, message: str) -> Optional[str]:
         """Regex-Shortcircuit MIT Collision-Detection.
@@ -226,70 +284,46 @@ class TieredOrchestrator:
             logger.warning("Fast routing failed: %s, falling through to deep", exc)
             return {"intent": "COMPLEX", "routing": "deep", "message": message}
 
-    async def _classify_with_llama(self, message: str) -> dict:
+    async def _classify_with_llama(self, message: str, chat_id: str = None) -> dict:
         """Llama 3.3 70B klassifiziert den Intent.
+
+        Sprint-03-03: History als echtes messages-Array (ChatGPT-Stil).
+        System-Prompt = LLAMA_CLASSIFY_SYSTEM_PROMPT.
+        History = letzte 10 Nachrichten aus Redis.
+        Aktuelle Nachricht = letzte User-Message.
 
         Gibt einen ECHTEN Intent zurueck (nicht COMPLEX).
         Nutzt die DB-Config 'orchestrator' (Llama 3.3 70B auf IONOS).
-        Gleicher Output-Format wie _route_fast() damit die Service Registry matcht.
         """
-        classify_prompt = (
-            "Du bist der Intent-Classifier fuer FRYA, ein deutsches Buchhaltungssystem.\n"
-            "Analysiere die Nachricht und gib GENAU EINEN Intent zurueck.\n\n"
-            "VERFUEGBARE INTENTS:\n"
-            "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues, dringende Belege\n"
-            "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR, wie stehe ich finanziell\n"
-            "- SHOW_FINANCIAL_OVERVIEW: Gleich wie SHOW_FINANCE\n"
-            "- SHOW_EXPENSE_CATEGORIES: wo gebe ich am meisten aus, groesste Posten, Ausgaben nach Kategorie, teuerste Ausgaben, Kostenaufteilung\n"
-            "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet mir, Forderungen, Schuldner, offene Rechnungen pruefen, Gesamtschulden, ueberfaellig\n"
-            "- SHOW_DEADLINES: Fristen, dringend, faellig, Termine\n"
-            "- SHOW_BOOKINGS: Buchungen, Buchungsjournal, Kontobewegungen, Buchungen anzeigen\n"
-            "- SHOW_CONTACTS: Kontakte, Kunden, Lieferanten anzeigen\n"
-            "- SHOW_CONTACT: Einen bestimmten Kontakt suchen/anzeigen\n"
-            "- SHOW_CASE: Einen bestimmten Beleg/Vorgang/Fall anzeigen\n"
-            "- SHOW_EXPORT: Export, DATEV, CSV, EUeR als PDF, DATEV-Export, Steuerexport\n"
-            "- CREATE_INVOICE: Rechnung erstellen/schreiben\n"
-            "- CREATE_CONTACT: Kontakt anlegen\n"
-            "- CREATE_REMINDER: Mahnung schreiben, Erinnerung/Mahnung erstellen, Mahnung an [Name]\n"
-            "- APPROVE: Freigeben, genehmigen, buchen\n"
-            "- PROCESS_INBOX: Inbox abarbeiten, Belege durchgehen, alle durchgehen, alles abarbeiten\n"
-            "- SETTINGS: Einstellungen, Profil, Theme\n"
-            "- UPLOAD: Beleg hochladen\n"
-            "- GENERAL_CONVERSATION: Begruessung, Danke, Smalltalk, oder wenn unklar\n\n"
-            "WICHTIGE REGELN:\n"
-            "1. 'Geld schulden', 'Forderungen', 'Mahnung', 'wer schuldet', 'offene Rechnungen pruefen' → SHOW_OPEN_ITEMS (NICHT SHOW_FINANCE!)\n"
-            "2. 'Wo gebe ich am meisten aus', 'groesste Posten', 'Ausgaben nach Kategorie' → SHOW_EXPENSE_CATEGORIES (NICHT SHOW_FINANCE!)\n"
-            "3. 'Rechnung erstellen/schreiben', Betraege im Kontext einer Rechnung → CREATE_INVOICE\n"
-            "4. 'EUeR als PDF', 'DATEV-Export', 'Export' → SHOW_EXPORT\n"
-            "5. 'Euro'/'Betrag'/'Preis' allein sind KEIN Grund fuer SHOW_FINANCE — pruefe den Kontext\n"
-            "6. SHOW_FINANCE/SHOW_FINANCIAL_OVERVIEW nur wenn User EXPLIZIT nach Finanzuebersicht/EUeR fragt\n"
-            "7. Wenn unklar → GENERAL_CONVERSATION\n\n"
-            "BEISPIELE:\n"
-            '"Wer schuldet mir Geld?" → SHOW_OPEN_ITEMS\n'
-            '"Erstelle eine Rechnung ueber 500 Euro" → CREATE_INVOICE\n'
-            '"Wie stehe ich finanziell?" → SHOW_FINANCIAL_OVERVIEW\n'
-            '"Was liegt in der Inbox?" → SHOW_INBOX\n'
-            '"Was habe ich bei Stabilo gekauft?" → SHOW_CASE\n'
-            '"Zeig mir meine Buchungen" → SHOW_BOOKINGS\n'
-            '"Wo gebe ich am meisten aus?" → SHOW_EXPENSE_CATEGORIES\n'
-            '"EUeR als PDF" → SHOW_EXPORT\n'
-            '"Offene Rechnungen pruefen" → SHOW_OPEN_ITEMS\n'
-            '"Weber eine Mahnung schreiben" → CREATE_REMINDER\n'
-            '"Alle durchgehen" → PROCESS_INBOX\n'
-            '"Buchungen anzeigen" → SHOW_BOOKINGS\n'
-            '"Hallo Frya" → GENERAL_CONVERSATION\n\n'
-            f'Nachricht: "{message}"\n\n'
-            "Antworte mit GENAU EINEM Intent-String, nichts anderes."
-        )
         try:
             config = await self._get_llm_config('orchestrator')
             if not config or not config.get('api_key'):
                 logger.warning("Llama classify: no config for 'orchestrator', falling back to GENERAL_CONVERSATION")
                 return {"intent": str(Intent.GENERAL_CONVERSATION), "routing": "deep_no_key", "message": message}
 
+            # Sprint-03-03: History aus Redis laden (kein Import von shared_chat_logic — circular import!)
+            history_msgs: list = []
+            if chat_id:
+                try:
+                    from app.dependencies import get_chat_history_store
+                    _hist_store = get_chat_history_store()
+                    _history = await _hist_store.load(chat_id)
+                    for _msg in _history[-10:]:
+                        _content = _msg.get('content', '')
+                        if _content and _content.strip():
+                            history_msgs.append({'role': _msg['role'], 'content': _content})
+                except Exception as _hist_exc:
+                    logger.debug('Llama classify: history load failed: %s', _hist_exc)
+
+            messages = [
+                {"role": "system", "content": LLAMA_CLASSIFY_SYSTEM_PROMPT},
+                *history_msgs,
+                {"role": "user", "content": message},
+            ]
+
             resp = await litellm.acompletion(
                 model=config['full_model'],
-                messages=[{"role": "user", "content": classify_prompt}],
+                messages=messages,
                 max_tokens=20,
                 timeout=_LLM_TIMEOUT,
                 temperature=0.1,
@@ -298,7 +332,7 @@ class TieredOrchestrator:
             )
             raw = (resp.choices[0].message.content or "").strip().upper().split()[0]
             intent = parse_intent(raw)
-            logger.info("Llama classify: '%s' → %s", message[:50], intent)
+            logger.info("Llama classify: '%s' → %s (history=%d msgs)", message[:50], intent, len(history_msgs))
             if intent == Intent.UNKNOWN:
                 return {"intent": str(Intent.GENERAL_CONVERSATION), "routing": "deep", "message": message}
             return {"intent": str(intent), "routing": "deep", "message": message}

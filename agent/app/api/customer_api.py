@@ -299,7 +299,7 @@ async def send_chat_message(
         from app.api.chat_ws import _get_tiered_orchestrator, _get_response_builder
         orchestrator = _get_tiered_orchestrator()
         if orchestrator:
-            routing_result = await orchestrator.route(message=body.message)
+            routing_result = await orchestrator.route(message=body.message, chat_id=_chat_id_rest)
             tier_intent = routing_result.get('intent')
             routing = routing_result.get('routing')
 

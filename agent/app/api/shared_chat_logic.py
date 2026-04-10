@@ -109,12 +109,98 @@ async def _format_data_text(intent: str, data: dict, user_message: str) -> Optio
     return None
 
 
+async def get_history_messages(chat_id: str, max_messages: int = 10) -> list:
+    """Sprint-03-03: Laedt Chat-History als messages-Array fuer LLM-Calls.
+
+    Gibt eine Liste von {role, content}-Dicts zurueck.
+    Genau wie die OpenAI/Anthropic Messages API es erwartet.
+    """
+    try:
+        from app.dependencies import get_chat_history_store
+        hist_store = get_chat_history_store()
+        history = await hist_store.load(chat_id)
+        recent = history[-max_messages:]
+        messages = []
+        for msg in recent:
+            content = msg.get('content', '')
+            if content and content.strip():
+                messages.append({
+                    'role': msg['role'],
+                    'content': content,
+                })
+        return messages
+    except Exception as exc:
+        logger.debug('get_history_messages failed for %s: %s', chat_id, exc)
+        return []
+
+
 # ============================================================
 # Llama Data-Response: Text + Suggestions in einem Call (Sprint-02-08)
 # Ersetzt: _format_data_text() (Mistral, nur Text) + CONTEXT_SUGGESTIONS (statisch)
 # Modell: Llama 3.3 70B auf IONOS (~2.4s), Fallback: Mistral-Text + statisch
 # ============================================================
 
+# Sprint-03-03: Neuer statischer System-Prompt fuer Llama Data-Response.
+# History kommt als echtes messages-Array — kein {chat_context_block} mehr.
+# Fix A: Kein "Moin!" mitten im Gespraech.
+# Fix B: Ton muss zu den Daten passen.
+# Fix C: Suggestions nur fuer existierende Features.
+_LLAMA_DATA_RESPONSE_SYSTEM_PROMPT = """\
+Du bist Frya, eine digitale Kollegin fuer Buchhaltung.
+Der User hat gerade Daten abgefragt. Die Daten werden als Karten/Charts angezeigt.
+
+BEGRUESSUNG:
+- "Moin!" oder "Hey!" NUR wenn du KEINE vorherigen Messages in der History siehst
+- Wenn du vorherige Messages siehst: Direkt zum Punkt, KEINE Begruessung
+- Beispiel erste Nachricht: "Moin! 10 Belege in der Inbox..."
+- Beispiel Folge-Nachricht: "10 Belege, Hetzner und Finanzamt dabei..."
+
+TON BEI FINANZEN:
+- Ergebnis POSITIV: "Sieht gut aus!" / "Im Plus!"
+- Ergebnis NEGATIV: "Kleines Minus" / "Da muessen wir aufpassen"
+- NIEMALS "Laeuft bei dir!" wenn das Ergebnis negativ ist
+- Pruefe das Vorzeichen BEVOR du den Ton waehlst
+
+DEINE AUFGABE:
+1. Schreib einen KURZEN begleitenden Text (2-3 Saetze)
+   - Kommentiere die Daten, ordne sie ein, gib einen Tipp
+   - Die Daten werden bereits als Karten/Charts angezeigt — NICHT nochmal auflisten
+
+2. Schlage 3 SPEZIFISCHE naechste Schritte vor (klickbare Buttons)
+   - Nutze konkrete Namen, Betraege, Firmen aus den Daten
+   - Formuliere als natuerliche Saetze
+
+SUGGESTIONS — NUR DIESE FEATURES EXISTIEREN:
+- Inbox anzeigen / Belege bearbeiten / freigeben
+- Finanzen / EUeR Uebersicht
+- Buchungen / Journal
+- Kontakte / Kunden / Lieferanten
+- Fristen / Deadlines
+- Offene Posten / Mahnungen
+- Rechnungen erstellen / aendern / versenden
+- DATEV-Export / EUeR als PDF
+- Bestimmten Beleg/Vorgang anschauen
+
+NIEMALS vorschlagen: Umsatzprognosen, Einnahmen generieren, Steuerberatung,
+Konten abgleichen, automatische Zahlungen, oder irgendetwas das nicht oben steht.
+
+BEISPIELE:
+
+Erste Nachricht, SHOW_INBOX, 10 Belege, Finanzamt dringend:
+{"text": "Moin! 10 Belege in der Inbox — das Finanzamt wuerde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Nur die dringenden"]}
+
+Folge-Nachricht, SHOW_FINANCIAL_OVERVIEW, -502 EUR:
+{"text": "Kleines Minus diesen Monat — 502 Euro mehr raus als rein.", "suggestions": ["Wo gebe ich am meisten aus?", "EUeR als PDF", "Offene Rechnungen pruefen"]}
+
+Folge-Nachricht, SHOW_FINANCIAL_OVERVIEW, +1200 EUR:
+{"text": "Im Plus! 1200 Euro Gewinn diesen Monat.", "suggestions": ["EUeR als PDF", "Offene Rechnungen pruefen", "Buchungen anzeigen"]}
+
+Antworte NUR als JSON (kein Markdown, kein Text drumherum):
+{"text": "...", "suggestions": ["...", "...", "..."]}"""
+
+
+# DEPRECATED (Sprint-03-03): Wird nicht mehr aufgerufen. Bleibt fuer Rueckwaertskompatibilitaet.
+# History kommt jetzt als messages-Array, kein format_for_llm() + chat_context_block mehr.
 _LLAMA_DATA_RESPONSE_PROMPT = """\
 Du bist Frya, eine digitale Kollegin fuer Buchhaltung.
 Der User hat gerade Daten abgefragt. Du siehst die Daten unten.
@@ -353,6 +439,9 @@ async def generate_data_response(
     intent: str,
     data: dict,
     user_message: str,
+    chat_id: str = None,
+    # DEPRECATED (Sprint-03-03): chat_history und is_first_message werden ignoriert.
+    # History kommt jetzt als messages-Array via chat_id.
     chat_history: list = None,
     is_first_message: bool = True,
 ) -> dict:
@@ -363,9 +452,11 @@ async def generate_data_response(
     Bei Fehler: {'text': None, 'suggestions': []} → Caller nutzt Fallback.
     Nutzt 'orchestrator_router' Slot (Llama 3.3 70B, Sprint-02-08).
 
-    Sprint-03-01 Erweiterungen:
-    - chat_history: Letzte Nachrichten inkl. context_data fuer Drill-Down
-    - is_first_message: Begruessung nur bei erster Nachricht
+    Sprint-03-03: History als echtes messages-Array (ChatGPT-Stil).
+    - chat_id: Chat-ID fuer Redis-History-Laden
+    - System-Prompt = _LLAMA_DATA_RESPONSE_SYSTEM_PROMPT (statisch, Fix A+B+C)
+    - History = letzte 10 Nachrichten aus Redis
+    - User-Message = Intent + Daten-Summary
     """
     import asyncio
     import json as _json
@@ -373,28 +464,21 @@ async def generate_data_response(
     try:
         summary = _extract_summary(data)
         urgent = _get_urgent(data)
-        sentiment = _determine_sentiment(data)
 
-        # Konversationsposition
-        conv_position = 'ERSTE_NACHRICHT' if is_first_message else 'MITTE_DES_GESPRAECHS'
+        # Sprint-03-03: History aus Redis als messages-Array
+        history_msgs: list = []
+        if chat_id:
+            history_msgs = await get_history_messages(chat_id, max_messages=10)
 
-        # Chat-Kontext fuer Drill-Down-Verstaendnis
-        chat_context_block = ''
-        if chat_history:
-            from app.telegram.communicator.memory.chat_history_store import ChatHistoryStore
-            ctx_text = ChatHistoryStore.format_for_llm(chat_history, max_messages=6)
-            if ctx_text:
-                chat_context_block = f'BISHERIGER GESPRAECHSVERLAUF:\n{ctx_text}'
-
-        prompt = _LLAMA_DATA_RESPONSE_PROMPT.format(
-            intent=intent,
-            data_summary=_json.dumps(summary, ensure_ascii=False, default=str),
-            urgent_items=_json.dumps(urgent, ensure_ascii=False, default=str) if urgent else 'Keine',
-            user_message=user_message[:100],
-            conversation_position=conv_position,
-            sentiment=sentiment,
-            chat_context_block=chat_context_block,
-        )
+        messages = [
+            {'role': 'system', 'content': _LLAMA_DATA_RESPONSE_SYSTEM_PROMPT},
+            *history_msgs,
+            {'role': 'user', 'content': (
+                f"Intent: {intent}\n"
+                f"Daten: {_json.dumps(summary, ensure_ascii=False, default=str)}\n"
+                f"Dringende Items: {_json.dumps(urgent, ensure_ascii=False, default=str) if urgent else 'Keine'}"
+            )},
+        ]
 
         from app.agents.tiered_orchestrator import TieredOrchestrator
         _orch = TieredOrchestrator()
@@ -407,7 +491,7 @@ async def generate_data_response(
         resp = await asyncio.wait_for(
             litellm.acompletion(
                 model=config['full_model'],
-                messages=[{'role': 'user', 'content': prompt}],
+                messages=messages,
                 max_tokens=200,
                 temperature=0.7,
                 api_key=config['api_key'],
@@ -1077,25 +1161,16 @@ async def handle_shortcircuit_intent(
         if _raw_actions and any(a.get('quick_action') for a in _raw_actions):
             _sc_actions = _raw_actions
 
-        # Sprint-03-01: Chat-History laden fuer Kontext + is_first_message
-        _chat_history: list = []
-        _is_first = True
-        try:
-            from app.dependencies import get_chat_history_store
-            _hist_store = get_chat_history_store()
-            _effective_chat_id = chat_id or f'web-{user_id}'
-            _chat_history = await _hist_store.load(_effective_chat_id)
-            _is_first = len(_chat_history) <= 2  # <= 2: noch keine echte Antwort in History
-        except Exception as _hist_exc:
-            logger.debug('handle_shortcircuit: history load failed: %s', _hist_exc)
+        # Sprint-03-03: generate_data_response bekommt chat_id statt chat_history+is_first_message
+        # History wird direkt in generate_data_response aus Redis geladen (messages-Array)
+        _effective_chat_id = chat_id or (f'web-{user_id}' if user_id else None)
 
         # Sprint-02-08: Llama generiert Text + Suggestions in EINEM Call
-        # Sprint-03-01: + chat_history + is_first_message
+        # Sprint-03-03: chat_id statt chat_history (messages-Array, ChatGPT-Stil)
         # Fallback: Mistral-Text (_format_data_text) + statische Suggestions (_sc_actions)
         _llama = await generate_data_response(
             str(intent), _chart_data, message,
-            chat_history=_chat_history,
-            is_first_message=_is_first,
+            chat_id=_effective_chat_id,
         )
 
         if _llama.get('text'):

@@ -8,6 +8,36 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _context_data_to_text(ctx: dict) -> str:
+    """Wandelt context_data in einen lesbaren String um.
+    Wird direkt an den assistant-content angehaengt.
+    Sprint-03-03: Kein separates context_data-Feld — Daten stehen im content.
+    """
+    parts = []
+
+    items = ctx.get('items', [])
+    for item in items[:8]:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict):
+            name = item.get('vendor', item.get('name', '?'))
+            amount = item.get('amount', '')
+            status = item.get('status', '')
+            parts.append(f"{name} {amount}€ {status}".strip())
+
+    for key, label in [('income', 'Einnahmen'), ('einnahmen', 'Einnahmen'),
+                       ('expenses', 'Ausgaben'), ('ausgaben', 'Ausgaben'),
+                       ('result', 'Ergebnis'), ('profit', 'Ergebnis')]:
+        if key in ctx:
+            parts.append(f"{label}: {ctx[key]}€")
+
+    count = ctx.get('count')
+    if count and count > 8:
+        parts.append(f"+ {count - 8} weitere")
+
+    return " | ".join(parts) if parts else ""
+
+
 class ChatHistoryStore:
     """Stores last N message pairs (user+assistant) in Redis for LLM context."""
 
@@ -65,7 +95,11 @@ class ChatHistoryStore:
         history.append({'role': 'user', 'content': user_msg})
         entry: dict = {'role': 'assistant', 'content': assistant_msg}
         if context_data:
-            entry['context_data'] = context_data
+            # Sprint-03-03: Daten-Summary DIREKT im content-Feld — kein separates context_data
+            summary_text = _context_data_to_text(context_data)
+            if summary_text:
+                entry['content'] = f"{assistant_msg}\n\n[Gezeigte Daten: {summary_text}]"
+        # KEIN context_data-Feld. NUR role + content. Wie bei ChatGPT.
         history.append(entry)
         history = history[-self.MAX_MESSAGES:]
 
@@ -83,10 +117,9 @@ class ChatHistoryStore:
 
     @staticmethod
     def format_for_llm(history: list, max_messages: int = 6) -> str:
-        """Formatiert Chat-History MIT context_data fuer LLM-Prompts.
-
-        Gibt einen kompakten String zurueck der dem LLM zeigt welche Daten
-        zuletzt angezeigt wurden, damit Drill-Down-Fragen beantwortet werden.
+        """DEPRECATED (Sprint-03-03): History wird jetzt als messages-Array uebergeben.
+        Daten-Summary steht direkt im content-Feld (kein separates context_data mehr).
+        Nicht mehr aufrufen — wird in einem kuenftigen Sprint entfernt.
         """
         recent = history[-max_messages:]
         lines = []

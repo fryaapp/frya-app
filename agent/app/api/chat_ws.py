@@ -964,6 +964,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         try:
                             routing_result = await orchestrator.route(
                                 message=text, quick_action=quick_action,
+                                chat_id=f'web-{user_id}',
                             )
                             tier_intent = routing_result.get('intent')
                             tier_routing = routing_result.get('routing')
