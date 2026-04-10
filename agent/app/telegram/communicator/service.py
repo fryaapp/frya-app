@@ -297,12 +297,25 @@ def build_llm_context_payload(
     else:
         system_msg = {'role': 'system', 'content': system_content}
 
+    # Sprint-03-01: context_data aus History als [LETZTE ANZEIGE]-Block injizieren
+    # Damit Sonnet Drill-Down-Fragen beantworten kann ("Was ist der größte Beleg?")
+    if chat_history:
+        try:
+            from app.telegram.communicator.memory.chat_history_store import ChatHistoryStore as _CHS
+            _ctx_block = _CHS.format_for_llm(chat_history, max_messages=6)
+            if _ctx_block:
+                lines.insert(-1 if lines and lines[-1].startswith('Nutzernachricht:') else len(lines),
+                             f'[LETZTE ANZEIGE]\n{_ctx_block}\n[/LETZTE ANZEIGE]')
+        except Exception:
+            pass
+
     messages = [system_msg]
     if chat_history:
         # Filter out empty content blocks — Anthropic rejects them
+        # Sprint-03-01: nur role+content weitergeben, context_data ist für API unsichtbar
         for msg in chat_history:
             if msg.get('content', '').strip():
-                messages.append(msg)
+                messages.append({'role': msg['role'], 'content': msg['content']})
     messages.append({'role': 'user', 'content': '\n'.join(lines)})
 
     return {

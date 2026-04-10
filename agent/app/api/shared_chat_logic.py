@@ -119,31 +119,58 @@ _LLAMA_DATA_RESPONSE_PROMPT = """\
 Du bist Frya, eine digitale Kollegin fuer Buchhaltung.
 Der User hat gerade Daten abgefragt. Du siehst die Daten unten.
 
+KONVERSATIONS-POSITION: {conversation_position}
+STIMMUNG DER DATEN: {sentiment}
+
+{chat_context_block}
+
 DEINE AUFGABE:
 1. Schreib einen KURZEN begleitenden Text (2-3 Saetze)
    - Kommentiere die Daten, ordne sie ein, gib einen Tipp
    - Die Daten werden bereits als Karten/Charts angezeigt — NICHT nochmal auflisten
-   - Sprich wie eine Kollegin: "Moin!", "Laeuft bei dir!", "Uff, das ist knapp"
+   - Wenn ERSTE_NACHRICHT: Kurze Begruessung erlaubt ("Moin!", "Hey!")
+   - Wenn MITTE_DES_GESPRAECHS: KEINE Begruessung. Direkt zum Punkt.
+   - "Laeuft bei dir!" NUR wenn SENTIMENT = POSITIV
+   - LEICHT_NEGATIV: Sachlich ("Kleines Minus diesen Monat — liegt an den Ausgaben")
+   - STARK_NEGATIV: Ernst ("Da muessen wir aufpassen — die Ausgaben sind zu hoch")
+   - KEINE_EINNAHMEN: "Noch keine Einnahmen verbucht — hast du offene Rechnungen?"
+   - NIEMALS widerspruechliche Aussagen (kein "Laeuft bei dir!" bei Verlust)
 
-2. Schlage 3 SPEZIFISCHE naechste Schritte als klickbare Buttons vor
-   - JEDER Vorschlag muss zum aktuellen Kontext passen
+2. Schlage 3 SPEZIFISCHE naechste Schritte vor (klickbare Buttons)
    - Nutze konkrete Namen, Betraege, Firmen aus den Daten
-   - Mindestens 1 logischer naechster Schritt, mindestens 1 Alternative
-   - Formuliere als natuerliche Saetze, nicht als Befehle
+   - Formuliere als natuerliche Saetze
+
+FRYA KANN (NUR diese Kategorien in Suggestions anbieten):
+- Inbox anzeigen / Belege anschauen / einzelnen Beleg nach Firmenname
+- Finanzen / EUeR / Einnahmen vs. Ausgaben
+- Buchungen anzeigen / Buchungsjournal
+- Kontakte anzeigen / suchen
+- Fristen anzeigen
+- Offene Posten / Mahnung schreiben / Forderungen
+- Rechnungen erstellen / aendern / versenden
+- Belege freigeben / ablehnen / korrigieren
+- DATEV-Export / EUeR als PDF
+
+FRYA KANN NICHT (NIEMALS in Suggestions anbieten):
+- Umsatzprognose / Umsatz steigern / Einnahmen generieren
+- Steueroptimierung / Steuerberatung
+- Konten abgleichen / Kontenrahmen
+- Automatische Zahlungen / Bankverbindungen
+- Irgendwas das kein reales FRYA-Feature ist
 
 BEISPIELE:
 
-Intent: SHOW_INBOX, Daten: 10 Belege, Finanzamt dringend
-Text: "Moin! 10 Belege in der Inbox — das Finanzamt wuerde ich zuerst anschauen."
-Suggestions: ["Finanzamt zuerst", "Lass uns alle durchgehen", "Nur die dringenden"]
+Erste Nachricht, SHOW_INBOX, 10 Belege, Finanzamt dringend, NEUTRAL:
+{{"text": "Moin! 10 Belege in der Inbox — das Finanzamt wuerde ich zuerst anschauen.", "suggestions": ["Finanzamt zuerst", "Alle durchgehen", "Nur die dringenden"]}}
 
-Intent: SHOW_FINANCIAL_OVERVIEW, Daten: -502€ Ergebnis, Serverkosten hoch
-Text: "Leichtes Minus diesen Monat — 502 Euro mehr raus als rein. Liegt an den Serverkosten."
-Suggestions: ["Wo gebe ich am meisten aus?", "EUeR als PDF", "Offene Rechnungen pruefen"]
+Mitte des Gespraechs, SHOW_FINANCIAL_OVERVIEW, -502 EUR (LEICHT_NEGATIV):
+{{"text": "Kleines Minus diesen Monat — 502 Euro mehr raus als rein.", "suggestions": ["Wo gebe ich am meisten aus?", "EUeR als PDF", "Offene Rechnungen pruefen"]}}
 
-Intent: SHOW_OPEN_ITEMS, Daten: Weber 285€ ueberfaellig 14 Tage
-Text: "Drei offene Posten, Weber ist am laengsten ueberfaellig — 285 Euro seit zwei Wochen."
-Suggestions: ["Weber eine Mahnung schicken", "Wann zahlen die anderen?", "Gesamtsumme anzeigen"]
+Mitte, SHOW_FINANCIAL_OVERVIEW, +1200 EUR (POSITIV):
+{{"text": "Laeuft bei dir! 1200 Euro Gewinn diesen Monat.", "suggestions": ["EUeR als PDF", "Offene Rechnungen pruefen", "Buchungen anzeigen"]}}
+
+Mitte, SHOW_OPEN_ITEMS, Weber 285 EUR ueberfaellig 14 Tage, LEICHT_NEGATIV:
+{{"text": "Drei offene Posten — Weber wartet am laengsten, 285 Euro seit zwei Wochen.", "suggestions": ["Weber eine Mahnung schreiben", "Alle offenen Posten anzeigen", "Gesamtsumme pruefen"]}}
 
 JETZT:
 
@@ -194,6 +221,114 @@ def _extract_summary(data: dict) -> dict:
     return summary
 
 
+def _determine_sentiment(data: dict) -> str:
+    """Bestimmt ob die Daten positiv/negativ/neutral sind fuer Ton-Steuerung."""
+    if not isinstance(data, dict):
+        return 'NEUTRAL'
+    result = data.get('profit', data.get('result'))
+    if result is not None:
+        try:
+            v = float(result)
+            if v > 0:
+                return 'POSITIV'
+            if v < -500:
+                return 'STARK_NEGATIV'
+            if v < 0:
+                return 'LEICHT_NEGATIV'
+        except (TypeError, ValueError):
+            pass
+    income = float(data.get('total_income', data.get('income', data.get('einnahmen', 0))) or 0)
+    expenses = float(data.get('total_expenses', data.get('expenses', data.get('ausgaben', 0))) or 0)
+    if income == 0 and expenses > 0:
+        return 'KEINE_EINNAHMEN'
+    return 'NEUTRAL'
+
+
+import re as _re_sugg
+
+_KNOWN_SUGGESTION_PATTERNS = [
+    r'inbox|belege?|posteingang|dokument',
+    r'finanz|euer|einnahmen?|ausgaben?|buchhaltu',
+    r'buchung(en)?|journal|kontobewegung',
+    r'kontakt|kunden?|lieferant',
+    r'frist(en)?|deadline|f\u00e4llig|termin',
+    r'offen(e)?.*posten|schuld|mahnung|forderung',
+    r'rechnung(en)?|faktur',
+    r'freigeb|genehmig|ablehnen|korrigier',
+    r'export|datev|pdf',
+    r'beleg|vorgang',
+    r'anzeigen?|zeig|pruefen|durchgehen',
+]
+
+
+def validate_suggestions(suggestions: list, service_data: dict = None) -> list:
+    """Entfernt Suggestions die FRYA nicht ausfuehren kann (Halluzinationen).
+
+    Behaelt Suggestions die einem bekannten FRYA-Feature-Pattern entsprechen
+    ODER einen konkreten Firmennamen aus den aktuellen Daten enthalten.
+    """
+    if not suggestions:
+        return ['Inbox anzeigen', 'Wie stehen die Finanzen?', 'Offene Posten pruefen']
+
+    # Firmennamen aus den aktuellen Service-Daten sind immer erlaubt
+    known_names: set = set()
+    if service_data and isinstance(service_data, dict):
+        for item in service_data.get('items', service_data.get('overdue', [])):
+            if isinstance(item, dict):
+                name = item.get('vendor', item.get('name', item.get('correspondent', '')))
+                if name:
+                    known_names.add(name.lower())
+
+    valid = []
+    for sugg in suggestions:
+        text = (sugg or '').lower()
+        matches_pattern = any(_re_sugg.search(p, text) for p in _KNOWN_SUGGESTION_PATTERNS)
+        matches_name = any(name in text for name in known_names if len(name) >= 4)
+        if matches_pattern or matches_name:
+            valid.append(sugg)
+        else:
+            logger.info("Suggestion gefiltert (unbekanntes Feature): '%s'", sugg)
+
+    if not valid:
+        valid = ['Inbox anzeigen', 'Wie stehen die Finanzen?', 'Offene Posten pruefen']
+
+    return valid[:4]
+
+
+def _build_context_summary(intent: str, data: dict) -> dict:
+    """Baut eine kompakte Zusammenfassung der Service-Daten fuer die Chat-History.
+
+    Maximal ~500 Zeichen — nicht die kompletten Rohdaten.
+    Wird als context_data in ChatHistoryStore gespeichert.
+    """
+    if not isinstance(data, dict):
+        return {'intent': intent}
+    summary: dict = {'intent': intent}
+
+    items = data.get('items', data.get('bookings', data.get('contacts', data.get('overdue', []))))
+    if items and isinstance(items, list):
+        key_items = []
+        for item in items[:10]:
+            if not isinstance(item, dict):
+                continue
+            name = item.get('vendor', item.get('name', item.get('correspondent', '?')))
+            amount = item.get('amount', item.get('betrag', ''))
+            status = item.get('status', '')
+            if amount:
+                key_items.append(f'{name} {amount}€ {status}'.strip())
+            else:
+                key_items.append(f'{name} {status}'.strip())
+        summary['items'] = key_items
+        summary['count'] = len(items)
+
+    for key in ('total_income', 'total_expenses', 'profit', 'booking_count',
+                'income', 'expenses', 'result'):
+        if data.get(key) is not None:
+            summary[key] = data[key]
+
+    return summary
+
+
 def _get_urgent(data: dict) -> list:
     """Extrahiert dringende Items damit Llama sie konkret in Suggestions nennen kann."""
     if not isinstance(data, dict):
@@ -218,6 +353,8 @@ async def generate_data_response(
     intent: str,
     data: dict,
     user_message: str,
+    chat_history: list = None,
+    is_first_message: bool = True,
 ) -> dict:
     """Llama 3.3 70B: Text + Suggestions fuer Daten-Intents in EINEM Call.
 
@@ -225,6 +362,10 @@ async def generate_data_response(
     Timeout 8s (Cold-Start IONOS ~6-7s, warm ~1.5-2s).
     Bei Fehler: {'text': None, 'suggestions': []} → Caller nutzt Fallback.
     Nutzt 'orchestrator_router' Slot (Llama 3.3 70B, Sprint-02-08).
+
+    Sprint-03-01 Erweiterungen:
+    - chat_history: Letzte Nachrichten inkl. context_data fuer Drill-Down
+    - is_first_message: Begruessung nur bei erster Nachricht
     """
     import asyncio
     import json as _json
@@ -232,12 +373,27 @@ async def generate_data_response(
     try:
         summary = _extract_summary(data)
         urgent = _get_urgent(data)
+        sentiment = _determine_sentiment(data)
+
+        # Konversationsposition
+        conv_position = 'ERSTE_NACHRICHT' if is_first_message else 'MITTE_DES_GESPRAECHS'
+
+        # Chat-Kontext fuer Drill-Down-Verstaendnis
+        chat_context_block = ''
+        if chat_history:
+            from app.telegram.communicator.memory.chat_history_store import ChatHistoryStore
+            ctx_text = ChatHistoryStore.format_for_llm(chat_history, max_messages=6)
+            if ctx_text:
+                chat_context_block = f'BISHERIGER GESPRAECHSVERLAUF:\n{ctx_text}'
 
         prompt = _LLAMA_DATA_RESPONSE_PROMPT.format(
             intent=intent,
             data_summary=_json.dumps(summary, ensure_ascii=False, default=str),
             urgent_items=_json.dumps(urgent, ensure_ascii=False, default=str) if urgent else 'Keine',
             user_message=user_message[:100],
+            conversation_position=conv_position,
+            sentiment=sentiment,
+            chat_context_block=chat_context_block,
         )
 
         from app.agents.tiered_orchestrator import TieredOrchestrator
@@ -272,8 +428,10 @@ async def generate_data_response(
         suggestions = [str(s) for s in parsed.get('suggestions', [])[:3]]
 
         if text:
-            logger.info('generate_data_response OK: %s | sugg=%s', text[:60], suggestions)
-            return {'text': text, 'suggestions': suggestions}
+            # FIX 2: Suggestions validieren — nur existierende FRYA-Features
+            validated_sugg = validate_suggestions(suggestions, data)
+            logger.info('generate_data_response OK: %s | sugg=%s', text[:60], validated_sugg)
+            return {'text': text, 'suggestions': validated_sugg}
 
         logger.warning('generate_data_response: leerer text in JSON | raw=%s', raw[:100])
 
@@ -824,6 +982,7 @@ async def handle_shortcircuit_intent(
     message: str,
     tenant_id: str,
     user_id: str,
+    chat_id: str = None,
 ) -> Optional[dict]:
     """Verarbeitet einen Chart-Shortcircuit-Intent: Service aufrufen + ResponseBuilder.
 
@@ -918,9 +1077,26 @@ async def handle_shortcircuit_intent(
         if _raw_actions and any(a.get('quick_action') for a in _raw_actions):
             _sc_actions = _raw_actions
 
+        # Sprint-03-01: Chat-History laden fuer Kontext + is_first_message
+        _chat_history: list = []
+        _is_first = True
+        try:
+            from app.dependencies import get_chat_history_store
+            _hist_store = get_chat_history_store()
+            _effective_chat_id = chat_id or f'web-{user_id}'
+            _chat_history = await _hist_store.load(_effective_chat_id)
+            _is_first = len(_chat_history) <= 2  # <= 2: noch keine echte Antwort in History
+        except Exception as _hist_exc:
+            logger.debug('handle_shortcircuit: history load failed: %s', _hist_exc)
+
         # Sprint-02-08: Llama generiert Text + Suggestions in EINEM Call
+        # Sprint-03-01: + chat_history + is_first_message
         # Fallback: Mistral-Text (_format_data_text) + statische Suggestions (_sc_actions)
-        _llama = await generate_data_response(str(intent), _chart_data, message)
+        _llama = await generate_data_response(
+            str(intent), _chart_data, message,
+            chat_history=_chat_history,
+            is_first_message=_is_first,
+        )
 
         if _llama.get('text'):
             _reply = _llama['text']
@@ -955,6 +1131,8 @@ async def handle_shortcircuit_intent(
             'content_blocks': _sc_blocks,
             'actions': _final_actions,
             'routing': 'regex',
+            '_service_data': _chart_data,   # Sprint-03-01: fuer save_to_history
+            '_intent': str(intent),          # Sprint-03-01: fuer save_to_history
         }
 
     except Exception as exc:
@@ -972,17 +1150,23 @@ async def save_to_history(
     chat_id: str,
     user_message: str,
     assistant_text: str,
+    service_data: dict = None,
+    intent: str = None,
 ) -> None:
-    """Speichert User-Nachricht + Antwort in Redis Chat-History.
+    """Speichert User-Nachricht + Antwort + optionaler Kontext in Redis Chat-History.
 
     IMMER aufrufen — bei Shortcircuit, Pending, Communicator.
     REGEL P3: Darf den Response NIEMALS blockieren.
+
+    Sprint-03-01: service_data + intent → context_data in History.
+    Ermoeglicht Frya Drill-Down-Fragen zu gerade angezeigten Daten.
     """
     try:
         from app.dependencies import get_chat_history_store
         hist = get_chat_history_store()
         if assistant_text:
-            await hist.append(chat_id, user_message, assistant_text)
+            ctx = _build_context_summary(intent, service_data) if (service_data and intent) else None
+            await hist.append(chat_id, user_message, assistant_text, context_data=ctx)
     except Exception as exc:
         logger.warning('Chat-History save failed for %s: %s', chat_id, exc)
         # NICHT re-raisen — Response darf nicht blockiert werden

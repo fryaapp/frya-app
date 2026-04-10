@@ -32,7 +32,7 @@ class TieredOrchestrator:
         r"(?i)(zeig.*inbox|meine inbox|offene belege|was liegt an|was steht an|zeig.*belege)": Intent.SHOW_INBOX,
         r"(?i)^(inbox|belege|abarbeiten)$": Intent.SHOW_INBOX,  # Einzelwoerter NUR als ganzer Text
         # ── Finanzen (Phrasen, KEIN Einzelwort) ────────────────────
-        r"(?i)(ausgaben.*kategorie|kostenverteilung|wohin.*geld|kosten.*aufgeteilt)": Intent.SHOW_EXPENSE_CATEGORIES,
+        r"(?i)(ausgaben.*kategorie|kostenverteilung|wohin.*geld|kosten.*aufgeteilt|wo.*gebe.*meisten|am meisten aus|gr[oö]ßte.*posten|gr[oö]ßten.*posten)": Intent.SHOW_EXPENSE_CATEGORIES,
         r"(?i)(gewinn.*verlust|mein gewinn|guv|gewinn.*zeig|zeig.*gewinn)": Intent.SHOW_PROFIT_LOSS,
         r"(?i)(umsatz.*entwicklung|umsatz.*trend|umsatz.*verlauf)": Intent.SHOW_REVENUE_TREND,
         r"(?i)(hochrechnung|jahres.?hochrechnung|forecast)": Intent.SHOW_FORECAST,
@@ -176,21 +176,31 @@ class TieredOrchestrator:
         classify_prompt = (
             "Klassifiziere die User-Nachricht in EINEN Intent.\n"
             "Mögliche Intents:\n"
-            "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues\n"
-            "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR\n"
-            "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet, Geld, Forderungen, Mahnung, Schuldner\n"
+            "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues, alle durchgehen, dringende Belege\n"
+            "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR, wie stehe ich finanziell\n"
+            "- SHOW_EXPENSE_CATEGORIES: wo gebe ich am meisten aus, groesste Posten, Ausgaben nach Kategorie, teuerste Ausgaben\n"
+            "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet, Forderungen, Mahnung, Schuldner, offene Rechnungen pruefen, wer ist ueberfaellig\n"
             "- SHOW_DEADLINES: Fristen, dringend, faellig, Termine\n"
-            "- SHOW_BOOKINGS: Buchungen, Kontobewegungen\n"
+            "- SHOW_BOOKINGS: Buchungen, Kontobewegungen, Buchungen anzeigen\n"
             "- SHOW_CONTACT, SHOW_CONTACTS: Kontakt(e) suchen/anzeigen\n"
-            "- SHOW_EXPORT: Export, DATEV, CSV\n"
+            "- SHOW_EXPORT: Export, DATEV, CSV, EUeR als PDF, DATEV-Export\n"
             "- CREATE_INVOICE: Rechnung erstellen/schreiben\n"
             "- CREATE_CONTACT: Kontakt anlegen\n"
-            "- CREATE_REMINDER: Erinnerung setzen\n"
+            "- CREATE_REMINDER: Mahnung schreiben, Erinnerung setzen, Mahnung an [Name]\n"
+            "- PROCESS_INBOX: Belege abarbeiten, Inbox durchgehen, Beleg freigeben, alles durchgehen\n"
             "- APPROVE: Freigeben, genehmigen\n"
             "- SETTINGS: Einstellungen, Profil, Theme\n"
             "- UPLOAD: Beleg hochladen\n"
             "- SMALL_TALK: Begruessung, Danke, Smalltalk\n"
             "- UNKNOWN: Unklar\n"
+            "BEISPIELE fuer Suggestion-Buttons:\n"
+            '"Wo gebe ich am meisten aus?" → SHOW_EXPENSE_CATEGORIES\n'
+            '"EUeR als PDF" → SHOW_EXPORT\n'
+            '"Offene Rechnungen pruefen" → SHOW_OPEN_ITEMS\n'
+            '"Weber eine Mahnung schreiben" → CREATE_REMINDER\n'
+            '"Alle offenen Posten anzeigen" → SHOW_OPEN_ITEMS\n'
+            '"Buchungen anzeigen" → SHOW_BOOKINGS\n'
+            '"Alle durchgehen" → PROCESS_INBOX\n'
             f'Nachricht: "{message}"\n'
             "Antworte NUR mit dem Intent-Namen."
         )
@@ -227,30 +237,33 @@ class TieredOrchestrator:
             "Du bist der Intent-Classifier fuer FRYA, ein deutsches Buchhaltungssystem.\n"
             "Analysiere die Nachricht und gib GENAU EINEN Intent zurueck.\n\n"
             "VERFUEGBARE INTENTS:\n"
-            "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues\n"
-            "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR\n"
+            "- SHOW_INBOX: Inbox, Belege, was liegt an, was gibt es Neues, dringende Belege\n"
+            "- SHOW_FINANCE: Finanzen, Finanzuebersicht, Einnahmen, Ausgaben, EUeR, wie stehe ich finanziell\n"
             "- SHOW_FINANCIAL_OVERVIEW: Gleich wie SHOW_FINANCE\n"
-            "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet mir, Geld schulden, Forderungen, Mahnung, Schuldner\n"
+            "- SHOW_EXPENSE_CATEGORIES: wo gebe ich am meisten aus, groesste Posten, Ausgaben nach Kategorie, teuerste Ausgaben, Kostenaufteilung\n"
+            "- SHOW_OPEN_ITEMS: Offene Posten, wer schuldet mir, Forderungen, Schuldner, offene Rechnungen pruefen, Gesamtschulden, ueberfaellig\n"
             "- SHOW_DEADLINES: Fristen, dringend, faellig, Termine\n"
-            "- SHOW_BOOKINGS: Buchungen, Buchungsjournal, Kontobewegungen\n"
+            "- SHOW_BOOKINGS: Buchungen, Buchungsjournal, Kontobewegungen, Buchungen anzeigen\n"
             "- SHOW_CONTACTS: Kontakte, Kunden, Lieferanten anzeigen\n"
             "- SHOW_CONTACT: Einen bestimmten Kontakt suchen/anzeigen\n"
             "- SHOW_CASE: Einen bestimmten Beleg/Vorgang/Fall anzeigen\n"
-            "- SHOW_EXPORT: Export, DATEV, CSV\n"
+            "- SHOW_EXPORT: Export, DATEV, CSV, EUeR als PDF, DATEV-Export, Steuerexport\n"
             "- CREATE_INVOICE: Rechnung erstellen/schreiben\n"
             "- CREATE_CONTACT: Kontakt anlegen\n"
-            "- CREATE_REMINDER: Erinnerung/Mahnung erstellen\n"
+            "- CREATE_REMINDER: Mahnung schreiben, Erinnerung/Mahnung erstellen, Mahnung an [Name]\n"
             "- APPROVE: Freigeben, genehmigen, buchen\n"
-            "- PROCESS_INBOX: Inbox abarbeiten, Belege durchgehen\n"
+            "- PROCESS_INBOX: Inbox abarbeiten, Belege durchgehen, alle durchgehen, alles abarbeiten\n"
             "- SETTINGS: Einstellungen, Profil, Theme\n"
             "- UPLOAD: Beleg hochladen\n"
             "- GENERAL_CONVERSATION: Begruessung, Danke, Smalltalk, oder wenn unklar\n\n"
             "WICHTIGE REGELN:\n"
-            "1. 'Geld schulden', 'Forderungen', 'Mahnung', 'wer schuldet' → SHOW_OPEN_ITEMS (NICHT SHOW_FINANCE!)\n"
-            "2. 'Rechnung erstellen/schreiben', Betraege im Kontext einer Rechnung → CREATE_INVOICE\n"
-            "3. 'Euro'/'Betrag'/'Preis' allein sind KEIN Grund fuer SHOW_FINANCE — pruefe den Kontext\n"
-            "4. SHOW_FINANCE nur wenn User EXPLIZIT nach Finanzuebersicht/EUeR fragt\n"
-            "5. Wenn unklar → GENERAL_CONVERSATION\n\n"
+            "1. 'Geld schulden', 'Forderungen', 'Mahnung', 'wer schuldet', 'offene Rechnungen pruefen' → SHOW_OPEN_ITEMS (NICHT SHOW_FINANCE!)\n"
+            "2. 'Wo gebe ich am meisten aus', 'groesste Posten', 'Ausgaben nach Kategorie' → SHOW_EXPENSE_CATEGORIES (NICHT SHOW_FINANCE!)\n"
+            "3. 'Rechnung erstellen/schreiben', Betraege im Kontext einer Rechnung → CREATE_INVOICE\n"
+            "4. 'EUeR als PDF', 'DATEV-Export', 'Export' → SHOW_EXPORT\n"
+            "5. 'Euro'/'Betrag'/'Preis' allein sind KEIN Grund fuer SHOW_FINANCE — pruefe den Kontext\n"
+            "6. SHOW_FINANCE/SHOW_FINANCIAL_OVERVIEW nur wenn User EXPLIZIT nach Finanzuebersicht/EUeR fragt\n"
+            "7. Wenn unklar → GENERAL_CONVERSATION\n\n"
             "BEISPIELE:\n"
             '"Wer schuldet mir Geld?" → SHOW_OPEN_ITEMS\n'
             '"Erstelle eine Rechnung ueber 500 Euro" → CREATE_INVOICE\n'
@@ -258,6 +271,12 @@ class TieredOrchestrator:
             '"Was liegt in der Inbox?" → SHOW_INBOX\n'
             '"Was habe ich bei Stabilo gekauft?" → SHOW_CASE\n'
             '"Zeig mir meine Buchungen" → SHOW_BOOKINGS\n'
+            '"Wo gebe ich am meisten aus?" → SHOW_EXPENSE_CATEGORIES\n'
+            '"EUeR als PDF" → SHOW_EXPORT\n'
+            '"Offene Rechnungen pruefen" → SHOW_OPEN_ITEMS\n'
+            '"Weber eine Mahnung schreiben" → CREATE_REMINDER\n'
+            '"Alle durchgehen" → PROCESS_INBOX\n'
+            '"Buchungen anzeigen" → SHOW_BOOKINGS\n'
             '"Hallo Frya" → GENERAL_CONVERSATION\n\n'
             f'Nachricht: "{message}"\n\n'
             "Antworte mit GENAU EINEM Intent-String, nichts anderes."

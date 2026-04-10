@@ -158,7 +158,11 @@ async def send_chat_message(
             _pending_result.pop('next_pending_flow', None)  # REST braucht das nicht
             # RC-4: History auch bei Pending-Shortcircuit speichern
             from app.api.shared_chat_logic import save_to_history
-            await save_to_history(_chat_id_rest, body.message, _pending_result.get('text', ''))
+            await save_to_history(
+                _chat_id_rest, body.message, _pending_result.get('text', ''),
+                service_data=_pending_result.get('_service_data'),
+                intent=_pending_result.get('_intent'),
+            )
             return ChatResponse(
                 reply=_pending_result.get('text', ''),
                 case_ref=_pending_result.get('case_ref'),
@@ -300,17 +304,28 @@ async def send_chat_message(
             routing = routing_result.get('routing')
 
             # Service-Daten + Text-Sync fuer Daten-Intents
-            # Regex ist AUS, aber LLM-klassifizierte Intents nutzen den gleichen Service-Pfad
-            if tier_intent and routing in ('regex', 'fast'):
+            # Regex ist AUS (shortcircuit_enabled=False), aber LLM-klassifizierte Intents
+            # nutzen den gleichen Service-Pfad — analog zu chat_ws.py (kein Routing-Gate).
+            # WICHTIG: _classify_with_llama() gibt IMMER routing='deep' zurueck, auch bei
+            # erkannten Intents → Gate darf NICHT 'regex'|'fast' pruefen!
+            from app.api.shared_chat_logic import _CHART_SHORTCIRCUIT_INTENTS
+            from app.core.intents import parse_intent as _parse_intent
+            _tier_intent_enum = _parse_intent(str(tier_intent).split('.')[-1]) if tier_intent else None
+            if tier_intent and _tier_intent_enum and _tier_intent_enum in _CHART_SHORTCIRCUIT_INTENTS:
                 from app.api.shared_chat_logic import handle_shortcircuit_intent
                 _chart_r = await handle_shortcircuit_intent(
                     intent=tier_intent, message=body.message,
                     tenant_id=_tid, user_id=user.username,
+                    chat_id=_chat_id_rest,
                 )
                 if _chart_r is not None:
                     # RC-4: History auch bei Chart-Shortcircuit speichern
                     from app.api.shared_chat_logic import save_to_history
-                    await save_to_history(_chat_id_rest, body.message, _chart_r.get('text', ''))
+                    await save_to_history(
+                        _chat_id_rest, body.message, _chart_r.get('text', ''),
+                        service_data=_chart_r.get('_service_data'),
+                        intent=_chart_r.get('_intent'),
+                    )
                     return ChatResponse(
                         reply=_chart_r.get('text', ''),
                         case_ref=_chart_r.get('case_ref'),

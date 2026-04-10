@@ -54,10 +54,19 @@ class ChatHistoryStore:
         except (json.JSONDecodeError, TypeError, Exception):
             return []
 
-    async def append(self, chat_id: str, user_msg: str, assistant_msg: str) -> None:
+    async def append(
+        self,
+        chat_id: str,
+        user_msg: str,
+        assistant_msg: str,
+        context_data: dict | None = None,
+    ) -> None:
         history = await self.load(chat_id)
         history.append({'role': 'user', 'content': user_msg})
-        history.append({'role': 'assistant', 'content': assistant_msg})
+        entry: dict = {'role': 'assistant', 'content': assistant_msg}
+        if context_data:
+            entry['context_data'] = context_data
+        history.append(entry)
         history = history[-self.MAX_MESSAGES:]
 
         if self._is_memory():
@@ -71,3 +80,28 @@ class ChatHistoryStore:
             await r.set(self._key(chat_id), json.dumps(history), ex=self.TTL_SECONDS)
         except Exception as exc:
             logger.debug('chat_history_store: append failed: %s', exc)
+
+    @staticmethod
+    def format_for_llm(history: list, max_messages: int = 6) -> str:
+        """Formatiert Chat-History MIT context_data fuer LLM-Prompts.
+
+        Gibt einen kompakten String zurueck der dem LLM zeigt welche Daten
+        zuletzt angezeigt wurden, damit Drill-Down-Fragen beantwortet werden.
+        """
+        recent = history[-max_messages:]
+        lines = []
+        for msg in recent:
+            role = 'User' if msg.get('role') == 'user' else 'Frya'
+            content = (msg.get('content') or '')[:200]
+            lines.append(f'{role}: {content}')
+            ctx = msg.get('context_data')
+            if ctx and isinstance(ctx, dict):
+                items = ctx.get('items', [])
+                if items:
+                    lines.append(f'  [Gezeigte Daten: {", ".join(str(i) for i in items[:5])}]')
+                for key in ('income', 'expenses', 'result', 'einnahmen', 'ausgaben', 'profit'):
+                    if key in ctx:
+                        lines.append(f'  [{key}: {ctx[key]}]')
+                if ctx.get('count'):
+                    lines.append(f'  [Anzahl: {ctx["count"]}]')
+        return '\n'.join(lines)

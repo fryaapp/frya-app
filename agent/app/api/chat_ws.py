@@ -1348,18 +1348,31 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             message=text,
                             tenant_id=tenant_id,
                             user_id=user_id,
+                            chat_id=f'web-{user_id}',
                         )
                         if _chart_result is not None:
-                            # Save history (RC-4)
+                            # Save history (RC-4) — Sprint-03-01: + context_data
                             try:
                                 _hist_store = get_chat_history_store()
-                                await _hist_store.append(f'web-{user_id}', text, _chart_result.get('text', ''))
-                            except Exception:
-                                pass
+                                from app.api.shared_chat_logic import _build_context_summary
+                                _svc_data = _chart_result.get('_service_data')
+                                _svc_intent = _chart_result.get('_intent', '')
+                                _ctx_data = _build_context_summary(
+                                    _svc_intent,
+                                    _svc_data if isinstance(_svc_data, dict) else {},
+                                )
+                                await _hist_store.append(
+                                    f'web-{user_id}', text, _chart_result.get('text', ''),
+                                    context_data=_ctx_data if _ctx_data else None,
+                                )
+                            except Exception as _ctx_exc:
+                                logger.warning('S03-ctx: save failed: %s', _ctx_exc)
                             _ctx = _chart_result.get('context_type', 'none')
                             if _ctx != 'none':
                                 await websocket.send_json({'type': 'ui_hint', 'action': 'open_context', 'context_type': _ctx})
-                            await websocket.send_json({'type': 'message_complete', **{k: v for k, v in _chart_result.items() if k != 'context_type'}, 'context_type': _ctx})
+                            # Sprint-03-01: _service_data/_intent sind interne Felder — NICHT an Frontend senden
+                            _ws_payload = {k: v for k, v in _chart_result.items() if k not in ('context_type', '_service_data', '_intent')}
+                            await websocket.send_json({'type': 'message_complete', **_ws_payload, 'context_type': _ctx})
                             continue
 
                     # (OLD CHART CODE REMOVED — now in shared_chat_logic.py)
@@ -1406,13 +1419,18 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             response_payload['settings_changed'] = {'theme': _theme_changed}
 
                         # RC-4 Fix: Chat-History auch bei Shortcircuit speichern,
-                        # damit nachfolgende LLM-Turns den Kontext sehen.
+                        # Sprint-03-01: + context_data fuer Drill-Down-Fragen
                         try:
                             _hist_store = get_chat_history_store()
                             _sc_hist_reply = _shortcircuit_reply or ''
                             if _sc_hist_reply:
+                                _sc_ctx_data: dict | None = None
+                                if _shortcircuit_data and tier_intent:
+                                    from app.api.shared_chat_logic import _build_context_summary
+                                    _sc_ctx_data = _build_context_summary(str(tier_intent), _shortcircuit_data) or None
                                 await _hist_store.append(
                                     f'web-{user_id}', text, _sc_hist_reply,
+                                    context_data=_sc_ctx_data,
                                 )
                         except Exception as _hist_exc:
                             logger.debug('Shortcircuit history append failed: %s', _hist_exc)
