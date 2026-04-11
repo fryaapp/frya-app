@@ -38,6 +38,7 @@ from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from app.auth.jwt_auth import decode_token
+from app.core.intents import Intent, parse_intent
 from app.security.input_sanitizer import sanitize_user_message
 from app.dependencies import (
     get_audit_service,
@@ -140,34 +141,34 @@ def _get_response_builder():
 
 # Map TieredOrchestrator intents to context_type for the frontend
 _TIER_INTENT_TO_CONTEXT: dict[str, str] = {
-    'SHOW_INBOX': 'inbox',
-    'SHOW_FINANCE': 'finance',
-    'SHOW_FINANCIAL_OVERVIEW': 'finance',
-    'SHOW_DEADLINES': 'deadlines',
-    'SHOW_BOOKINGS': 'bookings',
-    'SHOW_OPEN_ITEMS': 'open_items',
-    'SHOW_CONTACT': 'contact_card',
-    'SHOW_CONTACTS': 'contact_card',
-    'SHOW_EXPORT': 'finance',
-    'CREATE_INVOICE': 'invoice_draft',
-    'SHOW_INVOICE': 'invoice_draft',
-    'SEND_INVOICE': 'none',
-    'VOID_INVOICE': 'none',
-    'EDIT_INVOICE': 'invoice_draft',
-    'CHOOSE_TEMPLATE': 'none',
-    'SET_TEMPLATE': 'none',
-    'UPLOAD_LOGO': 'none',
-    'CREATE_CONTACT': 'contact_card',
-    'CREATE_REMINDER': 'deadlines',
-    'SETTINGS': 'settings',
-    'UPLOAD': 'upload_status',
-    'STATUS_OVERVIEW': 'none',
-    'SMALL_TALK': 'none',
-    'APPROVE': 'inbox',
-    'SHOW_EXPENSE_CATEGORIES': 'finance',
-    'SHOW_PROFIT_LOSS': 'finance',
-    'SHOW_REVENUE_TREND': 'finance',
-    'SHOW_FORECAST': 'finance',
+    Intent.SHOW_INBOX: 'inbox',
+    Intent.SHOW_FINANCE: 'finance',
+    Intent.SHOW_FINANCIAL_OVERVIEW: 'finance',
+    Intent.SHOW_DEADLINES: 'deadlines',
+    Intent.SHOW_BOOKINGS: 'bookings',
+    Intent.SHOW_OPEN_ITEMS: 'open_items',
+    Intent.SHOW_CONTACT: 'contact_card',
+    Intent.SHOW_CONTACTS: 'contact_card',
+    Intent.SHOW_EXPORT: 'finance',
+    Intent.CREATE_INVOICE: 'invoice_draft',
+    Intent.SHOW_INVOICE: 'invoice_draft',
+    Intent.SEND_INVOICE: 'none',
+    Intent.VOID_INVOICE: 'none',
+    Intent.EDIT_INVOICE: 'invoice_draft',
+    Intent.CHOOSE_TEMPLATE: 'none',
+    Intent.SET_TEMPLATE: 'none',
+    Intent.UPLOAD_LOGO: 'none',
+    Intent.CREATE_CONTACT: 'contact_card',
+    Intent.CREATE_REMINDER: 'deadlines',
+    Intent.SETTINGS: 'settings',
+    Intent.UPLOAD: 'upload_status',
+    Intent.STATUS_OVERVIEW: 'none',
+    Intent.SMALL_TALK: 'none',
+    Intent.APPROVE: 'inbox',
+    Intent.SHOW_EXPENSE_CATEGORIES: 'finance',
+    Intent.SHOW_PROFIT_LOSS: 'finance',
+    Intent.SHOW_REVENUE_TREND: 'finance',
+    Intent.SHOW_FORECAST: 'finance',
 }
 
 
@@ -616,6 +617,21 @@ TYPING_HINTS: dict[str, str] = {
     'vendor_search': 'Durchsuche die Vorgänge...',
 }
 
+# ITEM 2: Intent → User-facing Typing-Hint (wird während der Pipeline gesendet)
+AGENT_HINTS: dict[str, str] = {
+    'classify':           'Verstehe deine Frage...',
+    'orchestrator':       'Denke nach...',
+    'service_call':       'Hole die Daten...',
+    'communicator':       'Formuliere die Antwort...',
+    'document_analyst':   'Schaue mir den Beleg an...',
+    'accounting_analyst': 'Prüfe die Buchung...',
+    'deadline_analyst':   'Checke die Fristen...',
+    'memory_curator':     'Erinnere mich...',
+    'response_build':     'Stelle alles zusammen...',
+    'invoice_pipeline':   'Erstelle die Rechnung...',
+    'approve':            'Prüfe die Freigabe...',
+}
+
 _GENERIC_TYPING_HINT = 'Einen Moment...'
 
 # ---------------------------------------------------------------------------
@@ -929,287 +945,26 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                 })
 
                 try:
-                    # --- Phase 0: Pending-Flow Resume (P-10 A3) ---
-                    # If a previous turn set a pending flow (e.g. waiting for email),
-                    # resume that flow instead of starting a new intent.
-                    _pending_flow = getattr(websocket, '_frya_pending_flow', None)
-                    if _pending_flow and isinstance(_pending_flow, dict):
-                        _pf_type = _pending_flow.get('waiting_for')
-                        _pf_invoice_id = _pending_flow.get('invoice_id')
-                        _pf_data = _pending_flow.get('pending_data', {})
+                    # --- Phase 0: Pending-Checks (Shared Logic) ---
+                    from app.api.shared_chat_logic import check_and_handle_pending
+                    _pending_result = await check_and_handle_pending(
+                        message=text,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        chat_id=f'web-{user_id}',
+                        pending_flow=getattr(websocket, '_frya_pending_flow', None),
+                    )
+                    if _pending_result is not None:
+                        # Update WS pending_flow state
+                        websocket._frya_pending_flow = _pending_result.pop('next_pending_flow', None)
+                        await websocket.send_json({'type': 'typing', 'active': False})
+                        await websocket.send_json({'type': 'message_complete', **_pending_result})
+                        continue
 
-                        # Cancel-Check: User m\u00f6chte den laufenden Flow abbrechen
-                        _cancel_keywords = ('abbrech', 'vergiss', 'nein', 'stop', 'cancel', 'aufh\u00f6ren', 'nicht mehr', 'lass es', 'skip', 'ignorier')
-                        if any(kw in text.lower() for kw in _cancel_keywords):
-                            websocket._frya_pending_flow = None
-                            await websocket.send_json({'type': 'typing', 'active': False})
-                            await websocket.send_json({
-                                'type': 'message_complete',
-                                'text': 'Alles klar, ich habe den Vorgang abgebrochen. Was kann ich sonst f\u00fcr dich tun?',
-                                'case_ref': None,
-                                'context_type': 'none',
-                                'suggestions': _DEFAULT_SUGGESTIONS,
-                                'content_blocks': [],
-                                'actions': [],
-                                'routing': 'cancel',
-                            })
-                            continue
-
-                        # Clear pending before processing
-                        websocket._frya_pending_flow = None
-
-                        if _pf_type == 'recipient_email' and _pf_invoice_id:
-                            # User responded with email — resume send flow
-                            from app.services.invoice_pipeline import handle_send_invoice
-                            _send_params = {
-                                'invoice_id': _pf_invoice_id,
-                                'recipient_email': text.strip(),
-                            }
-                            _send_result = await handle_send_invoice(_send_params, user_id, tenant_id=tenant_id)
-                            await websocket.send_json({
-                                'type': 'typing', 'active': False,
-                            })
-                            await websocket.send_json({
-                                'type': 'message_complete',
-                                'text': _send_result.get('text', ''),
-                                'case_ref': None,
-                                'context_type': 'none',
-                                'suggestions': [a['chat_text'] for a in _send_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
-                                'content_blocks': _send_result.get('content_blocks', []),
-                                'actions': _send_result.get('actions', []),
-                                'routing': 'pending_flow',
-                            })
-                            continue
-
-                        elif _pf_type == 'company_profile_wizard' and _pf_data:
-                            # User responded to company profile wizard question — save it, then retry
-                            await _extract_and_persist_business_info(text, user_id, tenant_id)
-                            from app.services.invoice_pipeline import handle_create_invoice as _hci_cpw
-                            _cpw_result = await _hci_cpw(_pf_data, user_id, tenant_id=tenant_id)
-                            # Re-set pending if still waiting for more company data
-                            if _cpw_result.get('_waiting_for') == 'company_profile_wizard':
-                                websocket._frya_pending_flow = {
-                                    'waiting_for': 'company_profile_wizard',
-                                    'pending_data': _cpw_result.get('_pending_data', _pf_data),
-                                }
-                            elif _cpw_result.get('awaiting_email_for_invoice'):
-                                websocket._frya_pending_flow = {
-                                    'waiting_for': 'recipient_email',
-                                    'invoice_id': _cpw_result['awaiting_email_for_invoice'],
-                                    'pending_data': _pf_data,
-                                }
-                            await websocket.send_json({'type': 'typing', 'active': False})
-                            await websocket.send_json({
-                                'type': 'message_complete',
-                                'text': _cpw_result.get('text', ''),
-                                'case_ref': None,
-                                'context_type': _cpw_result.get('context_type', 'none'),
-                                'suggestions': [a['chat_text'] for a in _cpw_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
-                                'content_blocks': _cpw_result.get('content_blocks', []),
-                                'actions': _cpw_result.get('actions', []),
-                                'routing': 'pending_flow',
-                            })
-                            continue
-
-                        elif _pf_type == 'recipient_address' and _pf_data:
-                            # User responded with address — merge into pending data and retry
-                            _pf_data['contact_address'] = text.strip()
-                            from app.services.invoice_pipeline import handle_create_invoice
-                            _resume_result = await handle_create_invoice(_pf_data, user_id, tenant_id=tenant_id)
-                            _resume_text = _resume_result.get('text', '')
-                            _resume_blocks = _resume_result.get('content_blocks', [])
-                            _resume_actions = _resume_result.get('actions', [])
-                            # Check if still pending
-                            if _resume_result.get('_pending_intent'):
-                                websocket._frya_pending_flow = {
-                                    'waiting_for': 'recipient_address',
-                                    'pending_data': _resume_result.get('_pending_data', _pf_data),
-                                }
-                            await websocket.send_json({
-                                'type': 'typing', 'active': False,
-                            })
-                            await websocket.send_json({
-                                'type': 'message_complete',
-                                'text': _resume_text,
-                                'case_ref': None,
-                                'context_type': _resume_result.get('context_type', 'invoice_draft'),
-                                'suggestions': [a['chat_text'] for a in _resume_actions[:3]] or _DEFAULT_SUGGESTIONS,
-                                'content_blocks': _resume_blocks,
-                                'actions': _resume_actions,
-                                'routing': 'pending_flow',
-                            })
-                            continue
-
-                        elif _pf_type == 'invoice_draft_review' and _pf_invoice_id:
-                            # P-43 Fix B: User responds to invoice draft preview.
-                            # Detect modification requests vs send/void commands.
-                            import re as _re_inv
-                            _inv_mod_patterns = [
-                                r'(?:aender|änder|change|mach).*(?:betrag|preis|summe|€|euro|\d)',
-                                r'(?:aender|änder).*(?:adresse|name|empfaenger|empfänger|beschreibung)',
-                                r'(?:statt|anstatt)\s*\d+',
-                                r'\d+\s*€?\s*(?:statt|anstatt|draus|daraus)',
-                                r'(?:betrag|preis|summe)\s*(?:auf|zu|soll|=)\s*\d+',
-                                r'(?:mach|setze?)\s*\d+\s*€?\s*(?:draus|daraus)',
-                                r'(?:fuege|füge|add|noch)\s+\d+\s+.+\s+(?:zu|à|a|@)\s*\d+',
-                                r'(?:andere?|neue?)\s*(?:adresse|beschreibung|position)',
-                            ]
-                            _is_mod = any(_re_inv.search(p, text.lower()) for p in _inv_mod_patterns)
-                            _is_send = any(kw in text.lower() for kw in ('freigeben', 'senden', 'verschicken', 'abschicken', 'sieht gut aus'))
-                            _is_void = any(kw in text.lower() for kw in ('verwerfen', 'loeschen', 'löschen', 'stornieren'))
-
-                            if _is_mod:
-                                from app.services.invoice_pipeline import handle_modify_invoice
-                                _mod_result = await handle_modify_invoice(
-                                    _pf_invoice_id, text, user_id, tenant_id=tenant_id,
-                                )
-                                # Keep pending for further modifications
-                                _mod_inv_id = _mod_result.get('invoice_id', _pf_invoice_id)
-                                websocket._frya_pending_flow = {
-                                    'waiting_for': 'invoice_draft_review',
-                                    'invoice_id': _mod_inv_id,
-                                    'pending_data': _pf_data,
-                                }
-                                await websocket.send_json({'type': 'typing', 'active': False})
-                                await websocket.send_json({
-                                    'type': 'message_complete',
-                                    'text': _mod_result.get('text', ''),
-                                    'case_ref': None,
-                                    'context_type': 'invoice_draft',
-                                    'suggestions': [a['chat_text'] for a in _mod_result.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
-                                    'content_blocks': _mod_result.get('content_blocks', []),
-                                    'actions': _mod_result.get('actions', []),
-                                    'routing': 'pending_flow',
-                                })
-                                continue
-                            elif _is_send:
-                                # Route to send flow — set pending for email
-                                websocket._frya_pending_flow = {
-                                    'waiting_for': 'recipient_email',
-                                    'invoice_id': _pf_invoice_id,
-                                    'pending_data': _pf_data,
-                                }
-                                from app.services.invoice_pipeline import handle_send_invoice
-                                _send_r = await handle_send_invoice(
-                                    {'invoice_id': _pf_invoice_id}, user_id, tenant_id=tenant_id,
-                                )
-                                _send_text = _send_r.get('text', '')
-                                if _send_r.get('awaiting_email_for_invoice'):
-                                    websocket._frya_pending_flow = {
-                                        'waiting_for': 'recipient_email',
-                                        'invoice_id': _send_r['awaiting_email_for_invoice'],
-                                        'pending_data': _pf_data,
-                                    }
-                                else:
-                                    websocket._frya_pending_flow = None
-                                await websocket.send_json({'type': 'typing', 'active': False})
-                                await websocket.send_json({
-                                    'type': 'message_complete',
-                                    'text': _send_text,
-                                    'case_ref': None,
-                                    'context_type': _send_r.get('context_type', 'none'),
-                                    'suggestions': [a['chat_text'] for a in _send_r.get('actions', [])[:3]] or _DEFAULT_SUGGESTIONS,
-                                    'content_blocks': _send_r.get('content_blocks', []),
-                                    'actions': _send_r.get('actions', []),
-                                    'routing': 'pending_flow',
-                                })
-                                continue
-                            elif _is_void:
-                                websocket._frya_pending_flow = None
-                                from app.services.invoice_pipeline import handle_void_invoice
-                                _void_r = await handle_void_invoice({'invoice_id': _pf_invoice_id}, user_id)
-                                await websocket.send_json({'type': 'typing', 'active': False})
-                                await websocket.send_json({
-                                    'type': 'message_complete',
-                                    'text': _void_r.get('text', 'Rechnung verworfen.'),
-                                    'case_ref': None,
-                                    'context_type': 'none',
-                                    'suggestions': _DEFAULT_SUGGESTIONS,
-                                    'content_blocks': _void_r.get('content_blocks', []),
-                                    'actions': _void_r.get('actions', []),
-                                    'routing': 'pending_flow',
-                                })
-                                continue
-                            else:
-                                # Unknown follow-up — clear pending, route normally
-                                websocket._frya_pending_flow = None
-
-                    # --- Phase 0b: Pending Action Confirmation (P-43 Fix D) ---
-                    # Check Redis for pending_action before orchestrator routing.
-                    _CONFIRMATION_WORDS = frozenset({
-                        'ja', 'jo', 'jep', 'jap', 'jup', 'yes', 'ok', 'okay', 'oke',
-                        'genau', 'stimmt', 'richtig', 'korrekt', 'passt', 'perfekt',
-                        'mach', 'mach das', 'tu das', 'los', 'go', 'weiter',
-                        'ja bitte', 'ja genau', 'ja danke', 'ja mach', 'ja klar',
-                        'in ordnung', 'alles klar', 'einverstanden', 'gerne',
-                        'ja gerne', 'bitte', 'ja bitte mach das',
-                    })
-                    _REJECTION_WORDS = frozenset({
-                        'nein', 'nee', 'ne', 'nö', 'nicht', 'stop', 'stopp',
-                        'abbrechen', 'cancel', 'lass', 'lass das', 'vergiss es',
-                        'doch nicht', 'lieber nicht', 'nein danke',
-                    })
-                    _cleaned_msg = text.lower().strip().rstrip('.!?')
-                    _is_confirm = _cleaned_msg in _CONFIRMATION_WORDS
-                    _is_reject = _cleaned_msg in _REJECTION_WORDS
-
-                    if _is_confirm or _is_reject:
-                        try:
-                            from app.config import get_settings as _gs_pa
-                            import redis.asyncio as _aioredis_pa
-                            _pa_redis = _aioredis_pa.Redis.from_url(_gs_pa().redis_url, decode_responses=True)
-                            _pa_key = f'frya:pending_action:{tenant_id or user_id}'
-                            _pa_raw = await _pa_redis.get(_pa_key)
-                            if _pa_raw:
-                                import json as _json_pa
-                                _pa_data = _json_pa.loads(_pa_raw)
-                                await _pa_redis.delete(_pa_key)
-
-                                if _is_confirm:
-                                    _pa_action = _pa_data.get('action')
-                                    _pa_case_ref = _pa_data.get('case_ref')
-                                    _pa_params = _pa_data.get('params', {})
-                                    _pa_confirm_text = _pa_data.get('confirm_text', 'Erledigt.')
-
-                                    # Execute the pending action
-                                    if _pa_action == 'approve' and _pa_case_ref:
-                                        from app.agents.service_registry import _InboxService
-                                        _inbox = _InboxService()
-                                        _ap_r = await _inbox.approve(case_id=_pa_case_ref, tenant_id=tenant_id)
-                                        _pa_confirm_text = _ap_r.get('text', 'Buchung freigegeben.')
-                                    elif _pa_action == 'rebooking' and _pa_case_ref:
-                                        _pa_confirm_text = f'Umbuchung auf {_pa_params.get("new_account", "?")} durchgefuehrt.'
-                                    # Generic confirmation
-                                    await websocket.send_json({'type': 'typing', 'active': False})
-                                    await websocket.send_json({
-                                        'type': 'message_complete',
-                                        'text': _pa_confirm_text,
-                                        'case_ref': _pa_case_ref,
-                                        'context_type': 'none',
-                                        'suggestions': _DEFAULT_SUGGESTIONS,
-                                        'content_blocks': [{'block_type': 'alert', 'data': {'severity': 'success', 'text': _pa_confirm_text}}],
-                                        'actions': [],
-                                        'routing': 'pending_action',
-                                    })
-                                    continue
-                                else:
-                                    # Rejection
-                                    await websocket.send_json({'type': 'typing', 'active': False})
-                                    await websocket.send_json({
-                                        'type': 'message_complete',
-                                        'text': 'Alles klar, abgebrochen. Was kann ich sonst fuer dich tun?',
-                                        'case_ref': None,
-                                        'context_type': 'none',
-                                        'suggestions': _DEFAULT_SUGGESTIONS,
-                                        'content_blocks': [],
-                                        'actions': [],
-                                        'routing': 'pending_action',
-                                    })
-                                    continue
-                        except Exception as _pa_exc:
-                            logger.debug('Pending action check failed: %s', _pa_exc)
-
+                    # --- (OLD PENDING CODE REMOVED — now in shared_chat_logic.py) ---
                     # --- Phase 1: TieredOrchestrator intent routing ---
+                    # ITEM 2: Update typing hint zur Klassifikationsphase
+                    await websocket.send_json({'type': 'typing', 'active': True, 'hint': AGENT_HINTS['classify']})
                     quick_action = data.get('quick_action')
                     # Inject user_id + tenant_id so ActionRouter can use them
                     if quick_action and isinstance(quick_action, dict):
@@ -1226,6 +981,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         try:
                             routing_result = await orchestrator.route(
                                 message=text, quick_action=quick_action,
+                                chat_id=f'web-{user_id}',
                             )
                             tier_intent = routing_result.get('intent')
                             tier_routing = routing_result.get('routing')
@@ -1264,7 +1020,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     _shortcircuit_data: dict = {}
                     _theme_changed: str | None = None
 
-                    if tier_intent == 'APPROVE':
+                    if tier_intent == Intent.APPROVE:
                         # P-12: Direct approval shortcircuit — find case, resolve approval, execute
                         try:
                             from app.agents.service_registry import _InboxService
@@ -1338,12 +1094,17 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 else:
                                     _shortcircuit_reply = str(_approve_result)
                             else:
-                                _shortcircuit_reply = None  # Fall through to communicator
+                                # BUG-2 Fix: Kein Case gefunden — explizite Meldung statt Communicator-Fallthrough.
+                                # Communicator wuerde sonst "Freigabe erledigt!" halluzinieren (Ghost Action).
+                                _shortcircuit_reply = (
+                                    'Ich konnte keinen passenden Beleg finden. '
+                                    'Nenne mir bitte den Lieferantennamen oder die Rechnungsnummer, z.B. "Telekom freigeben".'
+                                )
                         except Exception as _ae:
                             logger.warning('APPROVE shortcircuit failed: %s', _ae)
-                            _shortcircuit_reply = None
+                            _shortcircuit_reply = 'Die Freigabe ist gerade nicht moeglich. Bitte versuche es erneut.'
 
-                    elif tier_intent == 'UPLOAD':
+                    elif tier_intent == Intent.UPLOAD:
                         # BUG-002: User typed "upload" but has no attachment —
                         # skip communicator to avoid hallucinated "received" reply.
                         _shortcircuit_reply = (
@@ -1351,14 +1112,14 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             'oder ziehe Dateien direkt in den Chat.'
                         )
 
-                    elif tier_intent == 'CHOOSE_TEMPLATE':
+                    elif tier_intent == Intent.CHOOSE_TEMPLATE:
                         # Template selection — show 3 template cards
                         _shortcircuit_reply = (
                             'Wie sollen deine Rechnungen aussehen? '
                             'Hier sind drei Vorlagen:'
                         )
 
-                    elif tier_intent == 'SET_TEMPLATE':
+                    elif tier_intent == Intent.SET_TEMPLATE:
                         # Parse which template from text
                         _tpl_text = text.lower()
                         _chosen_tpl = 'clean'
@@ -1370,13 +1131,13 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         _tpl_titles = {'clean': 'Clean', 'professional': 'Professional', 'minimal': 'Minimal'}
                         _shortcircuit_reply = f'Rechnungs-Template auf "{_tpl_titles[_chosen_tpl]}" geaendert.'
 
-                    elif tier_intent == 'UPLOAD_LOGO':
+                    elif tier_intent == Intent.UPLOAD_LOGO:
                         _shortcircuit_reply = (
                             'Schick mir einfach dein Logo als Bild (PNG, JPG oder SVG). '
                             'Nutze das Bueroklammer-Symbol unten links.'
                         )
 
-                    elif tier_intent == 'SHOW_CONTACTS':
+                    elif tier_intent == Intent.SHOW_CONTACTS:
                         # P-08 A2: Load all contacts for card_list
                         try:
                             from app.dependencies import get_accounting_repository
@@ -1399,7 +1160,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             _shortcircuit_reply = 'Kontakte konnten nicht geladen werden.'
                             _shortcircuit_data = {}
 
-                    elif tier_intent == 'SETTINGS':
+                    elif tier_intent == Intent.SETTINGS:
                         # BUG-006: Handle theme change requests directly
                         text_lower = text.lower()
                         for trigger, theme in _THEME_MAP.items():
@@ -1411,7 +1172,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 break
 
                     # --- P-27: CHANGE_KU_STATUS: Kleinunternehmer via Chat aendern ---
-                    if tier_intent == 'CHANGE_KU_STATUS':
+                    if tier_intent == Intent.CHANGE_KU_STATUS:
                         _ku_text_lower = text.lower()
                         _ku_nein = any(p.search(text) for p in _NEIN_KLEINUNTERNEHMER_PATTERNS)
                         if _ku_nein:
@@ -1442,7 +1203,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                                 _shortcircuit_reply = 'KU-Status konnte nicht geaendert werden.'
 
                     # --- P-27: CANCEL_INVOICE: Rechnung stornieren ---
-                    if tier_intent == 'CANCEL_INVOICE':
+                    if tier_intent == Intent.CANCEL_INVOICE:
                         import re as _re_cancel
                         _cancel_match = _re_cancel.search(r'RE-\d+-\d+', text)
                         if _cancel_match:
@@ -1511,7 +1272,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             _shortcircuit_reply = 'Welche Rechnung soll storniert werden? (z.B. RE-2026-054)'
 
                     # --- P-25: SHOW_CASE: Load case detail by case_id ---
-                    if tier_intent == 'SHOW_CASE':
+                    if tier_intent == Intent.SHOW_CASE:
                         try:
                             from app.agents.service_registry import _InboxService
                             _case_svc = _InboxService()
@@ -1537,7 +1298,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             _shortcircuit_reply = None
 
                     # --- SHOW_INVOICE: Load and display specific invoice ---
-                    if tier_intent == 'SHOW_INVOICE':
+                    if tier_intent == Intent.SHOW_INVOICE:
                         import re as _re_inv
                         _inv_match = _re_inv.search(r'RE-\d+-\d+', text)
                         if _inv_match:
@@ -1599,60 +1360,47 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             except Exception as _inv_exc:
                                 logger.warning('SHOW_INVOICE failed: %s', _inv_exc)
 
-                    # P-12b: Shortcircuit ALL chart/data intents — bypass Communicator
-                    _CHART_SHORTCIRCUIT_INTENTS = {
-                        'SHOW_FINANCIAL_OVERVIEW', 'SHOW_FINANCE', 'SHOW_INBOX',
-                        'SHOW_BOOKINGS', 'SHOW_OPEN_ITEMS', 'SHOW_DEADLINES',
-                        'SHOW_EXPENSE_CATEGORIES', 'SHOW_PROFIT_LOSS',
-                        'SHOW_REVENUE_TREND', 'SHOW_FORECAST', 'PROCESS_INBOX',
-                    }
-                    if _shortcircuit_reply is None and tier_intent in _CHART_SHORTCIRCUIT_INTENTS:
-                        try:
-                            from app.agents.service_registry import build_service_registry
-                            _chart_reg = build_service_registry()
-                            _chart_intent_map = {
-                                'SHOW_INBOX': ('inbox_service', 'list_pending'),
-                                'PROCESS_INBOX': ('inbox_service', 'process_first'),
-                                'SHOW_FINANCIAL_OVERVIEW': ('euer_service', 'get_finance_summary'),
-                                'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
-                                'SHOW_BOOKINGS': ('booking_service', 'list'),
-                                'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
-                                'SHOW_DEADLINES': ('deadline_service', 'list'),
-                                'SHOW_EXPENSE_CATEGORIES': ('booking_service', 'list'),
-                                'SHOW_PROFIT_LOSS': ('euer_service', 'get_finance_summary'),
-                                'SHOW_REVENUE_TREND': ('booking_service', 'list'),
-                                'SHOW_FORECAST': ('euer_service', 'get_finance_summary'),
-                            }
-                            _si = _chart_intent_map.get(tier_intent)
-                            if _si:
-                                _svc_obj = _chart_reg.get(_si[0])
-                                if _svc_obj:
-                                    _method = getattr(_svc_obj, _si[1], None)
-                                    if _method:
-                                        _chart_data = await _method(tenant_id=tenant_id) or {}
-                                        _shortcircuit_data = _chart_data
-                                        # Map intent for ResponseBuilder
-                                        _rb_intent = tier_intent
-                                        if tier_intent == 'SHOW_FINANCIAL_OVERVIEW':
-                                            _rb_intent = 'SHOW_FINANCE'
-                                        # Build reply text from data
-                                        _texts = {
-                                            'SHOW_INBOX': f'{_chart_data.get("count", len(_chart_data.get("items", [])))} Belege warten auf deine Freigabe.',
-                                            'PROCESS_INBOX': f'Beleg 1 von {_chart_data.get("count", 1)}: Hier sind die Details.' if _chart_data.get('status') == 'has_items' else 'Alles erledigt! Keine Belege warten auf dich.',
-                                            'SHOW_FINANCE': 'Hier ist deine Finanz\u00fcbersicht.',
-                                            'SHOW_FINANCIAL_OVERVIEW': 'Hier ist deine Finanz\u00fcbersicht.',
-                                            'SHOW_BOOKINGS': f'Hier sind deine letzten Buchungen.',
-                                            'SHOW_OPEN_ITEMS': 'Hier sind deine offenen Posten.',
-                                            'SHOW_DEADLINES': 'Hier sind deine anstehenden Fristen.',
-                                            'SHOW_EXPENSE_CATEGORIES': 'Hier ist die Aufschluesselung deiner Ausgaben nach Kategorie.',
-                                            'SHOW_PROFIT_LOSS': 'Hier ist deine Gewinn- und Verlustrechnung.',
-                                            'SHOW_REVENUE_TREND': 'Hier ist die Umsatzentwicklung.',
-                                            'SHOW_FORECAST': 'Hier ist die Hochrechnung fuer das Geschaeftsjahr.',
-                                        }
-                                        _shortcircuit_reply = _texts.get(tier_intent, 'Hier sind die Daten.')
-                        except Exception as _chart_exc:
-                            logger.warning('Chart shortcircuit failed: %s', _chart_exc)
+                    # P-12b: Service-Daten + Text-Sync fuer Daten-Intents
+                    # Regex ist AUS (Feature-Flag), aber der Service-Pfad MUSS laufen
+                    # wenn der LLM-Orchestrator einen Daten-Intent klassifiziert hat.
+                    # Ohne das: Communicator halluziniert "keine Daten" / "oeffne die App"
+                    if _shortcircuit_reply is None and tier_intent:
+                        # ITEM 2: Hint "Hole die Daten..." vor Service-Call
+                        await websocket.send_json({'type': 'typing', 'active': True, 'hint': AGENT_HINTS['service_call']})
+                        from app.api.shared_chat_logic import handle_shortcircuit_intent
+                        _chart_result = await handle_shortcircuit_intent(
+                            intent=tier_intent,
+                            message=text,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            chat_id=f'web-{user_id}',
+                        )
+                        if _chart_result is not None:
+                            # Save history (RC-4) — Sprint-03-01: + context_data
+                            try:
+                                _hist_store = get_chat_history_store()
+                                from app.api.shared_chat_logic import _build_context_summary
+                                _svc_data = _chart_result.get('_service_data')
+                                _svc_intent = _chart_result.get('_intent', '')
+                                _ctx_data = _build_context_summary(
+                                    _svc_intent,
+                                    _svc_data if isinstance(_svc_data, dict) else {},
+                                )
+                                await _hist_store.append(
+                                    f'web-{user_id}', text, _chart_result.get('text', ''),
+                                    context_data=_ctx_data if _ctx_data else None,
+                                )
+                            except Exception as _ctx_exc:
+                                logger.warning('S03-ctx: save failed: %s', _ctx_exc)
+                            _ctx = _chart_result.get('context_type', 'none')
+                            if _ctx != 'none':
+                                await websocket.send_json({'type': 'ui_hint', 'action': 'open_context', 'context_type': _ctx})
+                            # Sprint-03-01: _service_data/_intent sind interne Felder — NICHT an Frontend senden
+                            _ws_payload = {k: v for k, v in _chart_result.items() if k not in ('context_type', '_service_data', '_intent')}
+                            await websocket.send_json({'type': 'message_complete', **_ws_payload, 'context_type': _ctx})
+                            continue
 
+                    # (OLD CHART CODE REMOVED — now in shared_chat_logic.py)
                     if _shortcircuit_reply is not None:
                         # Determine context_type from orchestrator
                         context_type = _TIER_INTENT_TO_CONTEXT.get(tier_intent, 'none')
@@ -1696,13 +1444,18 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             response_payload['settings_changed'] = {'theme': _theme_changed}
 
                         # RC-4 Fix: Chat-History auch bei Shortcircuit speichern,
-                        # damit nachfolgende LLM-Turns den Kontext sehen.
+                        # Sprint-03-01: + context_data fuer Drill-Down-Fragen
                         try:
                             _hist_store = get_chat_history_store()
                             _sc_hist_reply = _shortcircuit_reply or ''
                             if _sc_hist_reply:
+                                _sc_ctx_data: dict | None = None
+                                if _shortcircuit_data and tier_intent:
+                                    from app.api.shared_chat_logic import _build_context_summary
+                                    _sc_ctx_data = _build_context_summary(str(tier_intent), _shortcircuit_data) or None
                                 await _hist_store.append(
                                     f'web-{user_id}', text, _sc_hist_reply,
+                                    context_data=_sc_ctx_data,
                                 )
                         except Exception as _hist_exc:
                             logger.debug('Shortcircuit history append failed: %s', _hist_exc)
@@ -1711,6 +1464,8 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         continue
 
                     # --- Phase 2: Communicator (always, for natural-language reply) ---
+                    # ITEM 2: Hint "Formuliere die Antwort..." vor Communicator
+                    await websocket.send_json({'type': 'typing', 'active': True, 'hint': AGENT_HINTS['communicator']})
                     result = await _get_communicator_reply(text, user_id, tenant_id)
 
                     # Aufgabe 3: Extract LLM-generated suggestions from communicator
@@ -1759,19 +1514,26 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                         })
 
                     # --- Phase 3: Fetch data for content_blocks via ServiceRegistry ---
+                    # Seit Shortcircuit-Kill: auch 'deep' routing braucht Chart-Daten
+                    # Fallback: comm_intent nutzen wenn tier_intent == 'COMPLEX'
+                    _data_intent = tier_intent
+                    if tier_intent == 'COMPLEX':
+                        _ci = getattr(result, 'intent', None) if result else None
+                        if _ci:
+                            _data_intent = parse_intent(_ci) if isinstance(_ci, str) else _ci
                     agent_results: dict = {}
-                    if tier_intent and tier_routing in ('regex', 'fast', 'action_router'):
+                    if _data_intent and _data_intent != 'COMPLEX':
                         try:
                             from app.agents.service_registry import build_service_registry
                             _intent_to_service = {
-                                'SHOW_INBOX': ('inbox_service', 'list_pending'),
-                                'PROCESS_INBOX': ('inbox_service', 'process_first'),
-                                'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
-                                'SHOW_DEADLINES': ('deadline_service', 'list'),
-                                'SHOW_BOOKINGS': ('booking_service', 'list'),
-                                'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
-                                'SHOW_CONTACT': ('contact_service', 'get_dossier'),
-                                'SETTINGS': ('settings_service', 'get'),
+                                Intent.SHOW_INBOX: ('inbox_service', 'list_pending'),
+                                Intent.PROCESS_INBOX: ('inbox_service', 'process_first'),
+                                Intent.SHOW_FINANCE: ('euer_service', 'get_finance_summary'),
+                                Intent.SHOW_DEADLINES: ('deadline_service', 'list'),
+                                Intent.SHOW_BOOKINGS: ('booking_service', 'list'),
+                                Intent.SHOW_OPEN_ITEMS: ('open_item_service', 'list'),
+                                Intent.SHOW_CONTACT: ('contact_service', 'get_dossier'),
+                                Intent.SETTINGS: ('settings_service', 'get'),
                             }
                             svc_info = _intent_to_service.get(tier_intent)
                             if svc_info:
@@ -1785,7 +1547,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                             logger.warning('Service data fetch failed: %s', exc)
 
                     # Detect "show all" request for inbox
-                    if tier_intent == 'SHOW_INBOX':
+                    if tier_intent == Intent.SHOW_INBOX:
                         _text_lower = text.lower()
                         if 'alle' in _text_lower and ('zeig' in _text_lower or 'beleg' in _text_lower):
                             agent_results['show_all'] = True
@@ -1880,7 +1642,7 @@ async def chat_stream(websocket: WebSocket, token: str = Query(...)) -> None:
                     # --- Synchronize text with content_blocks for SHOW_INBOX ---
                     # The communicator generates text BEFORE blocks exist,
                     # causing "Inbox ist leer" even when blocks show items.
-                    if tier_intent == 'SHOW_INBOX' and content_blocks:
+                    if tier_intent == Intent.SHOW_INBOX and content_blocks:
                         _inbox_item_count = 0
                         for _b in content_blocks:
                             if _b.get('block_type') == 'card_list':

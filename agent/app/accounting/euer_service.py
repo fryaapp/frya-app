@@ -8,16 +8,28 @@ from decimal import Decimal
 from typing import Any
 
 from app.accounting.repository import AccountingRepository
+from app.core.intents import Intent
+from app.core.schemas import ServiceResult
+from app.middleware.tenant import resolve_tenant
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_uuid(explicit: uuid.UUID | str | None) -> uuid.UUID:
+    if explicit is not None:
+        return explicit if isinstance(explicit, uuid.UUID) else uuid.UUID(str(explicit))
+    return uuid.UUID(resolve_tenant(None))
 
 
 class EuerService:
     def __init__(self, repo: AccountingRepository) -> None:
         self._repo = repo
 
-    async def generate_euer(self, tenant_id: uuid.UUID, year: int) -> dict:
+    async def generate_euer(self, tenant_id: uuid.UUID | None = None, year: int = None) -> ServiceResult:
         """Generate EÜR (Einnahmen-Überschuss-Rechnung) for a year."""
+        tenant_id = _resolve_uuid(tenant_id)
+        if year is None:
+            year = date.today().year
         date_from = date(year, 1, 1)
         date_to = date(year, 12, 31)
         bookings = await self._repo.list_bookings(
@@ -39,18 +51,25 @@ class EuerService:
         total_expense = sum(expense_by_account.values(), Decimal('0'))
         profit = total_income - total_expense
 
-        return {
-            'year': year,
-            'income': {k: float(v) for k, v in sorted(income_by_account.items())},
-            'expenses': {k: float(v) for k, v in sorted(expense_by_account.items())},
-            'total_income': float(total_income),
-            'total_expenses': float(total_expense),
-            'profit': float(profit),
-            'booking_count': len(bookings),
-        }
+        return ServiceResult(
+            success=True,
+            intent=Intent.SHOW_FINANCE,
+            data={
+                'year': year,
+                'income': {k: float(v) for k, v in sorted(income_by_account.items())},
+                'expenses': {k: float(v) for k, v in sorted(expense_by_account.items())},
+                'total_income': float(total_income),
+                'total_expenses': float(total_expense),
+                'profit': float(profit),
+                'booking_count': len(bookings),
+            },
+        )
 
-    async def generate_ust(self, tenant_id: uuid.UUID, year: int, quarter: int) -> dict:
+    async def generate_ust(self, tenant_id: uuid.UUID | None = None, year: int = None, quarter: int = 1) -> dict:
         """Generate USt-Voranmeldung for a quarter."""
+        tenant_id = _resolve_uuid(tenant_id)
+        if year is None:
+            year = date.today().year
         month_start = (quarter - 1) * 3 + 1
         date_from = date(year, month_start, 1)
         month_end = quarter * 3

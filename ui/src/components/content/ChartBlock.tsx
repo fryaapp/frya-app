@@ -43,7 +43,7 @@ function BarChart({ data }: { data: ChartBlockData }) {
           <div key={i} style={{ marginBottom: 6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: "'Inter Variable', 'Inter', sans-serif", marginBottom: 3 }}>
               <span style={{ color: 'var(--frya-on-surface-variant)' }}>{s.label}</span>
-              <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+              <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: "'Playfair Display', serif" }}>
                 {typeof s.value === 'number' ? s.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' \u20ac' : s.value}
               </span>
             </div>
@@ -64,7 +64,7 @@ function KpiChart({ data }: { data: ChartBlockData }) {
       {data.title && <div style={titleStyle}>{data.title}</div>}
       <div style={{ textAlign: 'center', padding: '12px 0' }}>
         <div style={{
-          fontSize: 28, fontWeight: 700, fontFamily: 'Outfit, sans-serif',
+          fontSize: 28, fontWeight: 700, fontFamily: "'Playfair Display', serif",
           color: isPositive ? 'var(--frya-success)' : 'var(--frya-error)',
           lineHeight: 1.2,
         }}>
@@ -86,7 +86,7 @@ function KpiChart({ data }: { data: ChartBlockData }) {
               <div key={i} style={{ marginBottom: 5 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: "'Inter Variable', 'Inter', sans-serif", marginBottom: 2 }}>
                   <span style={{ color: 'var(--frya-on-surface-variant)' }}>{s.label}</span>
-                  <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+                  <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: "'Playfair Display', serif" }}>
                     {s.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'}
                   </span>
                 </div>
@@ -144,7 +144,7 @@ function LineChart({ data }: { data: ChartBlockData }) {
             <text x={p.x} y={height - 5} textAnchor="middle" fill="var(--frya-on-surface-variant)"
               fontSize={9} fontFamily="Inter Variable, Inter, sans-serif">{p.label}</text>
             <text x={p.x} y={p.y - 8} textAnchor="middle" fill="var(--frya-on-surface)"
-              fontSize={8} fontFamily="Outfit, sans-serif" fontWeight={600}>
+              fontSize={8} fontFamily="Playfair Display, serif" fontWeight={600}>
               {p.value.toLocaleString('de-DE', { maximumFractionDigits: 0 })}
             </text>
           </g>
@@ -185,7 +185,7 @@ function DonutChart({ data }: { data: ChartBlockData }) {
         {(data.center_value != null || data.center_label) && (
           <div style={{ position: 'absolute', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             {data.center_value != null && (
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--frya-on-surface)', fontFamily: 'Outfit, sans-serif', lineHeight: 1.1 }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--frya-on-surface)', fontFamily: "'Playfair Display', serif", lineHeight: 1.1 }}>
                 {data.center_value}
               </div>
             )}
@@ -202,7 +202,7 @@ function DonutChart({ data }: { data: ChartBlockData }) {
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontFamily: "'Inter Variable', 'Inter', sans-serif" }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, flexShrink: 0 }} />
             <span style={{ color: 'var(--frya-on-surface-variant)' }}>{s.label}</span>
-            <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: 'Outfit, sans-serif' }}>
+            <span style={{ color: 'var(--frya-on-surface)', fontWeight: 600, fontFamily: "'Playfair Display', serif" }}>
               {typeof s.value === 'number' ? s.value.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : s.value}
             </span>
           </div>

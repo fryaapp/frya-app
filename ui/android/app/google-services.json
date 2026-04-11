@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "860974060106",
+    "project_id": "frya-staging",
+    "storage_bucket": "frya-staging.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:860974060106:android:a12ad9d5cf8c2438180cb3",
+        "android_client_info": {
+          "package_name": "de.myfrya.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDaqarojXYW9PAEIcJAaN8n0-8Wh2-1I8I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

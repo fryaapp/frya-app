@@ -23,7 +23,7 @@ class RedisJobBackbone:
     async def push(self, queue: str, payload: dict) -> str:
         job_id = payload.get('job_id', str(uuid.uuid4()))
         payload['job_id'] = job_id
-        encoded = json.dumps(payload)
+        encoded = json.dumps(payload, ensure_ascii=False)
 
         if self._is_memory():
             self._memory_queues.setdefault(queue, deque()).append(encoded)

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from app.core.intents import Intent
 from app.telegram.communicator.memory.models import ConversationMemory, TruthAnnotation
 from app.telegram.communicator.models import CommunicatorContextResolution
 
 # Intents that require context resolution from DB/memory
 _CONTEXT_INTENTS = frozenset({
-    'STATUS_OVERVIEW',
+    Intent.STATUS_OVERVIEW,
     'NEEDS_FROM_USER',
     'DOCUMENT_ARRIVAL_CHECK',
     'LAST_CASE_EXPLANATION',
@@ -14,10 +15,10 @@ _CONTEXT_INTENTS = frozenset({
 # RC-2 Fix: Diese Intents nutzen ebenfalls ConversationMemory als Kontext-Fallback,
 # damit Folgefragen ("Ja", "Den buche") den letzten case_ref sehen.
 _CONV_MEMORY_INTENTS = frozenset({
-    'GENERAL_CONVERSATION',
-    'BOOKING_REQUEST',
-    'FINANCIAL_QUERY',
-    'REMINDER_PERSONAL',
+    Intent.GENERAL_CONVERSATION,
+    Intent.BOOKING_REQUEST,
+    Intent.FINANCIAL_QUERY,
+    Intent.REMINDER_PERSONAL,
 })
 
 

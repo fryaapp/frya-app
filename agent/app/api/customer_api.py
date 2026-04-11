@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from app.core.intents import Intent
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any
@@ -128,6 +130,8 @@ async def send_chat_message(
     from app.telegram.communicator.intent_classifier import classify_intent
     from app.telegram.models import TelegramActor, TelegramNormalizedIngressMessage
 
+    _t0 = time.monotonic()
+    _tp = _t0
     chat_id = f'web-{user.username}'
     case_id = f'web-chat-{user.username}-{uuid.uuid4().hex[:8]}'
     _evt_id = f'web-evt-{uuid.uuid4().hex[:12]}'
@@ -142,120 +146,57 @@ async def send_chat_message(
         media_attachments=[],
     )
 
-    # --- P-43 Fix B: Pending invoice modification (REST path) ---
+    # --- Pending-Checks (Shared Logic) ---
     _chat_id_rest = f'web-{user.username}'
-    logger.warning('P-43 CHECK: msg=%s chat_id=%s', body.message[:40], _chat_id_rest)
     try:
-        import re as _re_inv_rest
-        import json as _json_inv_rest
-        import redis.asyncio as _aioredis_inv_rest
-        from app.config import get_settings as _gs_inv_rest
-        _r_inv = _aioredis_inv_rest.Redis.from_url(_gs_inv_rest().redis_url, decode_responses=True)
-        _pi_key = f'frya:pending_invoice:{_chat_id_rest}'
-        _pi_raw = await _r_inv.get(_pi_key)
-        if _pi_raw:
-            _pi_data = _json_inv_rest.loads(_pi_raw)
-            _pi_invoice_id = _pi_data.get('invoice_id')
-            _inv_mod_patterns = [
-                r'(?:aender|änder|change|mach).*(?:betrag|preis|summe|€|euro|\d)',
-                r'(?:betrag|preis|summe)\s*(?:auf|zu|soll|=)\s*\d+',
-                r'(?:mach|setze?)\s*\d+\s*€?\s*(?:draus|daraus)',
-                r'(?:fuege|füge|add|noch)\s+\d+\s+.+\s+(?:zu|à|a|@)\s*\d+',
-                r'(?:andere?|neue?)\s*(?:adresse|beschreibung|position)',
-            ]
-            _is_mod = any(_re_inv_rest.search(p, body.message.lower()) for p in _inv_mod_patterns)
-            _is_send = any(kw in body.message.lower() for kw in ('freigeben', 'senden', 'verschicken', 'sieht gut aus'))
-            _is_void = any(kw in body.message.lower() for kw in ('verwerfen', 'loeschen', 'löschen', 'stornieren'))
+        from app.api.shared_chat_logic import check_and_handle_pending
+        _pending_result = await check_and_handle_pending(
+            message=body.message,
+            tenant_id=_tid,
+            user_id=user.username,
+            chat_id=_chat_id_rest,
+            pending_flow=None,  # REST hat kein pending_flow
+        )
+        if _pending_result is not None:
+            _pending_result.pop('next_pending_flow', None)  # REST braucht das nicht
+            # RC-4: History auch bei Pending-Shortcircuit speichern
+            from app.api.shared_chat_logic import save_to_history
+            await save_to_history(
+                _chat_id_rest, body.message, _pending_result.get('text', ''),
+                service_data=_pending_result.get('_service_data'),
+                intent=_pending_result.get('_intent'),
+            )
+            return ChatResponse(
+                reply=_pending_result.get('text', ''),
+                case_ref=_pending_result.get('case_ref'),
+                suggestions=_pending_result.get('suggestions', []),
+                content_blocks=_pending_result.get('content_blocks', []),
+                actions=_pending_result.get('actions', []),
+                routing=_pending_result.get('routing'),
+            )
+    except Exception as _pending_exc:
+        logger.warning('REST pending check failed: %s', _pending_exc)
 
-            if _is_mod and _pi_invoice_id:
-                from app.services.invoice_pipeline import handle_modify_invoice
-                _tid_rest = str(user.tenant_id) if getattr(user, 'tenant_id', None) else None
-                _mod_r = await handle_modify_invoice(_pi_invoice_id, body.message, user.username, tenant_id=_tid_rest)
-                _mod_inv_id = _mod_r.get('invoice_id', _pi_invoice_id)
-                await _r_inv.set(_pi_key, _json_inv_rest.dumps({'invoice_id': _mod_inv_id, 'pending_data': _pi_data.get('pending_data', {})}), ex=300)
-                return ChatResponse(
-                    reply=_mod_r.get('text', ''),
-                    content_blocks=_mod_r.get('content_blocks', []),
-                    actions=_mod_r.get('actions', []),
-                    routing='pending_flow',
-                )
-            elif _is_send and _pi_invoice_id:
-                await _r_inv.delete(_pi_key)
-                from app.services.invoice_pipeline import handle_send_invoice
-                _tid_rest = str(user.tenant_id) if getattr(user, 'tenant_id', None) else None
-                _send_r = await handle_send_invoice({'invoice_id': _pi_invoice_id}, user.username, tenant_id=_tid_rest)
-                return ChatResponse(
-                    reply=_send_r.get('text', ''),
-                    content_blocks=_send_r.get('content_blocks', []),
-                    actions=_send_r.get('actions', []),
-                    routing='pending_flow',
-                )
-            elif _is_void:
-                await _r_inv.delete(_pi_key)
-                from app.services.invoice_pipeline import handle_void_invoice
-                _void_r = await handle_void_invoice({'invoice_id': _pi_invoice_id}, user.username)
-                return ChatResponse(
-                    reply=_void_r.get('text', 'Rechnung verworfen.'),
-                    content_blocks=_void_r.get('content_blocks', []),
-                    actions=_void_r.get('actions', []),
-                    routing='pending_flow',
-                )
-        await _r_inv.aclose()
-    except Exception as _pi_exc:
-        logger.warning('P-43 REST pending_invoice check failed: %s', _pi_exc, exc_info=True)
-
-    # --- P-43 Fix D: Pending action confirmation (REST path) ---
-    _CONFIRMATION_WORDS_REST = frozenset({
-        'ja', 'jo', 'jep', 'jap', 'yes', 'ok', 'okay',
-        'genau', 'stimmt', 'richtig', 'korrekt', 'passt', 'perfekt',
-        'mach', 'mach das', 'tu das', 'los', 'weiter',
-        'ja bitte', 'ja genau', 'ja danke', 'ja mach', 'ja klar',
-        'in ordnung', 'alles klar', 'einverstanden', 'gerne',
-    })
-    _REJECTION_WORDS_REST = frozenset({
-        'nein', 'nee', 'ne', 'nö', 'nicht', 'stop', 'stopp',
-        'abbrechen', 'cancel', 'vergiss es', 'doch nicht', 'lieber nicht',
-    })
-    _cleaned_rest = body.message.lower().strip().rstrip('.!?')
-    if _cleaned_rest in _CONFIRMATION_WORDS_REST or _cleaned_rest in _REJECTION_WORDS_REST:
-        try:
-            import json as _json_pa_rest
-            import redis.asyncio as _aioredis_pa_rest
-            from app.config import get_settings as _gs_pa_rest
-            _tid_rest_pa = str(user.tenant_id) if getattr(user, 'tenant_id', None) else user.username
-            _r_pa = _aioredis_pa_rest.Redis.from_url(_gs_pa_rest().redis_url, decode_responses=True)
-            _pa_key = f'frya:pending_action:{_tid_rest_pa}'
-            _pa_raw = await _r_pa.get(_pa_key)
-            if _pa_raw:
-                _pa_data = _json_pa_rest.loads(_pa_raw)
-                await _r_pa.delete(_pa_key)
-                if _cleaned_rest in _CONFIRMATION_WORDS_REST:
-                    _confirm_text = _pa_data.get('confirm_text', 'Erledigt.')
-                    return ChatResponse(
-                        reply=_confirm_text,
-                        content_blocks=[{'block_type': 'alert', 'data': {'severity': 'success', 'text': _confirm_text}}],
-                        actions=[],
-                        routing='pending_action',
-                    )
-                else:
-                    return ChatResponse(
-                        reply='Alles klar, abgebrochen.',
-                        content_blocks=[],
-                        actions=[],
-                        routing='pending_action',
-                    )
-            await _r_pa.aclose()
-        except Exception as _pa_rest_exc:
-            logger.debug('P-43 REST pending_action check failed: %s', _pa_rest_exc)
-
+    _now = time.monotonic(); logger.warning('[PERF] REST Phase0 pending: %.3fs', _now - _tp); _tp = _now
+    # --- (OLD PENDING CODE REMOVED — now in shared_chat_logic.py) ---
+    # OPT-1: Cache routing result from Phase1 → reuse in Phase3 (no double Llama call)
+    _cached_routing_result: dict | None = None
+    # OPT-2: Regex precheck — skip Llama 70B APPROVE-check for non-approve messages (~0.5s saved)
+    import re as _re_precheck
+    _APPROVE_KEYWORDS = _re_precheck.compile(
+        r'\b(freigeben|freigabe|buchen|genehmigen|best[äa]tigen|approve|abschlie[ßs]en)\b',
+        _re_precheck.IGNORECASE,
+    )
+    _skip_approve_check = not bool(_APPROVE_KEYWORDS.search(body.message))
     # P-12: APPROVE shortcircuit — execute booking approval BEFORE communicator
     try:
         from app.api.chat_ws import _get_tiered_orchestrator
         _pre_orch = _get_tiered_orchestrator()
-        if _pre_orch:
+        if _pre_orch and not _skip_approve_check:
             _pre_route = await _pre_orch.route(message=body.message)
+            _cached_routing_result = _pre_route  # OPT-1: save for Phase3
             _pre_intent = _pre_route.get('intent')
-            if _pre_intent == 'APPROVE':
+            if _pre_intent == Intent.APPROVE:
                 from app.agents.service_registry import _InboxService
                 _inbox_svc = _InboxService()
                 _approve_cid = None
@@ -326,6 +267,7 @@ async def send_chat_message(
     except Exception as _ae:
         logger.warning('REST APPROVE shortcircuit failed: %s', _ae)
 
+    _now = time.monotonic(); logger.warning('[PERF] REST Phase1 approve-check: %.3fs', _now - _tp); _tp = _now
     communicator = get_telegram_communicator_service()
     result = await communicator.try_handle_turn(
         normalized, case_id,
@@ -337,6 +279,8 @@ async def send_chat_message(
         case_repository=get_case_repository(),
         chat_history_store=get_chat_history_store(),
     )
+
+    _now = time.monotonic(); logger.warning('[PERF] REST Phase2 communicator: %.3fs', _now - _tp); _tp = _now
 
     if result is None or not result.reply_text:
         return ChatResponse(reply='Ich konnte deine Nachricht nicht verarbeiten.', suggestions=[])
@@ -372,48 +316,50 @@ async def send_chat_message(
         from app.api.chat_ws import _get_tiered_orchestrator, _get_response_builder
         orchestrator = _get_tiered_orchestrator()
         if orchestrator:
-            routing_result = await orchestrator.route(message=body.message)
+            # OPT-1: Reuse Phase1 routing result to avoid second Llama 70B call
+            if _cached_routing_result is not None:
+                routing_result = _cached_routing_result
+                _now = time.monotonic(); logger.warning('[PERF] REST Phase3 orch2 CACHE HIT (saved ~0.5s): %.3fs', _now - _tp); _tp = _now
+            else:
+                routing_result = await orchestrator.route(message=body.message, chat_id=_chat_id_rest)
+                _now = time.monotonic(); logger.warning('[PERF] REST Phase3 orchestrator2 (miss): %.3fs', _now - _tp); _tp = _now
             tier_intent = routing_result.get('intent')
             routing = routing_result.get('routing')
 
-            # Fetch real data for content_blocks
-            agent_results: dict = {}
-            logger.warning('P-44 ROUTE: intent=%s routing=%s', tier_intent, routing)
-            if tier_intent and routing in ('regex', 'fast'):
-                try:
-                    from app.agents.service_registry import build_service_registry
-                    _i2s = {
-                        'SHOW_INBOX': ('inbox_service', 'list_pending'),
-                        'PROCESS_INBOX': ('inbox_service', 'process_first'),
-                        'SHOW_FINANCE': ('euer_service', 'get_finance_summary'),
-                        'SHOW_FINANCIAL_OVERVIEW': ('euer_service', 'get_finance_summary'),
-                        'SHOW_DEADLINES': ('deadline_service', 'list'),
-                        'SHOW_BOOKINGS': ('booking_service', 'list'),
-                        'SHOW_OPEN_ITEMS': ('open_item_service', 'list'),
-                        'SHOW_CONTACTS': ('contact_service', 'list'),
-                        'SHOW_CONTACT': ('contact_service', 'get_dossier'),
-                    }
-                    si = _i2s.get(tier_intent)
-                    if si:
-                        # P-34 FIX: Always pass tenant_id so service_registry
-                        # doesn't fall back to resolve_tenant_id() → None → empty inbox
-                        _svc_tenant_id: str | None = None
-                        try:
-                            _svc_tenant_id = str(await _resolve_tenant_uuid(user))
-                        except Exception:
-                            pass
-                        logger.warning('P-44 SVC: intent=%s svc=%s tenant=%s', tier_intent, si, _svc_tenant_id)
-                        reg = build_service_registry()
-                        svc = reg.get(si[0])
-                        if svc:
-                            m = getattr(svc, si[1], None)
-                            if m:
-                                _raw_svc = await m(tenant_id=_svc_tenant_id)
-                                agent_results = _raw_svc if _raw_svc else {}
-                                logger.warning('P-44 SVC OK: keys=%s', list(agent_results.keys()) if agent_results else 'EMPTY')
-                except Exception as _svc_exc:
-                    logger.warning('P-44: service_registry fetch FAILED for %s: %s', tier_intent, _svc_exc, exc_info=True)
+            # Service-Daten + Text-Sync fuer Daten-Intents
+            # Regex ist AUS (shortcircuit_enabled=False), aber LLM-klassifizierte Intents
+            # nutzen den gleichen Service-Pfad — analog zu chat_ws.py (kein Routing-Gate).
+            # WICHTIG: _classify_with_llama() gibt IMMER routing='deep' zurueck, auch bei
+            # erkannten Intents → Gate darf NICHT 'regex'|'fast' pruefen!
+            from app.api.shared_chat_logic import _CHART_SHORTCIRCUIT_INTENTS
+            from app.core.intents import parse_intent as _parse_intent
+            _tier_intent_enum = _parse_intent(str(tier_intent).split('.')[-1]) if tier_intent else None
+            if tier_intent and _tier_intent_enum and _tier_intent_enum in _CHART_SHORTCIRCUIT_INTENTS:
+                from app.api.shared_chat_logic import handle_shortcircuit_intent
+                _chart_r = await handle_shortcircuit_intent(
+                    intent=tier_intent, message=body.message,
+                    tenant_id=_tid, user_id=user.username,
+                    chat_id=_chat_id_rest,
+                )
+                if _chart_r is not None:
+                    # RC-4: History auch bei Chart-Shortcircuit speichern
+                    from app.api.shared_chat_logic import save_to_history
+                    await save_to_history(
+                        _chat_id_rest, body.message, _chart_r.get('text', ''),
+                        service_data=_chart_r.get('_service_data'),
+                        intent=_chart_r.get('_intent'),
+                    )
+                    return ChatResponse(
+                        reply=_chart_r.get('text', ''),
+                        case_ref=_chart_r.get('case_ref'),
+                        suggestions=_chart_r.get('suggestions', []),
+                        content_blocks=_chart_r.get('content_blocks', []),
+                        actions=_chart_r.get('actions', []),
+                        routing=_chart_r.get('routing'),
+                    )
 
+            # Fallback: ResponseBuilder mit Communicator-Daten
+            agent_results: dict = {}
             rb = _get_response_builder()
             if rb and tier_intent:
                 _rest_llm_sugg = getattr(result, 'llm_suggestions', []) or []
@@ -424,34 +370,10 @@ async def send_chat_message(
                 )
                 content_blocks = enhanced.get('content_blocks', [])
                 actions = enhanced.get('actions', [])
+                _now = time.monotonic(); logger.warning('[PERF] REST Phase4 rb-build: %.3fs', _now - _tp); _tp = _now
                 if actions:
                     suggestions = [a['chat_text'] for a in actions[:3]]
 
-                # P-44: Text-Sync for SHOW_FINANCE — overwrite LLM text with real data
-                if tier_intent in ('SHOW_FINANCE', 'SHOW_FINANCIAL_OVERVIEW') and agent_results:
-                    _fin_income = agent_results.get('total_income', 0) or 0
-                    _fin_expense = agent_results.get('total_expenses', agent_results.get('total_expense', 0)) or 0
-                    _fin_profit = agent_results.get('profit', _fin_income - _fin_expense)
-                    _fin_count = agent_results.get('booking_count', 0)
-                    if _fin_count > 0:
-                        def _eur_fmt(v):
-                            return f'{abs(float(v)):,.2f} \u20ac'.replace(',','X').replace('.',',').replace('X','.')
-                        result.reply_text = (
-                            f'Hier ist deine Finanz\u00fcbersicht f\u00fcr 2026:\n'
-                            f'Einnahmen: {_eur_fmt(_fin_income)}\n'
-                            f'Ausgaben: {_eur_fmt(_fin_expense)}\n'
-                            f'Ergebnis: {_eur_fmt(_fin_profit)}\n'
-                            f'({_fin_count} Buchungen)'
-                        )
-
-                # P-44: Text-Sync for SHOW_INBOX
-                if tier_intent == 'SHOW_INBOX' and content_blocks:
-                    _inbox_count = 0
-                    for _b in content_blocks:
-                        if _b.get('block_type') == 'card_list':
-                            _inbox_count = len(_b.get('data', {}).get('items', []))
-                    if _inbox_count > 0:
-                        result.reply_text = f'{_inbox_count} Belege warten auf deine Freigabe.'
     except Exception as exc:
         logger.warning('P-44 OUTER FAIL: %s', exc, exc_info=True)
 
@@ -490,6 +412,7 @@ async def send_chat_message(
             logger.error('Invoice pipeline failed (REST): %s', exc)
             result.reply_text = f'Rechnung konnte nicht erstellt werden: {exc}'
 
+    logger.warning('[PERF] REST TOTAL: %.3fs', time.monotonic() - _t0)
     return ChatResponse(
         reply=result.reply_text, case_ref=case_ref, suggestions=suggestions,
         content_blocks=content_blocks, actions=actions, routing=routing,
@@ -498,7 +421,7 @@ async def send_chat_message(
 def _build_suggestions(intent: str | None, case_ref: str | None) -> list[str]:
     if case_ref:
         return ['Details anzeigen', 'Buchen', 'Rechnung suchen']
-    if intent == 'GREETING':
+    if intent == Intent.GREETING:
         return ['Status-Übersicht', 'Offene Belege', 'Frist-Check']
     return ['Offene Belege', 'Rechnung suchen']
 
@@ -1050,7 +973,8 @@ async def get_finance_summary(
         date_from = date(now.year, months[0], 1)
         last_day = monthrange(now.year, months[-1])[1]
         date_to = date(now.year, months[-1], last_day)
-        summary = await svc.get_finance_summary(tid, date_from, date_to)
+        _result = await svc.get_finance_summary(tid, date_from, date_to)
+        summary = _result.data if hasattr(_result, 'data') else _result
         total_income = summary.get('total_income', 0.0)
         total_expenses = summary.get('total_expense', 0.0)
     except Exception as exc:
@@ -1625,7 +1549,7 @@ async def _handle_ws_message(websocket: WebSocket, user: AuthUser, data: dict) -
                 audit_service=get_audit_service(), user_memory=None,
                 conv_memory=conv_memory, effective_case_ref=_resolved_ref,
             )
-        if intent == 'GENERAL_CONVERSATION':
+        if intent == Intent.GENERAL_CONVERSATION:
             sys_ctx = (sys_ctx or '') + _GENERAL_CONVERSATION_PERSONALITY
 
         # Build LLM payload

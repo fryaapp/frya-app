@@ -1,0 +1,12 @@
+_kombu.binding.celery.pidbox
+frya:chat_history:web-testkunde
+frya:comm:conv:web-alphatest1
+frya:comm:conv:web-testkunde
+frya:chat_history:web-alphatest1
+frya:telegram:dedup:update:645048483
+frya:open-items
+frya:comm:conv:1310959044
+frya:chat_history:1310959044
+frya:comm:conv:web-admin
+_kombu.binding.celery
+frya:chat_history:web-admin

@@ -297,12 +297,17 @@ def build_llm_context_payload(
     else:
         system_msg = {'role': 'system', 'content': system_content}
 
+    # Sprint-03-03: [LETZTE ANZEIGE]-Block entfernt.
+    # Daten-Summary steht jetzt direkt im content-Feld der assistant-Messages in Redis.
+    # Sonnet sieht die Daten automatisch ueber das messages-Array (kein Hack noetig).
+
     messages = [system_msg]
     if chat_history:
         # Filter out empty content blocks — Anthropic rejects them
+        # Sprint-03-01: nur role+content weitergeben, context_data ist für API unsichtbar
         for msg in chat_history:
             if msg.get('content', '').strip():
-                messages.append(msg)
+                messages.append({'role': msg['role'], 'content': msg['content']})
     messages.append({'role': 'user', 'content': '\n'.join(lines)})
 
     return {

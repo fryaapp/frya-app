@@ -2,6 +2,8 @@
 from __future__ import annotations
 from typing import Any
 
+from app.core.intents import Intent
+from app.core.schemas import ServiceResult, unwrap
 from app.utils.translations import t_doc_type, t_confidence, t_status
 
 _CONF_TO_FLOAT = {
@@ -15,123 +17,125 @@ _CONF_TO_FLOAT = {
 
 class ResponseBuilder:
     CONTEXT_SUGGESTIONS = {
-        "SHOW_INBOX": [
-            {"label": "Abarbeiten", "chat_text": "Inbox abarbeiten", "style": "primary"},
-            {"label": "Nur dringende", "chat_text": "Nur dringende Belege", "style": "secondary"},
+        Intent.SHOW_INBOX: [
+            {"label": "Alle durchgehen", "chat_text": "Inbox abarbeiten", "style": "primary"},
+            {"label": "Nur die dringenden", "chat_text": "Nur dringende Belege", "style": "secondary"},
         ],
-        "APPROVE": [
-            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
-            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
+        Intent.APPROVE: [
+            {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+            {"label": "Was liegt noch an?", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
-        "SHOW_FINANCE": [
-            {"label": "EUeR als PDF", "chat_text": "EUeR als PDF", "style": "primary"},
+        Intent.SHOW_FINANCE: [
+            {"label": "EÜR als PDF", "chat_text": "EÜR als PDF", "style": "primary"},
             {"label": "DATEV Export", "chat_text": "DATEV Export", "style": "secondary"},
-            {"label": "Ausgaben Detail", "chat_text": "Was waren meine groessten Ausgaben?", "style": "text"},
+            {"label": "Wo gebe ich am meisten aus?", "chat_text": "Wo gebe ich am meisten aus?", "style": "text"},
         ],
-        "SHOW_BOOKINGS": [
-            {"label": "Filtern", "chat_text": "Buchungen im Maerz", "style": "secondary"},
-            {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
+        Intent.SHOW_BOOKINGS: [
+            {"label": "Nach Monat filtern", "chat_text": "Buchungen im März", "style": "secondary"},
+            {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "text"},
         ],
-        "SHOW_CONTACT": [
-            {"label": "Fall bearbeiten", "chat_text": "Fall bearbeiten", "style": "primary"},
+        Intent.SHOW_CONTACT: [
+            {"label": "Zum Fall", "chat_text": "Fall bearbeiten", "style": "primary"},
             {"label": "Rechnung schreiben", "chat_text": "Rechnung schreiben", "style": "secondary"},
-            {"label": "Naechster Fall", "chat_text": "Naechster Fall", "style": "text"},
+            {"label": "Nächster", "chat_text": "Nächster Fall", "style": "text"},
         ],
-        "SHOW_OPEN_ITEMS": [
-            {"label": "Mahnen", "chat_text": "Ueberfaellige mahnen", "style": "primary"},
-            {"label": "Details", "chat_text": "Zeig mir den aeltesten offenen Posten", "style": "secondary"},
+        Intent.SHOW_OPEN_ITEMS: [
+            {"label": "Mahnung schreiben", "chat_text": "Überfällige mahnen", "style": "primary"},
+            {"label": "Wer wartet am längsten?", "chat_text": "Zeig mir den ältesten offenen Posten", "style": "secondary"},
         ],
-        "SHOW_DEADLINES": [
-            {"label": "Skonto nutzen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
-            {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "text"},
+        Intent.SHOW_DEADLINES: [
+            {"label": "Skonto-Fristen prüfen", "chat_text": "Welche Skonto-Fristen laufen?", "style": "primary"},
+            {"label": "Was liegt in der Inbox?", "chat_text": "Was liegt in der Inbox?", "style": "text"},
         ],
-        "CREATE_INVOICE": [
+        Intent.CREATE_INVOICE: [
             {"label": "Vorschau", "chat_text": "Zeig mir die Rechnung", "style": "primary"},
         ],
-        "SHOW_EXPORT": [
-            {"label": "EUeR dazu", "chat_text": "EUeR als PDF", "style": "secondary"},
+        Intent.SHOW_EXPORT: [
+            {"label": "EÜR dazu", "chat_text": "EÜR als PDF", "style": "secondary"},
         ],
-        "SETTINGS": [
-            {"label": "Profil bearbeiten", "chat_text": "Firmendaten aendern", "style": "primary"},
+        Intent.SETTINGS: [
+            {"label": "Profil bearbeiten", "chat_text": "Firmendaten ändern", "style": "primary"},
             {"label": "Dunkelmodus", "chat_text": "Dunkelmodus an", "style": "secondary"},
             {"label": "Heller Modus", "chat_text": "Heller Modus", "style": "secondary"},
         ],
-        "UPLOAD": [
-            {"label": "Inbox pruefen", "chat_text": "Was liegt in der Inbox?", "style": "primary"},
+        Intent.UPLOAD: [
+            {"label": "Inbox prüfen", "chat_text": "Was liegt in der Inbox?", "style": "primary"},
         ],
-        "CHOOSE_TEMPLATE": [
-            {"label": "Clean", "chat_text": "Clean-Template waehlen", "style": "primary",
+        Intent.CHOOSE_TEMPLATE: [
+            {"label": "Clean", "chat_text": "Clean-Template wählen", "style": "primary",
              "quick_action": {"type": "set_template", "params": {"template": "clean"}}},
-            {"label": "Professional", "chat_text": "Professional-Template waehlen", "style": "secondary",
+            {"label": "Professional", "chat_text": "Professional-Template wählen", "style": "secondary",
              "quick_action": {"type": "set_template", "params": {"template": "professional"}}},
-            {"label": "Minimal", "chat_text": "Minimal-Template waehlen", "style": "text",
+            {"label": "Minimal", "chat_text": "Minimal-Template wählen", "style": "text",
              "quick_action": {"type": "set_template", "params": {"template": "minimal"}}},
         ],
-        "SET_TEMPLATE": [
+        Intent.SET_TEMPLATE: [
             {"label": "Rechnung erstellen", "chat_text": "Rechnung erstellen", "style": "primary"},
             {"label": "Vorschau ansehen", "chat_text": "Rechnungs-Vorschau zeigen", "style": "secondary"},
         ],
-        "UPLOAD_LOGO": [
+        Intent.UPLOAD_LOGO: [
             {"label": "Logo hochladen", "chat_text": "Logo hochladen", "style": "primary"},
         ],
-        "SHOW_FINANCIAL_OVERVIEW": [
-            {"label": "Ausgaben Detail", "chat_text": "Ausgaben nach Kategorie", "style": "primary"},
+        Intent.SHOW_FINANCIAL_OVERVIEW: [
+            {"label": "Ausgaben nach Kategorie", "chat_text": "Ausgaben nach Kategorie", "style": "primary"},
             {"label": "Gewinn/Verlust", "chat_text": "Wie ist mein Gewinn?", "style": "secondary"},
             {"label": "Prognose", "chat_text": "Hochrechnung", "style": "text"},
         ],
-        "SHOW_EXPENSE_CATEGORIES": [
+        Intent.SHOW_EXPENSE_CATEGORIES: [
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
             {"label": "Umsatztrend", "chat_text": "Umsatzentwicklung", "style": "text"},
         ],
-        "SHOW_PROFIT_LOSS": [
+        Intent.SHOW_PROFIT_LOSS: [
             {"label": "Prognose", "chat_text": "Hochrechnung", "style": "primary"},
             {"label": "Umsatztrend", "chat_text": "Umsatzentwicklung", "style": "secondary"},
         ],
-        "SHOW_REVENUE_TREND": [
+        Intent.SHOW_REVENUE_TREND: [
             {"label": "Gewinn/Verlust", "chat_text": "Wie ist mein Gewinn?", "style": "secondary"},
             {"label": "Prognose", "chat_text": "Hochrechnung", "style": "text"},
         ],
-        "SHOW_FORECAST": [
+        Intent.SHOW_FORECAST: [
             {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
             {"label": "Ausgaben", "chat_text": "Ausgaben nach Kategorie", "style": "text"},
         ],
-        "SHOW_CASE": [
-            {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary",
+        Intent.SHOW_CASE: [
+            {"label": "Passt, freigeben", "chat_text": "Freigeben", "style": "primary",
              "quick_action": {"type": "approve", "params": {}}},
-            {"label": "Korrigieren", "chat_text": "Korrigieren", "style": "secondary"},
-            {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text",
+            {"label": "Muss korrigiert werden", "chat_text": "Korrigieren", "style": "secondary"},
+            {"label": "Nein, ablehnen", "chat_text": "Ablehnen", "style": "text",
              "quick_action": {"type": "reject", "params": {}}},
         ],
-        "PROCESS_INBOX": [
-            {"label": "Freigeben", "chat_text": "Freigeben", "style": "primary"},
-            {"label": "Ueberspringen", "chat_text": "Naechster", "style": "secondary"},
-            {"label": "Ablehnen", "chat_text": "Ablehnen", "style": "text"},
+        Intent.PROCESS_INBOX: [
+            {"label": "Passt, freigeben", "chat_text": "Freigeben", "style": "primary"},
+            {"label": "Nächster Beleg", "chat_text": "Nächster", "style": "secondary"},
+            {"label": "Nein, ablehnen", "chat_text": "Ablehnen", "style": "text"},
         ],
     }
 
     FALLBACK_SUGGESTIONS = [
-        {"label": "Inbox", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
-        {"label": "Finanzen", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
+        {"label": "Was liegt in der Inbox?", "chat_text": "Was liegt in der Inbox?", "style": "secondary"},
+        {"label": "Wie stehen die Finanzen?", "chat_text": "Wie stehen die Finanzen?", "style": "secondary"},
     ]
 
     def build(
         self,
         intent: str,
-        agent_results: dict,
+        agent_results: dict | ServiceResult,
         communicator_text: str,
         state: dict | None = None,
         llm_suggestions: list[dict] | None = None,
     ) -> dict:
-        blocks = self._build_content_blocks(intent, agent_results)
+        # Fix 5: Akzeptiere sowohl ServiceResult als auch raw dict
+        results_data = unwrap(agent_results)
+        blocks = self._build_content_blocks(intent, results_data)
 
         # Aufgabe 5: Filter empty blocks
         blocks = [b for b in blocks if self._block_has_data(b)]
 
         # Aufgabe 3: LLM suggestions > static matrix (except APPROVE which has quick_actions)
-        if llm_suggestions and intent not in ('APPROVE',):
+        if llm_suggestions and intent not in (Intent.APPROVE,):
             actions = llm_suggestions
         else:
-            actions = self._build_actions(intent, agent_results, state)
+            actions = self._build_actions(intent, results_data, state)
         return {
             "type": "message_complete",
             "text": communicator_text,
@@ -251,11 +255,12 @@ class ResponseBuilder:
                 kv_items.append({"label": label, "value": str(value)})
 
         _add("Lieferant", item.get('vendor'))
-        _add("Belegtyp", item.get('document_type'))
+        _add("Belegtyp", t_doc_type(str(item.get('document_type', '') or '')))
         if item.get('amount') is not None:
             _add("Betrag", self._eur(item.get('amount')))
-        _add("Status", item.get('status'))
-        _add("Vertrauen", item.get('confidence_label'))
+        # Sprint-03-04: Status auf Deutsch übersetzen (BOOKED → Gebucht, DRAFT → Entwurf)
+        _add("Status", t_status(str(item.get('status', '') or '')))
+        _add("Vertrauen", t_confidence(str(item.get('confidence_label', '') or '')))
         # Felder aus document_analysis.fields
         fields = item.get('fields', {})
         if isinstance(fields, dict):
@@ -269,7 +274,7 @@ class ResponseBuilder:
             due_raw = fields.get('due_date')
             formatted_due = self._fmt_date(due_raw)
             if formatted_due:
-                _add("Faellig am", formatted_due)
+                _add("Fällig am", formatted_due)
         if kv_items:
             blocks.append({"block_type": "key_value", "data": {"title": "Details", "items": kv_items}})
         return blocks
@@ -350,7 +355,7 @@ class ResponseBuilder:
                 "title": str(op.get("contact_name", op.get("vendor", op.get("description", "?")))),
                 "subtitle": str(op.get("due_date", "")),
                 "amount": self._eur(op.get("remaining_amount", op.get("amount", op.get("original_amount", 0)))),
-                "badge": {"label": f"{days}d ueberfaellig" if overdue else "Offen", "color": "error" if overdue else "warning"},
+                "badge": {"label": f"{days}d überfällig" if overdue else "Offen", "color": "error" if overdue else "warning"},
             })
         blocks: list[dict] = []
         # P-11 A2: KPI + summary chart for OP
@@ -362,7 +367,7 @@ class ResponseBuilder:
             "center_value": self._eur(total_open),
             "center_label": "Gesamt offen",
             "series": [
-                {"label": "Ueberfaellig", "value": overdue_count, "color": "#FF8A80"},
+                {"label": "Überfällig", "value": overdue_count, "color": "#FF8A80"},
                 {"label": "Offen", "value": len(items) - overdue_count, "color": "#FFD54F"},
             ],
         }})
@@ -381,7 +386,7 @@ class ResponseBuilder:
                 continue
             days = d.get("days_remaining", d.get("days", 99))
             color = "error" if days < 0 else "warning" if days <= 7 else "info" if days <= 30 else "success"
-            label_text = "Ueberfaellig" if days < 0 else f"{days} Tage"
+            label_text = "Überfällig" if days < 0 else f"{days} Tage"
             cards.append({
                 "title": str(d.get("vendor", d.get("name", d.get("description", d.get("title", "?"))))),
                 "subtitle": str(d.get("due_date", "")),
@@ -440,7 +445,7 @@ class ResponseBuilder:
                     "title": str(op.get("description", "OP")),
                     "subtitle": str(op.get("due_date", "")),
                     "amount": self._eur(op.get("amount", 0)),
-                    "badge": {"label": "Ueberfaellig" if op.get("overdue") else "Offen", "color": "error" if op.get("overdue") else "warning"},
+                    "badge": {"label": "Überfällig" if op.get("overdue") else "Offen", "color": "error" if op.get("overdue") else "warning"},
                 }
                 for op in open_items if isinstance(op, dict)
             ]
@@ -485,12 +490,12 @@ class ResponseBuilder:
                 },
                 {
                     "title": "Professional",
-                    "subtitle": "Klassisch mit Header — fuer Geschaeftskunden",
+                    "subtitle": "Klassisch mit Header — für Geschäftskunden",
                     "thumbnail_url": "/api/v1/invoice-templates/professional/preview",
                 },
                 {
                     "title": "Minimal",
-                    "subtitle": "Nur das Noetigste — fuer Freelancer",
+                    "subtitle": "Nur das Nötigste — für Freelancer",
                     "thumbnail_url": "/api/v1/invoice-templates/minimal/preview",
                 },
             ]}
@@ -500,7 +505,7 @@ class ResponseBuilder:
         """Confirmation after template selection."""
         if results.get('content_blocks'):
             return results['content_blocks']
-        return [{"block_type": "alert", "data": {"severity": "success", "text": results.get("text", "Template geaendert.")}}]
+        return [{"block_type": "alert", "data": {"severity": "success", "text": results.get("text", "Template geändert.")}}]
 
     def _blocks_upload_logo(self, results: dict) -> list[dict]:
         """Blocks for logo upload flow."""
@@ -635,11 +640,11 @@ class ResponseBuilder:
         if inv_nr and not str(inv_nr).upper().startswith("CASE-"):
             _add("Belegnr.", inv_nr)
 
-        # 6. Faellig am
+        # 6. Fällig am
         due_raw = fields.get("due_date") or case.get("due_date")
         formatted_due = self._fmt_date(due_raw)
         if formatted_due:
-            _add("Faellig am", formatted_due)
+            _add("Fällig am", formatted_due)
 
         # 7. MwSt
         tax_rate = fields.get("tax_rate") or case.get("tax_rate")
@@ -843,7 +848,7 @@ class ResponseBuilder:
         self, intent: str, results: dict, state: dict | None = None
     ) -> list[dict]:
         # APPROVE with confirmed approval (user clicked Freigeben button)
-        if intent == "APPROVE" and results.get("approved"):
+        if intent == Intent.APPROVE and results.get("approved"):
             # Approval was executed — show next item or success + context suggestions
             if results.get("next_item"):
                 ni = results["next_item"]
@@ -868,10 +873,10 @@ class ResponseBuilder:
                         },
                     },
                 ]
-            return list(self.CONTEXT_SUGGESTIONS.get("APPROVE", self.FALLBACK_SUGGESTIONS))
+            return list(self.CONTEXT_SUGGESTIONS.get(Intent.APPROVE, self.FALLBACK_SUGGESTIONS))
 
         # APPROVE without confirmed approval — show item for review with buttons
-        if intent == "APPROVE" and results.get("next_item"):
+        if intent == Intent.APPROVE and results.get("next_item"):
             ni = results["next_item"]
             cid = ni.get("case_id", "")
             return [
@@ -901,7 +906,7 @@ class ResponseBuilder:
             ]
 
         # SHOW_INBOX with items — Abarbeiten starts review, does NOT auto-approve
-        if intent == "SHOW_INBOX" and results.get("items"):
+        if intent == Intent.SHOW_INBOX and results.get("items"):
             first = results["items"][0]
             return [
                 {
@@ -921,7 +926,7 @@ class ResponseBuilder:
             ]
 
         # SHOW_CASE: inject case_id into quick_action params
-        if intent == "SHOW_CASE":
+        if intent == Intent.SHOW_CASE:
             case = results.get("case", results) if isinstance(results, dict) else {}
             cid = str(case.get("case_id", case.get("id", ""))) if isinstance(case, dict) else ""
             return [
@@ -945,11 +950,11 @@ class ResponseBuilder:
             ]
 
         # PROCESS_INBOX — Abarbeiten-Modus: Freigeben / Ueberspringen / Ablehnen fuer den aktuellen Beleg
-        if intent == "PROCESS_INBOX":
+        if intent == Intent.PROCESS_INBOX:
             item = results.get('current_item', {})
             cid = item.get('case_id', '') if isinstance(item, dict) else ''
             if results.get('status') == 'empty' or not cid:
-                return list(self.CONTEXT_SUGGESTIONS.get("SHOW_INBOX", self.FALLBACK_SUGGESTIONS))
+                return list(self.CONTEXT_SUGGESTIONS.get(Intent.SHOW_INBOX, self.FALLBACK_SUGGESTIONS))
             vendor = item.get('vendor', 'Beleg') if isinstance(item, dict) else 'Beleg'
             return [
                 {
@@ -959,8 +964,8 @@ class ResponseBuilder:
                     "quick_action": {"type": "approve", "params": {"case_id": cid}},
                 },
                 {
-                    "label": "Ueberspringen",
-                    "chat_text": "Naechster",
+                    "label": "Überspringen",
+                    "chat_text": "Nächster",
                     "style": "secondary",
                     "quick_action": {"type": "defer", "params": {"case_id": cid}},
                 },
@@ -974,7 +979,7 @@ class ResponseBuilder:
 
         # Use CONTEXT_SUGGESTIONS matrix for all other intents
         # Also handle SHOW_SETTINGS alias
-        lookup_intent = intent if intent != "SHOW_SETTINGS" else "SETTINGS"
+        lookup_intent = intent if intent != "SHOW_SETTINGS" else Intent.SETTINGS
         suggestions = self.CONTEXT_SUGGESTIONS.get(lookup_intent)
         if suggestions:
             return list(suggestions)

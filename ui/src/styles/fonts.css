@@ -4,7 +4,13 @@
 /* Inter Variable — Standardschrift (identisch mit Claude-UI-Ästhetik) */
 @import '@fontsource-variable/inter';
 
-/* Outfit — nur noch für Display/Headings wo explizit angegeben */
+/* Playfair Display — Sprint-04: Headline-Font (war Outfit) */
+@import '@fontsource/playfair-display/400.css';
+@import '@fontsource/playfair-display/500.css';
+@import '@fontsource/playfair-display/600.css';
+@import '@fontsource/playfair-display/700.css';
+
+/* Outfit — deprecated, wird schrittweise durch Playfair Display ersetzt */
 @import '@fontsource-variable/outfit';
 
 /* Plus Jakarta Sans — Fallback für ältere Inline-Stile im Code */

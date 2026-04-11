@@ -3,9 +3,48 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _context_data_to_text(ctx: dict) -> str:
+    """Wandelt context_data in einen lesbaren String um.
+    Wird direkt an den assistant-content angehaengt.
+    Sprint-03-03: Kein separates context_data-Feld — Daten stehen im content.
+    """
+    parts = []
+
+    items = ctx.get('items', [])
+    for item in items[:8]:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict):
+            name = item.get('vendor', item.get('name', '?'))
+            amount = item.get('amount', '')
+            status_raw = item.get('status', '')
+            # Sprint-03-04: Status auf Deutsch (BOOKED→Gebucht, DRAFT→Entwurf etc.)
+            _STATUS_DE = {
+                'BOOKED': 'Gebucht', 'DRAFT': 'Entwurf', 'OPEN': 'Offen',
+                'PENDING': 'Ausstehend', 'OVERDUE': 'Überfällig', 'PAID': 'Bezahlt',
+                'APPROVED': 'Freigegeben', 'REJECTED': 'Abgelehnt', 'SENT': 'Versendet',
+                'CANCELLED': 'Storniert', 'ERROR': 'Fehler',
+            }
+            status = _STATUS_DE.get(str(status_raw).upper(), status_raw)
+            parts.append(f"{name} {amount}€ {status}".strip())
+
+    for key, label in [('income', 'Einnahmen'), ('einnahmen', 'Einnahmen'),
+                       ('expenses', 'Ausgaben'), ('ausgaben', 'Ausgaben'),
+                       ('result', 'Ergebnis'), ('profit', 'Ergebnis')]:
+        if key in ctx:
+            parts.append(f"{label}: {ctx[key]}€")
+
+    count = ctx.get('count')
+    if count and count > 8:
+        parts.append(f"+ {count - 8} weitere")
+
+    return " | ".join(parts) if parts else ""
 
 
 class ChatHistoryStore:
@@ -54,10 +93,27 @@ class ChatHistoryStore:
         except (json.JSONDecodeError, TypeError, Exception):
             return []
 
-    async def append(self, chat_id: str, user_msg: str, assistant_msg: str) -> None:
+    async def append(
+        self,
+        chat_id: str,
+        user_msg: str,
+        assistant_msg: str,
+        context_data: dict | None = None,
+    ) -> None:
         history = await self.load(chat_id)
         history.append({'role': 'user', 'content': user_msg})
-        history.append({'role': 'assistant', 'content': assistant_msg})
+
+        # Sprint-03-04: "FRYA: " Prefix aus History entfernen — LLM soll es nicht lernen
+        clean_msg = re.sub(r'^FRYA:\s*', '', assistant_msg.strip()) if assistant_msg else assistant_msg
+
+        entry: dict = {'role': 'assistant', 'content': clean_msg}
+        if context_data:
+            # Sprint-03-03: Daten-Summary DIREKT im content-Feld — kein separates context_data
+            summary_text = _context_data_to_text(context_data)
+            if summary_text:
+                entry['content'] = f"{clean_msg}\n\n[Gezeigte Daten: {summary_text}]"
+        # KEIN context_data-Feld. NUR role + content. Wie bei ChatGPT.
+        history.append(entry)
         history = history[-self.MAX_MESSAGES:]
 
         if self._is_memory():
@@ -68,6 +124,30 @@ class ChatHistoryStore:
         if r is None:
             return
         try:
-            await r.set(self._key(chat_id), json.dumps(history), ex=self.TTL_SECONDS)
+            await r.set(self._key(chat_id), json.dumps(history, ensure_ascii=False), ex=self.TTL_SECONDS)
         except Exception as exc:
             logger.debug('chat_history_store: append failed: %s', exc)
+
+    @staticmethod
+    def format_for_llm(history: list, max_messages: int = 6) -> str:
+        """DEPRECATED (Sprint-03-03): History wird jetzt als messages-Array uebergeben.
+        Daten-Summary steht direkt im content-Feld (kein separates context_data mehr).
+        Nicht mehr aufrufen — wird in einem kuenftigen Sprint entfernt.
+        """
+        recent = history[-max_messages:]
+        lines = []
+        for msg in recent:
+            role = 'User' if msg.get('role') == 'user' else 'Frya'
+            content = (msg.get('content') or '')[:200]
+            lines.append(f'{role}: {content}')
+            ctx = msg.get('context_data')
+            if ctx and isinstance(ctx, dict):
+                items = ctx.get('items', [])
+                if items:
+                    lines.append(f'  [Gezeigte Daten: {", ".join(str(i) for i in items[:5])}]')
+                for key in ('income', 'expenses', 'result', 'einnahmen', 'ausgaben', 'profit'):
+                    if key in ctx:
+                        lines.append(f'  [{key}: {ctx[key]}]')
+                if ctx.get('count'):
+                    lines.append(f'  [Anzahl: {ctx["count"]}]')
+        return '\n'.join(lines)

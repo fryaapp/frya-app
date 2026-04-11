@@ -101,12 +101,16 @@ async def list_bookings(
 ) -> dict:
     tid = await _resolve_tenant(user)
     repo = _get_repo()
-    bookings = await repo.list_bookings(
-        tid,
-        date_from=date.fromisoformat(date_from) if date_from else None,
-        date_to=date.fromisoformat(date_to) if date_to else None,
-        status=status or None, limit=limit, offset=offset,
-    )
+    try:
+        bookings = await repo.list_bookings(
+            tid,
+            date_from=date.fromisoformat(date_from) if date_from else None,
+            date_to=date.fromisoformat(date_to) if date_to else None,
+            status=status or None, limit=limit, offset=offset,
+        )
+    except Exception:
+        logger.warning('list_bookings: parse error for tenant=%s', tid)
+        bookings = []
     return {
         'count': len(bookings),
         'items': [b.model_dump(mode='json') for b in bookings],
@@ -117,7 +121,11 @@ async def list_bookings(
 async def get_booking(booking_id: str, user: AuthUser = Depends(require_authenticated)) -> dict:
     tid = await _resolve_tenant(user)
     repo = _get_repo()
-    bookings = await repo.list_bookings(tid, limit=10000)
+    try:
+        bookings = await repo.list_bookings(tid, limit=10000)
+    except Exception:
+        logger.warning('get_booking: list_bookings failed for tenant=%s', tid)
+        raise HTTPException(status_code=404, detail='booking_not_found')
     booking = next((b for b in bookings if b.id == booking_id), None)
     if not booking:
         raise HTTPException(status_code=404, detail='booking_not_found')
@@ -532,7 +540,8 @@ async def get_euer(user: AuthUser = Depends(require_authenticated), year: int = 
     if year == 0:
         year = date.today().year
     from app.accounting.euer_service import EuerService
-    return await EuerService(_get_repo()).generate_euer(tid, year)
+    result = await EuerService(_get_repo()).generate_euer(tid, year)
+    return result.data if hasattr(result, 'data') else result
 
 
 @router.get('/reports/ust')

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FRYA</string>
+    <string name="title_activity_main">FRYA</string>
+    <string name="package_name">de.myfrya.app</string>
+    <string name="custom_url_scheme">de.myfrya.app</string>
+</resources>

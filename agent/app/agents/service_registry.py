@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from app.core.intents import Intent
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -94,7 +95,7 @@ class _InboxService:
         )
         result = await svc.process_response(
             case_id=case_id, approval_id=pending[0].approval_id,
-            decision_raw='APPROVE', decided_by='user', source='action_router',
+            decision_raw=Intent.APPROVE, decided_by='user', source='action_router',
         )
         # Get next pending item
         next_item = await self._get_next_pending(case_id)
@@ -137,7 +138,7 @@ class _InboxService:
             )
             await svc.process_response(
                 case_id=case_id, approval_id=pending[0].approval_id,
-                decision_raw='REJECT', decided_by='user', source='action_router',
+                decision_raw=Intent.REJECT, decided_by='user', source='action_router',
             )
         return {'status': 'rejected'}
 

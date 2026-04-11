@@ -7,6 +7,8 @@ from decimal import Decimal
 
 from app.accounting.models import AccountingOpenItem, Booking
 from app.accounting.repository import AccountingRepository
+from app.core.intents import Intent
+from app.core.schemas import ServiceResult
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +42,18 @@ class AccountingOpenItemService:
     async def list_receivables(self, tenant_id: uuid.UUID) -> list[AccountingOpenItem]:
         return await self._repo.list_open_items(tenant_id, item_type='RECEIVABLE')
 
-    async def get_summary(self, tenant_id: uuid.UUID) -> dict:
+    async def get_summary(self, tenant_id: uuid.UUID) -> ServiceResult:
         payables = await self.list_payables(tenant_id)
         receivables = await self.list_receivables(tenant_id)
         open_pay = [p for p in payables if p.status in ('OPEN', 'PARTIALLY_PAID', 'OVERDUE')]
         open_recv = [r for r in receivables if r.status in ('OPEN', 'PARTIALLY_PAID', 'OVERDUE')]
-        return {
-            'total_payable': float(sum(p.original_amount - p.paid_amount for p in open_pay)),
-            'total_receivable': float(sum(r.original_amount - r.paid_amount for r in open_recv)),
-            'payable_count': len(open_pay),
-            'receivable_count': len(open_recv),
-        }
+        return ServiceResult(
+            success=True,
+            intent=Intent.SHOW_OPEN_ITEMS,
+            data={
+                'total_payable': float(sum(p.original_amount - p.paid_amount for p in open_pay)),
+                'total_receivable': float(sum(r.original_amount - r.paid_amount for r in open_recv)),
+                'payable_count': len(open_pay),
+                'receivable_count': len(open_recv),
+            },
+        )

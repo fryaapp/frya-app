@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 AccountType = Literal['EXPENSE', 'REVENUE', 'ASSET', 'LIABILITY', 'EQUITY']
 ContactType = Literal['VENDOR', 'CUSTOMER', 'BOTH']
 ContactCategory = Literal['CUSTOMER', 'SUPPLIER', 'BOTH', 'AUTHORITY', 'OTHER']
-BookingType = Literal['INCOME', 'EXPENSE', 'TRANSFER', 'CORRECTION']
+BookingType = Literal['INCOME', 'EXPENSE', 'TRANSFER', 'CORRECTION', 'REGULAR']
 BookingStatus = Literal['DRAFT', 'BOOKED', 'CANCELLED']
 OpenItemType = Literal['RECEIVABLE', 'PAYABLE']
 OpenItemStatus = Literal['OPEN', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED']

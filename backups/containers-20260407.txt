@@ -1,0 +1,16 @@
+NAMES                   IMAGE                             STATUS
+dms-staging-backend-1   dms-staging-backend               Up 2 hours
+frya-agent              dms-staging-agent                 Up 2 hours (healthy)
+frya-paperless          paperlessngx/paperless-ngx:2.14   Up 23 hours (healthy)
+frya-gotenberg          gotenberg/gotenberg:8             Up 4 days
+frya-tika               apache/tika:latest                Up 4 days
+frya-n8n                n8nio/n8n:latest                  Up 4 days (healthy)
+frya-akaunting          akaunting/akaunting:latest        Up 4 days
+dms-staging-traefik-1   traefik:v3.1                      Up 4 days
+frya-postgres           postgres:16                       Up 4 days (healthy)
+frya-redis              redis:7                           Up 4 days (healthy)
+frya-watchtower         containrrr/watchtower             Up 4 days (healthy)
+frya-uptime-kuma        louislam/uptime-kuma:1            Up 4 days (healthy)
+frya-mariadb            mariadb:11                        Up 4 days (healthy)
+frya-ui                 nginx:alpine                      Up 2 hours
+frya-keys-ui            nginx:alpine                      Up 3 weeks
